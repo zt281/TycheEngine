@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "tyche"
 version = "0.1.0"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "pyzmq>=25.0",
     "msgpack>=1.0",

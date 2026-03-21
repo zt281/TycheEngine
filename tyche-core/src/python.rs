@@ -146,6 +146,7 @@ impl PyAck {
     #[getter] fn exchange_order_id(&self) -> u64 { self.inner.exchange_order_id }
     #[getter] fn sent_ns(&self) -> u64 { self.inner.sent_ns }
     #[getter] fn acked_ns(&self) -> u64 { self.inner.acked_ns }
+    #[getter] fn status(&self) -> u8 { self.inner.status as u8 }
 }
 
 // ── PyPosition ───────────────────────────────────────────────────────────────
