@@ -76,3 +76,37 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ```
 
 **Commit:** da881bd — "feat(rust): add BarInterval, ModelKind, Side, OrderType, TIF, AssetClass enums"
+
+---
+
+### Task 3: Rust InstrumentId
+
+**RED:** `cargo test --manifest-path tyche-core/Cargo.toml instrument`
+Output:
+```
+error[E0433]: failed to resolve: use of undeclared type `InstrumentId`
+ --> tyche-core\src\instrument.rs:9:18
+error[E0433]: failed to resolve: use of undeclared type `InstrumentId`
+  --> tyche-core\src\instrument.rs:17:17
+error[E0433]: failed to resolve: use of undeclared type `InstrumentId`
+  --> tyche-core\src\instrument.rs:18:17
+error[E0433]: failed to resolve: use of undeclared type `InstrumentId`
+  --> tyche-core\src\instrument.rs:23:18
+error[E0433]: failed to resolve: use of undeclared type `InstrumentId`
+  --> tyche-core\src\instrument.rs:32:18
+error: could not compile `tyche-core` (lib test) due to 5 previous errors; 1 warning emitted
+```
+
+**GREEN:** `cargo test --manifest-path tyche-core/Cargo.toml instrument`
+Output:
+```
+running 4 tests
+test instrument::tests::all_fields_max_values_fit ... ok
+test instrument::tests::invalid_asset_class_bits_return_err ... ok
+test instrument::tests::raw_value_is_deterministic ... ok
+test instrument::tests::encode_decode_roundtrip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+```
+
+**Commit:** e3d5294 — "feat(rust): add InstrumentId with 64-bit packed fields and safe asset_class decoding"
