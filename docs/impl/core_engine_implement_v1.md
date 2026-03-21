@@ -188,3 +188,36 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; fin
 ```
 
 **Commit:** 97511b3 — "feat(rust): add Clock trait and MessagePack serialization"
+
+---
+
+### Task 6: Rust FFI Bridge
+
+**RED:** `cargo test --manifest-path tyche-core/Cargo.toml ffi_bridge`
+Output:
+```
+error[E0425]: cannot find function `take_pending` in this scope
+error[E0425]: cannot find function `write_pending` in this scope
+error[E0425]: cannot find function `take_pending` in this scope
+error[E0425]: cannot find function `write_pending` in this scope
+error[E0425]: cannot find function `take_pending` in this scope
+error[E0425]: cannot find function `take_pending` in this scope
+error[E0425]: cannot find function `write_pending` in this scope
+error[E0425]: cannot find function `write_pending` in this scope
+error[E0425]: cannot find function `take_pending` in this scope
+error: could not compile `tyche-core` (lib test) due to 9 previous errors; 2 warnings emitted
+```
+
+**GREEN:** `cargo test --manifest-path tyche-core/Cargo.toml ffi_bridge`
+Output:
+```
+running 4 tests
+test ffi_bridge::tests::take_empty_slot_returns_none ... ok
+test ffi_bridge::tests::write_then_take_returns_payload ... ok
+test ffi_bridge::tests::write_overwrites_previous_slot ... ok
+test ffi_bridge::tests::take_twice_second_is_none ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s
+```
+
+**Commit:** 57a94f8 — "feat(rust): add FFI bridge with per-topic AtomicPtr slot registry"
