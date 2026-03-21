@@ -255,3 +255,45 @@ tests/unit/test_bindings.py::test_serialize_deserialize_roundtrip PASSED [100%]
 ```
 
 **Commit:** 3bae3c0 — "feat(rust): add PyO3 bindings — all types, serialize/deserialize, init_ffi_bridge, take_pending"
+
+---
+
+### Task 8: Python Model Layer
+
+**RED:** `pytest tests/unit/test_types.py -v`
+Output:
+```
+collected 4 items
+
+tests/unit/test_types.py::test_all_types_importable FAILED               [ 25%]
+tests/unit/test_types.py::test_quote_spread FAILED                       [ 50%]
+tests/unit/test_types.py::test_bar_interval_suffix FAILED                [ 75%]
+tests/unit/test_types.py::test_side_equality FAILED                      [100%]
+
+ImportError: cannot import name 'Quote' from 'tyche.model.types'
+ImportError: cannot import name 'BarInterval' from 'tyche.model.enums'
+
+4 failed in 0.12s
+```
+
+**Notes:**
+- Initial RED run showed `ModuleNotFoundError: No module named 'tyche'` — maturin editable install does not add the source root to sys.path automatically.
+- Fixed by adding `[tool.pytest.ini_options] pythonpath = ["."]` to `pyproject.toml`.
+- Re-run RED confirmed `ImportError: cannot import name 'Quote'` from the stubs — correct failure mode.
+
+**GREEN:** `pytest tests/unit/test_types.py -v`
+Output:
+```
+collected 4 items
+
+tests/unit/test_types.py::test_all_types_importable PASSED               [ 25%]
+tests/unit/test_types.py::test_quote_spread PASSED                       [ 50%]
+tests/unit/test_types.py::test_bar_interval_suffix PASSED                [ 75%]
+tests/unit/test_types.py::test_side_equality PASSED                      [100%]
+
+4 passed in 0.03s
+```
+
+Full unit suite: `pytest tests/unit/ -v` → 9 passed, 0 failed.
+
+**Commit:** aedb0c9 — "feat(python): add model layer re-exports"
