@@ -110,3 +110,35 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; fini
 ```
 
 **Commit:** e3d5294 — "feat(rust): add InstrumentId with 64-bit packed fields and safe asset_class decoding"
+
+---
+
+### Task 4: Rust Data Types
+
+**RED:** `cargo test --manifest-path tyche-core/Cargo.toml types`
+Output:
+```
+error[E0422]: cannot find struct, variant or union type `Tick` in this scope
+error[E0422]: cannot find struct, variant or union type `Quote` in this scope
+error[E0422]: cannot find struct, variant or union type `Bar` in this scope
+error[E0422]: cannot find struct, variant or union type `Order` in this scope
+error[E0422]: cannot find struct, variant or union type `Position` in this scope
+error[E0422]: cannot find struct, variant or union type `Model` in this scope
+error: could not compile `tyche-core` (lib test) due to 6 previous errors; 1 warning emitted
+```
+
+**GREEN:** `cargo test --manifest-path tyche-core/Cargo.toml types`
+Output:
+```
+running 6 tests
+test types::tests::bar_embeds_interval ... ok
+test types::tests::quote_spread ... ok
+test types::tests::order_side_and_type ... ok
+test types::tests::position_net_qty ... ok
+test types::tests::model_param_capacity ... ok
+test types::tests::tick_fields_accessible ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+```
+
+**Commit:** 4ea6ab7 — "feat(rust): add all core data types"
