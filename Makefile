@@ -1,7 +1,7 @@
 .PHONY: build test lint clean
 
 build:
-	maturin develop --release
+	PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin develop --release
 
 test: build
 	cargo test --manifest-path tyche-core/Cargo.toml

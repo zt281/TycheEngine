@@ -6,7 +6,8 @@ Multi-asset HFT trading platform. Python + Rust (PyO3/maturin) hot path. ZeroMQ 
 
 ```bash
 # Build Rust crate and install Python package in dev mode
-maturin develop --release
+# Note: Python 3.14 dev env requires PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin develop --release
 
 # Run all tests
 cargo test --manifest-path tyche-core/Cargo.toml
