@@ -1,0 +1,55 @@
+Spec: core_engine
+Plan: v2
+Review Date: 2026-03-21
+Reviewer: plan-document-reviewer (automated)
+Result: APPROVED (after 5 review passes across v1 and v2)
+
+--- Summary ---
+
+v1 plan had 5 critical, 7 major, 1 minor issues (see core_engine_plan_review_v1.log).
+v2 plan was created to address all v1 issues.
+
+v2 review cycle (passes 1–4 on v2):
+
+Pass 1 — ISSUES FOUND:
+  [C1] Task 7 TDD discipline broken — no RED phase before python.rs implementation.
+  [C2] publish() silently breaks when given a tyche_core type — no serialize_* branch.
+  [M3] FfiBridge uses Mutex<Option<Vec<u8>>> instead of spec-required AtomicPtr<T>.
+  [M4] take_pending API contract violated — exposed as method on PyFfiBridge instead of
+       module-level function tyche_core.take_pending(service_name, topic).
+  [M5] _register() does not verify correlation_id on READY_ACK receipt.
+  [M6] CMD REPLY sends hard-coded b"0" without documenting the reason (CMD carries no
+       correlation_id per spec §4.2).
+  [N7] Rust test count stated as 20, actual is 22.
+  [N8] Python test count stated as 28, actual is closer to 30.
+
+Pass 2 — ISSUES FOUND (after pass 1 fixes):
+  [M1] python-source = "tyche" in pyproject.toml breaks the tyche.* package namespace.
+       Maturin would discover core, model, utils as top-level packages instead of
+       tyche.core, tyche.model, tyche.utils. Fix: omit python-source (defaults to .).
+  [M2] _handle_nexus does not implement START/STOP/RECONFIGURE/STATUS lifecycle command
+       dispatch required by spec §4.2. STOP was not triggering on_stop/DISCO; STATUS was
+       not returning pid; unknown commands were not replying UNKNOWN_COMMAND.
+  [N1] Python test count stated as 30, actual is closer to 38–42.
+
+Pass 3 — ISSUES FOUND (after pass 2 fixes):
+  [M1] BarInterval.topic_suffix not exposed via #[pymethods] — Python attribute access
+       would raise AttributeError at runtime. topics.py and the smoke test both access
+       interval.topic_suffix as a Python property with no parentheses.
+  [N1] File Map entry for pyproject.toml still said python-source = "tyche" after
+       the actual generated file was corrected.
+  [N2] Task 15 footer summary said ~20 Rust / ~28 Python, inconsistent with the
+       detailed expected output of 22 Rust / 38 Python.
+
+Pass 4 — APPROVED (after pass 3 fixes):
+  All targeted fixes confirmed correct. No new issues introduced.
+  Specific fixes verified:
+  - multiple-pymethods PyO3 feature added to workspace Cargo.toml.
+  - impl BarInterval split into two blocks: plain Rust (from_suffix) and
+    #[pymethods] (topic_suffix #[getter]).
+  - test_bindings.py updated with test_bar_interval_topic_suffix_property.
+  - File Map description corrected. Footer summary updated (22 Rust, 39 Python).
+
+--- Final Verdict ---
+APPROVED. Plan v2 is sufficiently complete for implementation to begin.
+All critical and major issues resolved across 5 total review passes (v1 + v2 cycles).
