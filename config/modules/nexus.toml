@@ -1,0 +1,6 @@
+[policy]
+heartbeat_interval_ms = 1000
+missed_heartbeat_limit = 3
+registration_timeout_ms = 500
+registration_max_retries = 20
+restart_policy = "alert-only"

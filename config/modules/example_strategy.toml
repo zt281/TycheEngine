@@ -1,0 +1,4 @@
+[module]
+service_name = "strategy.example"
+cpu_core = 4
+subscriptions = ["EQUITY.NYSE.AAPL.QUOTE", "EQUITY.NYSE.AAPL.BAR.M5"]
