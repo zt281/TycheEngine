@@ -1,0 +1,9 @@
+[nexus]
+address = "tcp://127.0.0.1:5555"
+cpu_core = 0
+
+[bus]
+xsub_address = "tcp://127.0.0.1:5556"
+xpub_address = "tcp://127.0.0.1:5557"
+cpu_core = 1
+sndhwm = 10000

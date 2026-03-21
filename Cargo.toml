@@ -1,0 +1,9 @@
+[workspace]
+members = ["tyche-core"]
+resolver = "2"
+
+[workspace.dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "multiple-pymethods"] }
+rmp-serde = "1.3"
+serde = { version = "1", features = ["derive"] }
+core_affinity = "0.8"

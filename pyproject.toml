@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tyche"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pyzmq>=25.0",
+    "msgpack>=1.0",
+]
+
+[tool.maturin]
+module-name = "tyche_core"
+manifest-path = "tyche-core/Cargo.toml"
