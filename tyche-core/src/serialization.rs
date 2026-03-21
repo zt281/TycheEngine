@@ -1,10 +1,11 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub fn serialize<T: Serialize>(val: &T) -> Result<Vec<u8>, rmp_serde::encode::Error> {
     rmp_serde::to_vec(val)
 }
 
-pub fn deserialize<T: for<'de> Deserialize<'de>>(data: &[u8]) -> Result<T, rmp_serde::decode::Error> {
+pub fn deserialize<T: DeserializeOwned>(data: &[u8]) -> Result<T, rmp_serde::decode::Error> {
     rmp_serde::from_slice(data)
 }
 
@@ -12,7 +13,6 @@ pub fn deserialize<T: for<'de> Deserialize<'de>>(data: &[u8]) -> Result<T, rmp_s
 mod tests {
     use super::*;
     use crate::types::Quote;
-    use crate::enums::*;
 
     #[test]
     fn quote_serialize_deserialize_roundtrip() {
