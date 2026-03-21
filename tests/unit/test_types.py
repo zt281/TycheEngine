@@ -10,7 +10,7 @@ def test_all_types_importable():
 
 def test_quote_spread():
     from tyche.model.types import Quote
-    q = Quote(1, 99.0, 5.0, 100.0, 3.0, 0)
+    q = Quote(instrument_id=1, bid_price=99.0, bid_size=5.0, ask_price=100.0, ask_size=3.0, timestamp_ns=0)
     assert q.spread() == 1.0
 
 def test_bar_interval_suffix():
