@@ -65,7 +65,7 @@ pub struct Order {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum OrderEventKind {
     New = 0, Cancel = 1, Replace = 2, Fill = 3, PartialFill = 4, Reject = 5,
 }
@@ -84,7 +84,7 @@ pub struct OrderEvent {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum AckStatus { Accepted = 0, Rejected = 1, CancelAcked = 2 }
 
 #[repr(C)]
