@@ -142,3 +142,49 @@ test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; fini
 ```
 
 **Commit:** 4ea6ab7 — "feat(rust): add all core data types"
+
+---
+
+### Task 5: Rust Clock + Serialization
+
+**RED (clock):** `cargo test --manifest-path tyche-core/Cargo.toml clock`
+Output:
+```
+error[E0433]: failed to resolve: use of undeclared type `LiveClock`
+ --> tyche-core\src\clock.rs:7:17
+error[E0433]: failed to resolve: use of undeclared type `LiveClock`
+  --> tyche-core\src\clock.rs:13:17
+error[E0433]: failed to resolve: use of undeclared type `SimClock`
+  --> tyche-core\src\clock.rs:21:17
+error: could not compile `tyche-core` (lib test) due to 3 previous errors; 2 warnings emitted
+```
+
+**GREEN (clock):** `cargo test --manifest-path tyche-core/Cargo.toml clock`
+```
+running 3 tests
+test clock::tests::live_clock_is_monotonic ... ok
+test clock::tests::live_clock_returns_positive_ns ... ok
+test clock::tests::sim_clock_advance_increases_time ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+```
+
+**RED (serialization):** `cargo test --manifest-path tyche-core/Cargo.toml serialization`
+Output:
+```
+error[E0425]: cannot find function `serialize` in this scope
+  --> tyche-core\src\serialization.rs:17:21
+error[E0425]: cannot find function `deserialize` in this scope
+  --> tyche-core\src\serialization.rs:18:25
+error: could not compile `tyche-core` (lib test) due to 2 previous errors; 3 warnings emitted
+```
+
+**GREEN (serialization):** `cargo test --manifest-path tyche-core/Cargo.toml serialization`
+```
+running 1 test
+test serialization::tests::quote_serialize_deserialize_roundtrip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s
+```
+
+**Commit:** 97511b3 — "feat(rust): add Clock trait and MessagePack serialization"
