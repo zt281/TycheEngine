@@ -14,3 +14,6 @@ dependencies = [
 [tool.maturin]
 module-name = "tyche_core"
 manifest-path = "tyche-core/Cargo.toml"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
