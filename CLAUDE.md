@@ -58,7 +58,7 @@ Design and plan version numbers are independent (design_v3 ↔ plan_v2 is accept
 
 ### Architect Agent
 **Owns:** Design docs and implementation plans.
-**Does:** Reads the spec, explores the codebase, writes/revises design and plan docs.
+**Does:** Reads the latest design spec, all existing plan and review docs, and the current impl log before writing anything. Summarises project state in the plan under `## Project State at Plan Time`. Writes/revises design and plan docs.
 **Does NOT:** Write production code, edit source files, run build commands.
 **Handoff:** Produces `docs/plan/{spec}_plan_v{N}.md`. Hands off to Plan Reviewer.
 
@@ -75,10 +75,10 @@ Design and plan version numbers are independent (design_v3 ↔ plan_v2 is accept
 **Handoff:** When all tests pass, hands off to Code Reviewer. Never skips the verification step.
 
 ### Code Reviewer Agent
-**Owns:** Code review output only.
-**Does:** Reviews implementation against design spec and plan. Reports only high-confidence issues.
-**Does NOT:** Implement fixes. Rewrite working code. Approve work that has failing tests.
-**Handoff:** Returns specific issues to Implementer. On APPROVED, signals Implementer to commit.
+**Owns:** Code review output and the `## CRITICAL` section of the impl log.
+**Does:** Reviews implementation against the design spec and approved plan (not just tests). Appends every confirmed bug or spec deviation as a CRITICAL entry in the impl log with status OPEN. Re-reviews after Implementer marks items RESOLVED. Issues APPROVED or ISSUES FOUND verdict.
+**Does NOT:** Implement fixes. Rewrite working code. Approve work that has failing tests or open CRITICAL items.
+**Handoff:** On APPROVED (no open CRITICAL items), signals team lead to proceed to Verify gate. On ISSUES FOUND, returns to Implementer with CRITICAL entries as the fix list.
 
 ### Debugger Agent
 **Owns:** Root cause analysis and targeted fix.
@@ -91,10 +91,12 @@ Design and plan version numbers are independent (design_v3 ↔ plan_v2 is accept
 ## Workflow — Stage Gates
 
 ```
-[SPEC] ──► [DESIGN] ──► [PLAN] ──► [REVIEW] ──► [IMPLEMENT] ──► [VERIFY] ──► [COMMIT]
-              │             │           │               │              │
-          Architect     Architect   Plan Reviewer   Implementer    All tests
-          writes doc    writes plan  APPROVED req'd   TDD only       must pass
+[SPEC] ──► [DESIGN] ──► [PLAN] ──► [PLAN REVIEW] ──► [IMPLEMENT] ──► [IMPL REVIEW] ──► [VERIFY] ──► [COMMIT]
+              │             │             │                 │                │               │
+          Architect     Architect   Plan Reviewer      Implementer     Code Reviewer    All tests
+          writes doc    writes plan  APPROVED req'd     TDD only       vs design+plan    must pass
+                                                                       logs CRITICAL
+                                                                       to impl log
 ```
 
 ### Gate: Plan → Implement
@@ -108,16 +110,126 @@ Design and plan version numbers are independent (design_v3 ↔ plan_v2 is accept
 - Test command output (pass/fail) must be recorded in the impl log
 - No step may be marked `[x]` without its test evidence
 
-### Gate: Implement → Review
-- `maturin develop --release` succeeds
-- `cargo test` passes with **0 failures**
-- `pytest tests/ -v` passes with **0 failures**
-- Skill `superpowers:verification-before-completion` must be invoked — show actual output, not assertions
+### Gate: Implement → Impl Review
+- All plan tasks are marked complete in the impl log with test evidence.
+- Code Reviewer agent is spawned and given the design spec, approved plan, and impl log as context.
+- Code Reviewer checks the implementation against the design spec and plan — not just tests.
+- Every confirmed bug or spec deviation is appended to the impl log under `## CRITICAL` (see impl log format below).
+- Code Reviewer produces a verdict: **APPROVED** (no critical issues) or **ISSUES FOUND** (one or more CRITICAL entries).
+- On ISSUES FOUND: Implementer resolves each CRITICAL item and the Code Reviewer re-reviews. Loop until APPROVED.
 
-### Gate: Review → Commit
-- No HIGH-confidence issues open in code review
-- `superpowers:requesting-code-review` invoked before commit
-- Commit via `commit-commands:commit-push-pr` skill only (do not bypass hooks)
+### Gate: Impl Review → Verify
+- Code Reviewer verdict in impl log is **APPROVED** with no open CRITICAL items.
+- `maturin develop --release` succeeds.
+- `cargo test` passes with **0 failures**.
+- `pytest tests/ -v` passes with **0 failures**.
+- Skill `superpowers:verification-before-completion` must be invoked — show actual command output, not assertions.
+
+### Gate: Verify → Commit
+- All Gate: Impl Review → Verify conditions confirmed with recorded output.
+- Commit via `commit-commands:commit-push-pr` skill only (do not bypass hooks).
+
+---
+
+## Mandatory Cycle Rule (Non-Negotiable)
+
+Every feature, fix, or enhancement **must** follow this exact cycle. There are no exceptions. No agent may skip or merge stages.
+
+```
+PLAN  ──►  PLAN REVIEW  ──►  CONFIRM  ──►  IMPLEMENT  ──►  IMPL REVIEW  ──►  VERIFY  ──►  COMMIT
+  │              │              │               │                │               │
+Architect   Plan Reviewer   Team Lead      Implementer(s)   Code Reviewer   Team Lead
+writes      checks vs.      reads          TDD per task     checks vs.      runs full
+plan doc    spec, gates     APPROVED,      logs RED/GREEN   design+plan,    test suite,
+            APPROVED        spawns team    evidence         appends         records
+            or returns                                      CRITICAL        output
+                                                            to impl log
+```
+
+### Required skills — in order
+
+| Stage | Who invokes | Skill |
+|-------|------------|-------|
+| Read latest docs & current state | Architect agent | (required before writing plan — see below) |
+| Write plan | Architect agent | `superpowers:writing-plans` |
+| Review plan | Plan Reviewer agent | `feature-dev:code-reviewer` or dedicated review role |
+| Start implementation | Team Lead | `superpowers:subagent-driven-development` or `superpowers:executing-plans` |
+| Each impl step | Implementer agent | `superpowers:test-driven-development` |
+| Review implementation | Code Reviewer agent | `superpowers:requesting-code-review` — logs CRITICAL issues to impl log |
+| Before claiming done | Implementer agent | `superpowers:verification-before-completion` |
+| Commit | Team Lead | `commit-commands:commit-push-pr` |
+
+### Plan phase — mandatory pre-work (Architect)
+
+Before invoking `superpowers:writing-plans` or writing a single line of a plan, the Architect agent **must**:
+
+1. Read the current design spec (`docs/design/` — latest version by number).
+2. Read all existing plan docs (`docs/plan/`) and their review logs (`docs/review/`) to understand what has already been approved, rejected, or revised.
+3. Read the `## CRITICAL` section of the current impl log (`docs/impl/`) if one exists — open CRITICAL items represent outstanding bugs that must be accounted for in the new plan. The full Task Log is not required reading.
+4. Read `CLAUDE.md` (this file) in full to pick up any rule changes since the last session.
+5. Check `Current State` at the bottom of this file and reconcile it with the actual file tree — do not trust the summary blindly.
+6. Summarise findings in the opening section of the plan doc under the heading `## Project State at Plan Time` before listing any tasks.
+
+Skipping this pre-work produces plans that contradict existing work or re-implement completed tasks. The Plan Reviewer will reject any plan whose `## Project State at Plan Time` section is missing or obviously stale.
+
+### Hard stops — implementation MUST NOT start unless all of the following are true
+
+1. A plan document exists at `docs/plan/{spec}_plan_v{N}.md`.
+2. A plan review log exists at `docs/review/{spec}_plan_review_v{N}.log`.
+3. The review log contains the line `Result: APPROVED` with no open CRITICAL or MAJOR issues.
+4. The plan commit hash has been recorded in the task context.
+5. `superpowers:subagent-driven-development` or `superpowers:executing-plans` has been invoked in the current session.
+
+If any condition is unmet, **stop and route back to the appropriate stage**. Do not proceed, do not approximate, do not self-approve.
+
+### Agent team composition (minimum)
+
+Spawn at minimum these three roles as separate agents whenever starting implementation:
+- **Architect agent** — owns plan and design docs only.
+- **Implementer agent(s)** — owns source files only; one per independent task when parallel work is possible.
+- **Code Reviewer agent** — owns review output only; never touches source files.
+
+A solo agent performing all roles is **not permitted**. Role separation is enforced by file ownership rules (see Agent Cooperation Rules below).
+
+### Implementation log format
+
+Every impl log (`docs/impl/{spec}_implement_v{N}.md`) must maintain the following top-level structure:
+
+```markdown
+## Project State at Impl Time
+<one paragraph: what exists, what is in progress, what is not started>
+
+## CRITICAL
+<!-- Code Reviewer appends here. Each entry has: task ref, description, status (OPEN/RESOLVED). -->
+<!-- Implementer updates status to RESOLVED after fix is confirmed. -->
+<!-- This section is the Team Lead's authoritative view of outstanding bugs and spec deviations. -->
+
+### [TASK-N] <short title>
+**Status:** OPEN | RESOLVED
+**Found by:** Code Reviewer (impl review round N)
+**Description:** <precise description of the bug or deviation>
+**Fix applied:** <commit hash or "pending">
+
+## Task Log
+<per-task RED/GREEN evidence — detailed, for Implementer and Debugger use>
+```
+
+Rules for the CRITICAL section:
+- The Code Reviewer is the **only** agent that appends new CRITICAL entries.
+- The Implementer is the **only** agent that updates `Status:` from OPEN to RESOLVED.
+- An entry must never be deleted — only marked RESOLVED with a fix reference.
+- If the CRITICAL section is empty (no entries), the Code Reviewer writes `_(none)_` explicitly.
+
+### Team lead — minimal reading contract
+
+The team lead does **not** need to read the full impl log. To understand current project status, the team lead reads only:
+
+1. Latest design spec (`docs/design/` — highest version number).
+2. Approved plan (`docs/plan/` — highest version number with a corresponding APPROVED review log).
+3. Plan review log (`docs/review/{spec}_plan_review_v{N}.log`).
+4. The `## CRITICAL` section of the current impl log only — not the full Task Log.
+
+If the CRITICAL section shows no open items and the plan tasks are complete, the team lead may proceed to the Verify gate. The team lead does not need to read the full Task Log unless debugging an escalation.
 
 ---
 
@@ -239,6 +351,15 @@ When implementation is complete and merged, invoke `superpowers:finishing-a-deve
 **Topics:**
 - Topic validation enforced by `topics.py`. `publish()` raises `ValueError` on invalid topics.
 - Symbol normalisation: alphanumeric + hyphen + underscore only. FX: `EUR/USD` → `EURUSD`. Options/futures fields joined with `_`.
+
+---
+
+## gstack
+
+Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+Available gstack skills:
+`/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/browse`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/retro`, `/investigate`, `/document-release`, `/codex`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`
 
 ---
 
