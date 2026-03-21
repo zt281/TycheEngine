@@ -47,14 +47,14 @@ TycheEngine uses a **split control/data plane**. Two hub processes coordinate ev
 │   │  CPU core 0  │            │  xpub: tcp:5557  (→ sub) │   │
 │   │              │            │       CPU core 1         │   │
 │   └──────┬───────┘            └─────────┬────────────────┘   │
-│          │ lifecycle / commands          │ streaming data     │
+│          │ lifecycle / commands          │ streaming data    │
 │    ──────┼──────────────────────────────┼─────               │
 │          │                              │                    │
-│   ┌──────┴───────┐            ┌─────────┴──────┐            │
-│   │   Module A   │            │    Module B    │            │
-│   │  (e.g. MDS)  │            │  (e.g. OMS)   │            │
-│   │  CPU core 2  │            │  CPU core 3   │            │
-│   └──────────────┘            └───────────────┘            │
+│   ┌──────┴───────┐            ┌─────────┴──────┐             │
+│   │   Module A   │            │    Module B    │             │
+│   │  (e.g. MDS)  │            │  (e.g. OMS)    │             │
+│   │  CPU core 2  │            │  CPU core 3    │             │
+│   └──────────────┘            └────────────────┘             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
