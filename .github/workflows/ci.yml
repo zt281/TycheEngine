@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.78"
+          components: clippy
+
+      - name: Cache Rust build artefacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install maturin and Python dependencies
+        run: |
+          pip install "maturin>=1.5,<2.0" pyzmq msgpack pytest ruff
+
+      - name: Build (maturin develop)
+        run: maturin develop --release
+
+      - name: Rust unit tests
+        run: cargo test --manifest-path tyche-core/Cargo.toml
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path tyche-core/Cargo.toml -- -D warnings
+
+      - name: Python tests
+        run: pytest tests/ -v
+
+      - name: Python lint (ruff)
+        run: ruff check tyche/ tests/
