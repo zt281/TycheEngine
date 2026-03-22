@@ -64,6 +64,8 @@ class ReplayBus:
     """
 
     def __init__(self, file_path: str, bus_xsub: str, speed: float = 1.0):
+        if speed < 0.0:
+            raise ValueError(f"speed must be >= 0.0, got {speed!r}")
         self._file_path = file_path
         self._bus_xsub = bus_xsub
         self._speed = speed
@@ -73,28 +75,25 @@ class ReplayBus:
         sock = self._ctx.socket(zmq.PUB)
         sock.connect(self._bus_xsub)
         time.sleep(0.05)  # allow subscription propagation before first publish
+        try:
+            prev_wall_ns = None
+            with open(self._file_path, "rb") as f:
+                for record in msgpack.Unpacker(f, raw=False):
+                    # record = [topic, timestamp_ns, payload, wall_ns]
+                    if prev_wall_ns is not None:
+                        if self._speed == 0.0:
+                            pass  # no sleep — publish as fast as possible
+                        else:
+                            delay_s = (record[3] - prev_wall_ns) / self._speed / 1_000_000_000
+                            if delay_s > 0:
+                                time.sleep(delay_s)
+                    prev_wall_ns = record[3]
 
-        prev_wall_ns = None
-        unpacker = msgpack.Unpacker(raw=False)
-
-        with open(self._file_path, "rb") as f:
-            unpacker.feed(f.read())
-            for record in unpacker:
-                # record = [topic, timestamp_ns, payload, wall_ns]
-                if prev_wall_ns is not None:
-                    if self._speed == 0.0:
-                        pass  # no sleep — publish as fast as possible
-                    else:
-                        delay_s = (record[3] - prev_wall_ns) / self._speed / 1_000_000_000
-                        if delay_s > 0:
-                            time.sleep(delay_s)
-                prev_wall_ns = record[3]
-
-                sock.send_multipart([
-                    record[0].encode(),          # topic bytes
-                    record[1].to_bytes(8, "big"),  # timestamp_ns big-endian 8 bytes
-                    record[2],                   # payload bytes (unchanged)
-                ])
-
-        sock.close()
-        self._ctx.term()
+                    sock.send_multipart([
+                        record[0].encode(),                    # topic bytes
+                        record[1].to_bytes(8, "big", signed=True),  # timestamp_ns
+                        record[2],                             # payload bytes (unchanged)
+                    ])
+        finally:
+            sock.close()
+            self._ctx.term()
