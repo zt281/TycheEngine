@@ -52,6 +52,7 @@ class ModuleConfig:
     service_name: str
     cpu_core: Optional[int] = None
     subscriptions: list = field(default_factory=list)
+    metrics_enabled: bool = False
 
     @classmethod
     def from_file(cls, path: str) -> "ModuleConfig":
@@ -62,4 +63,5 @@ class ModuleConfig:
             service_name=m["service_name"],
             cpu_core=m.get("cpu_core"),
             subscriptions=m.get("subscriptions", []),
+            metrics_enabled=m.get("metrics_enabled", False),
         )
