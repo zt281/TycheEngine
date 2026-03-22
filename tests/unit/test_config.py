@@ -22,3 +22,28 @@ def test_nexus_policy_loads():
     policy = NexusPolicy.from_file(str(_ROOT / "config" / "modules" / "nexus.toml"))
     assert policy.heartbeat_interval_ms == 1000
     assert policy.registration_max_retries == 20
+
+def test_module_config_address_defaults():
+    """When address fields are absent from TOML, ModuleConfig uses localhost defaults."""
+    from tyche.core.config import ModuleConfig
+    cfg = ModuleConfig.from_file(str(_ROOT / "config" / "modules" / "example_strategy.toml"))
+    assert cfg.nexus_address == "tcp://localhost:5555"
+    assert cfg.bus_xsub == "tcp://localhost:5556"
+    assert cfg.bus_xpub == "tcp://localhost:5557"
+
+def test_module_config_address_from_toml(tmp_path):
+    """When address fields are present in TOML, ModuleConfig reads them."""
+    toml_content = """
+[module]
+service_name = "test.svc"
+nexus_address = "tcp://10.0.0.1:5555"
+bus_xsub = "tcp://10.0.0.1:5556"
+bus_xpub = "tcp://10.0.0.1:5557"
+"""
+    cfg_path = tmp_path / "m.toml"
+    cfg_path.write_text(toml_content)
+    from tyche.core.config import ModuleConfig
+    cfg = ModuleConfig.from_file(str(cfg_path))
+    assert cfg.nexus_address == "tcp://10.0.0.1:5555"
+    assert cfg.bus_xsub == "tcp://10.0.0.1:5556"
+    assert cfg.bus_xpub == "tcp://10.0.0.1:5557"

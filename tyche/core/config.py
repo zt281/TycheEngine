@@ -52,6 +52,9 @@ class ModuleConfig:
     service_name: str
     cpu_core: Optional[int] = None
     subscriptions: list = field(default_factory=list)
+    nexus_address: str = "tcp://localhost:5555"
+    bus_xsub: str = "tcp://localhost:5556"
+    bus_xpub: str = "tcp://localhost:5557"
 
     @classmethod
     def from_file(cls, path: str) -> "ModuleConfig":
@@ -62,4 +65,7 @@ class ModuleConfig:
             service_name=m["service_name"],
             cpu_core=m.get("cpu_core"),
             subscriptions=m.get("subscriptions", []),
+            nexus_address=m.get("nexus_address", "tcp://localhost:5555"),
+            bus_xsub=m.get("bus_xsub", "tcp://localhost:5556"),
+            bus_xpub=m.get("bus_xpub", "tcp://localhost:5557"),
         )
