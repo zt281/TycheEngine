@@ -1,0 +1,63 @@
+# Plan Review: core_engine_plan_v3.md
+Date: 2026-03-22
+Reviewer: Plan Reviewer Agent
+
+## Summary
+
+The plan is well-structured, TDD-disciplined, and covers the full Task 17 spec: ring buffer design,
+keying rules, timing gate, STATUS extension, and on_raw exclusion. The Project State at Plan Time
+section is present and accurate. The LatencyStats implementation and percentile formula match the
+spec exactly. However, two CRITICAL defects were found that will cause GREEN steps to fail.
+
+Issue 1: test_latency_stats_n_samples_sorted contains a dead double-assert (== 5 then == 6) that
+permanently blocks the Task 2 GREEN step — the first assertion is wrong per the spec formula.
+
+Issue 2: test_module_config_metrics_enabled_default uses a bare relative path for the TOML file.
+All existing config tests use _ROOT = Path(__file__).parents[2] for this reason (Task 10 fix,
+commit 80b5a1f). The test will raise FileNotFoundError outside the project root.
+
+## Issues
+
+[CRITICAL] Task 2, Step 1 — test_latency_stats_n_samples_sorted contains stale double-assert
+The test first asserts s.percentile(0.50) == 5 (wrong), then asserts s.percentile(0.50) == 6
+(correct). Spec formula: values[min(int(0.50 * 10), 9)] = values[5] = 6 (sorted [1..10]).
+The wrong == 5 assertion executes first and raises AssertionError even with a correct
+implementation. Remove the == 5 assertion entirely; keep only == 6.
+
+[CRITICAL] Task 3, Step 1 — test_module_config_metrics_enabled_default uses relative path
+ModuleConfig.from_file("config/modules/example_strategy.toml") will raise FileNotFoundError
+when pytest is not run from the project root. Existing tests use
+_ROOT = Path(__file__).parents[2] at module scope. Fix: use
+ModuleConfig.from_file(str(_ROOT / "config" / "modules" / "example_strategy.toml")).
+
+[MINOR] Task 4, Step 2 — expected RED failure message is inaccurate
+Plan says "AttributeError: type object '_MetricsMod' has no attribute 'metrics_enabled'".
+_MetricsMod sets metrics_enabled = True as a class attr, so that resolves fine. Actual
+failure will be "AttributeError: '_MetricsMod' object has no attribute '_latency'".
+Non-blocking but should be corrected for implementer clarity.
+
+## Result
+Result: ISSUES FOUND
+
+---
+## Review Round 2
+
+## Issues
+
+None — all three issues from Round 1 are resolved:
+
+1. [CRITICAL RESOLVED] test_latency_stats_n_samples_sorted: stale == 5 assertion removed. Test
+   now asserts s.percentile(0.50) == 6 directly, matching spec formula values[min(int(0.50*10), 9)]
+   = values[5] = 6.
+
+2. [CRITICAL RESOLVED] test_module_config_metrics_enabled_default: relative path replaced with
+   str(_ROOT / "config" / "modules" / "example_strategy.toml"). _ROOT confirmed at module scope
+   in tests/unit/test_config.py (line 4).
+
+3. [MINOR RESOLVED] Task 4 Step 2 expected RED message corrected to
+   "AttributeError: '_MetricsMod' object has no attribute '_latency'".
+
+No new issues found.
+
+## Result
+Result: APPROVED
