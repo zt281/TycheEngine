@@ -4,7 +4,7 @@ import os
 import re
 import sys
 
-_NAME_RE = re.compile(r'^[a-z][a-z0-9_]*$')
+_NAME_RE = re.compile(r'^[a-z][a-z0-9]*(_[a-z0-9]+)*$')
 
 # NOTE spec deviation: imports corrected to actual package paths.
 # Spec shows `from tyche.module import Module` / `from tyche.model import ModuleConfig`

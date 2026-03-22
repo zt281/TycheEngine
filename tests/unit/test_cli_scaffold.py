@@ -30,6 +30,7 @@ def test_generated_strategy_importable(tmp_path, monkeypatch):
     strategy_file = tmp_path / "strategies" / "my_strat.py"
     spec = importlib.util.spec_from_file_location("my_strat", str(strategy_file))
     mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "tyche_core", mock.MagicMock())
     spec.loader.exec_module(mod)
     assert hasattr(mod, "MyStrat"), "Expected class MyStrat in generated module"
 
