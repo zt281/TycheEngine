@@ -20,7 +20,7 @@ fn registry() -> &'static RwLock<HashMap<String, AtomicPtr<Vec<u8>>>> {
 }
 
 fn slot_key(service_name: &str, topic: &str) -> String {
-    format!("{}\0{}", service_name, topic)
+    format!("{service_name}\0{topic}")
 }
 
 /// Register a service. Currently a no-op (slots are created lazily on first write).

@@ -57,7 +57,12 @@ jobs:
         run: pip install target/wheels/*.whl
 
       - name: Rust unit tests
-        run: cargo test --manifest-path tyche-core/Cargo.toml
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            export LD_LIBRARY_PATH=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"):${LD_LIBRARY_PATH:-}
+          fi
+          cargo test --manifest-path tyche-core/Cargo.toml
 
       - name: Rust clippy
         run: cargo clippy --manifest-path tyche-core/Cargo.toml -- -D warnings

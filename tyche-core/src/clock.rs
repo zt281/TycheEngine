@@ -8,6 +8,10 @@ pub trait Clock: Send + Sync {
 
 pub struct LiveClock;
 
+impl Default for LiveClock {
+    fn default() -> Self { Self }
+}
+
 impl LiveClock {
     pub fn new() -> Self { Self }
 }

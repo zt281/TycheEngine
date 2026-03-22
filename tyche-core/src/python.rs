@@ -1,3 +1,4 @@
+#![allow(clippy::useless_conversion)]
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use crate::{enums::*, types::*, ffi_bridge, serialization};
@@ -69,6 +70,7 @@ pub struct PyBar { pub inner: Bar }
 #[pymethods]
 impl PyBar {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     fn new(instrument_id: u64, open: f64, high: f64, low: f64, close: f64,
            volume: f64, interval: BarInterval, timestamp_ns: u64) -> Self {
         Self { inner: Bar { instrument_id, open, high, low, close, volume, interval, _pad: [0;7], timestamp_ns } }
@@ -91,6 +93,7 @@ pub struct PyOrder { pub inner: Order }
 #[pymethods]
 impl PyOrder {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     fn new(instrument_id: u64, client_order_id: u64, price: f64, qty: f64,
            side: Side, order_type: OrderType, tif: TIF, timestamp_ns: u64) -> Self {
         Self { inner: Order { instrument_id, client_order_id, price, qty, side, order_type, tif, _pad: [0;5], timestamp_ns } }
@@ -174,6 +177,7 @@ pub struct PyRisk { pub inner: Risk }
 #[pymethods]
 impl PyRisk {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     fn new(instrument_id: u64, delta: f64, gamma: f64, vega: f64, theta: f64,
            dv01: f64, notional: f64, margin: f64, timestamp_ns: u64) -> Self {
         Self { inner: Risk { instrument_id, delta, gamma, vega, theta, dv01, notional, margin, timestamp_ns } }
