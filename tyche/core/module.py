@@ -6,6 +6,7 @@ from abc import ABC
 import tyche_core
 from tyche.utils.logging import StructuredLogger
 from tyche.utils.topics import TopicValidator, suffix_to_bar_interval
+from tyche.core.clock import LiveClock
 
 PROTOCOL = b"TYCHE"
 _REG_TIMEOUT_MS = 500
@@ -32,7 +33,7 @@ class Module(ABC):
     service_name: str = "module.base"
     cpu_core: Optional[int] = None
 
-    def __init__(self, nexus_address: str, bus_xsub: str, bus_xpub: str):
+    def __init__(self, nexus_address: str, bus_xsub: str, bus_xpub: str, *, clock=None):
         self._nexus_address = nexus_address
         self._bus_xsub = bus_xsub
         self._bus_xpub = bus_xpub
@@ -43,6 +44,7 @@ class Module(ABC):
         self._pub_sock: Optional[zmq.Socket] = None
         self._sub_sock: Optional[zmq.Socket] = None
         self._pair_sock: Optional[zmq.Socket] = None
+        self._clock = clock if clock is not None else LiveClock()
 
     def on_start(self): pass
     def on_stop(self): pass
