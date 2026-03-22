@@ -39,11 +39,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Python dev headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y python3-dev
+
       - name: Install maturin and Python dependencies
         run: |
           pip install "maturin>=1.5,<2.0" pyzmq msgpack pytest ruff
 
       - name: Build Rust extension
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: maturin build --release
 
       - name: Install wheel
