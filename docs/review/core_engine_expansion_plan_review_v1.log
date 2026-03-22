@@ -1,0 +1,40 @@
+# Plan Review Log: core_engine_expansion_plan_v1
+
+Date: 2026-03-22
+Reviewer: Plan Reviewer Agent
+Plan: docs/plan/core_engine_expansion_plan_v1.md
+Spec: docs/designs/core-engine-expansions.md § Task 16
+
+## Findings
+
+### [MINOR] No commit between RED (Task 3) and GREEN (Task 4)
+**Description:** Task 3 writes and runs the failing integration tests (RED) but has
+no commit step. The test file tests/integration/test_backtest_replay.py is not
+committed until Task 5 Step 4, after both RecordingModule and ReplayBus are
+implemented. Best practice per TDD discipline is to commit the RED test file before
+writing any implementation so the failing state is preserved in git history. This is
+not a hard project-guidelines rule but weakens the audit trail.
+**Location:** Task 3 (missing commit step); Task 5, Step 4 (first commit of test file)
+**Fix required:** Add a commit step at the end of Task 3:
+  git add tests/integration/test_backtest_replay.py
+  git commit -m "test(python): add backtest replay integration tests (RED)"
+This is not blocking.
+
+## Summary
+
+The plan is structurally sound and faithful to the spec. All spec constraints are
+correctly represented: `clock` is keyword-only with `LiveClock()` default and is not
+added to ModuleConfig; heartbeat timing in `Module.run()` is unchanged; RecordingModule
+uses `self._sub_sock.setsockopt(zmq.SUBSCRIBE, b"")` directly (not `self.subscribe("")`);
+overrides `_dispatch(self, topic: str, payload: bytes)` per the eng-review-corrected
+signature (not `raw_frames: list`); captures `wall_ns = time.time_ns()` at the top of
+`_dispatch()` before the super call; record format is `[topic, timestamp_ns, payload,
+wall_ns]` with `timestamp_ns = self._clock.now_ns()`; ReplayBus is a plain class (not a
+Module subclass) with `self._ctx` created in `__init__` and terminated in `run()`; the
+3-frame Bus envelope is correct; the delay formula and `speed=0.0` guard match the spec;
+test ports 35556/35557/35558/35559 match the spec. TDD structure is correctly followed
+across all tasks. File ownership is confined to `tyche/backtest/`, `tyche/core/module.py`,
+and `tests/` — no Rust files are touched. The single minor finding does not block
+implementation.
+
+Result: APPROVED
