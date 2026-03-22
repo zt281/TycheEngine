@@ -8,9 +8,9 @@ pub struct InstrumentId(u64);
 
 impl InstrumentId {
     pub fn new(asset_class: AssetClass, venue: u16, symbol: u32, expiry_strike: u32) -> Self {
-        let v = (((asset_class as u64) & 0xF) << 60)
+        let v = ((((asset_class as u64) & 0xF) << 60)
             | (((venue as u64) & 0xFFF) << 48)
-            | (((symbol as u64) & 0xFFFFFF) << 24)
+            | (((symbol as u64) & 0xFFFFFF) << 24))
             | ((expiry_strike as u64) & 0xFFFFFF);
         Self(v)
     }

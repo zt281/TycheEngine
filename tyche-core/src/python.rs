@@ -1,4 +1,4 @@
-#![allow(clippy::useless_conversion)]
+#![allow(clippy::useless_conversion, clippy::too_many_arguments)]
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use crate::{enums::*, types::*, ffi_bridge, serialization};
