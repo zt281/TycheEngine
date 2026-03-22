@@ -1,7 +1,6 @@
 # tests/unit/test_module_clock.py
 from tyche.core.clock import SimClock, LiveClock
 from tyche.core.module import Module
-from abc import ABC
 
 
 class _Stub(Module):
