@@ -43,8 +43,12 @@ jobs:
         run: |
           pip install "maturin>=1.5,<2.0" pyzmq msgpack pytest ruff
 
-      - name: Build (maturin develop)
-        run: maturin develop --release
+      - name: Build Rust extension
+        run: maturin build --release
+
+      - name: Install wheel
+        shell: bash
+        run: pip install target/wheels/*.whl
 
       - name: Rust unit tests
         run: cargo test --manifest-path tyche-core/Cargo.toml
