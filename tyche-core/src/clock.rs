@@ -6,11 +6,8 @@ pub trait Clock: Send + Sync {
     fn now_ns(&self) -> u64;
 }
 
+#[derive(Default)]
 pub struct LiveClock;
-
-impl Default for LiveClock {
-    fn default() -> Self { Self }
-}
 
 impl LiveClock {
     pub fn new() -> Self { Self }
