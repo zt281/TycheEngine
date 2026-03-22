@@ -17,7 +17,11 @@ class LatencyStats:
         self._count = 0  # total samples written (unbounded)
 
     def record(self, ns: int) -> None:
-        """Write a latency sample (nanoseconds) into the ring buffer."""
+        """Write a latency sample (nanoseconds) into the ring buffer.
+
+        Negative values are accepted and will sort below zero in percentile output.
+        In normal use, ns = time.time_ns() - t0 which is always non-negative.
+        """
         struct.pack_into('<q', self._buf, (self._count % self._CAPACITY) * self._ITEM_SIZE, ns)
         self._count += 1
 

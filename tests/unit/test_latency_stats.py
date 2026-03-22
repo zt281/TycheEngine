@@ -54,8 +54,6 @@ def test_latency_stats_overflow_2048_samples():
     for i in range(2048):
         s.record(i)
     # After wrap, buffer holds the second 1024 values: [1024..2047]
-    active_len = min(s._count, 1024)
-    assert active_len == 1024
     # The oldest 1024 values are overwritten; minimum in buffer is 1024
     assert s.percentile(0.0) == 1024
     assert s.percentile(0.99) == sorted(range(1024, 2048))[min(int(0.99 * 1024), 1023)]
