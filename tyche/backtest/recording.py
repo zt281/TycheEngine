@@ -52,4 +52,49 @@ class RecordingModule(Module):
 
 
 class ReplayBus:
-    """Stub — implemented in Task 5."""
+    """Reads a .tyche recording file and re-publishes all messages to a Bus.
+
+    Constructor: ReplayBus(file_path, bus_xsub, speed=1.0)
+      speed=0.0  → publish as fast as possible (no inter-message delay)
+      speed=1.0  → wall-clock timing (mirrors original recording rate)
+      speed=10.0 → 10x accelerated
+
+    run() is blocking. It replays the file exactly once and returns.
+    The ZMQ context is created in __init__ and terminated in run() after completion.
+    """
+
+    def __init__(self, file_path: str, bus_xsub: str, speed: float = 1.0):
+        self._file_path = file_path
+        self._bus_xsub = bus_xsub
+        self._speed = speed
+        self._ctx = zmq.Context()
+
+    def run(self):
+        sock = self._ctx.socket(zmq.PUB)
+        sock.connect(self._bus_xsub)
+        time.sleep(0.05)  # allow subscription propagation before first publish
+
+        prev_wall_ns = None
+        unpacker = msgpack.Unpacker(raw=False)
+
+        with open(self._file_path, "rb") as f:
+            unpacker.feed(f.read())
+            for record in unpacker:
+                # record = [topic, timestamp_ns, payload, wall_ns]
+                if prev_wall_ns is not None:
+                    if self._speed == 0.0:
+                        pass  # no sleep — publish as fast as possible
+                    else:
+                        delay_s = (record[3] - prev_wall_ns) / self._speed / 1_000_000_000
+                        if delay_s > 0:
+                            time.sleep(delay_s)
+                prev_wall_ns = record[3]
+
+                sock.send_multipart([
+                    record[0].encode(),          # topic bytes
+                    record[1].to_bytes(8, "big"),  # timestamp_ns big-endian 8 bytes
+                    record[2],                   # payload bytes (unchanged)
+                ])
+
+        sock.close()
+        self._ctx.term()
