@@ -6,6 +6,8 @@ from abc import ABC
 import tyche_core
 from tyche.utils.logging import StructuredLogger
 from tyche.utils.topics import TopicValidator, suffix_to_bar_interval
+from tyche.core.clock import LiveClock
+from tyche.utils.latency import LatencyStats
 
 PROTOCOL = b"TYCHE"
 _REG_TIMEOUT_MS = 500
@@ -31,11 +33,13 @@ _INTERNAL_DISPATCH = {
 class Module(ABC):
     service_name: str = "module.base"
     cpu_core: Optional[int] = None
+    metrics_enabled: bool = False
 
-    def __init__(self, nexus_address: str, bus_xsub: str, bus_xpub: str):
+    def __init__(self, nexus_address: str, bus_xsub: str, bus_xpub: str, *, clock=None):
         self._nexus_address = nexus_address
         self._bus_xsub = bus_xsub
         self._bus_xpub = bus_xpub
+        self._clock = clock if clock is not None else LiveClock()
         self._stop_event = threading.Event()
         self._log = StructuredLogger(self.service_name)
         self._correlation_id = 0
@@ -43,6 +47,7 @@ class Module(ABC):
         self._pub_sock: Optional[zmq.Socket] = None
         self._sub_sock: Optional[zmq.Socket] = None
         self._pair_sock: Optional[zmq.Socket] = None
+        self._latency: dict[str, LatencyStats] = {}
 
     def on_start(self): pass
     def on_stop(self): pass
@@ -192,6 +197,15 @@ class Module(ABC):
                 result = {"status": "OK"}
             elif command == "STATUS":
                 result = {"status": "RUNNING", "pid": _os.getpid()}
+                if self.metrics_enabled and self._latency:
+                    result["dispatch_latency_ns"] = {
+                        key: {
+                            "p50": stats.percentile(0.50),
+                            "p95": stats.percentile(0.95),
+                            "p99": stats.percentile(0.99),
+                        }
+                        for key, stats in self._latency.items()
+                    }
             elif command == "START":
                 result = {"status": "OK"}
             else:
@@ -217,6 +231,19 @@ class Module(ABC):
     def _dispatch(self, topic: str, payload: bytes):
         parts = topic.split(".")
 
+        # Latency instrumentation — skipped when metrics_enabled=False
+        me = self.metrics_enabled
+        if me:
+            t0 = time.time_ns()
+            # Determine stats key from topic structure
+            if len(parts) >= 5 and parts[3] == "BAR":
+                lkey = f"BAR.{parts[4]}"
+            elif len(parts) >= 4:
+                lkey = parts[3]
+            else:
+                lkey = parts[-1] if parts else "_"
+
+        # INTERNAL topics: INTERNAL.SUBSYSTEM.EVENT
         if parts[0] == "INTERNAL" and len(parts) >= 3:
             event = parts[2]
             if event in _INTERNAL_DISPATCH:
@@ -224,14 +251,17 @@ class Module(ABC):
                 try:
                     obj = getattr(tyche_core, deser_name)(payload)
                     getattr(self, handler_name)(topic, obj)
+                    if me:
+                        self._latency.setdefault(lkey, LatencyStats()).record(time.time_ns() - t0)
+                        # only record on success — exception path timing is not meaningful
                 except Exception as e:
                     self._log.warn("Internal dispatch failed", event=event, error=str(e))
             else:
-                self.on_raw(topic, payload)
+                self.on_raw(topic, payload)  # not timed
             return
 
         if len(parts) < 4:
-            self.on_raw(topic, payload)
+            self.on_raw(topic, payload)  # not timed
             return
 
         dtype = parts[3]
@@ -241,6 +271,9 @@ class Module(ABC):
                 bar = tyche_core.deserialize_bar(payload)
                 interval = suffix_to_bar_interval(parts[4])
                 self.on_bar(topic, bar, interval)
+                if me:
+                    self._latency.setdefault(lkey, LatencyStats()).record(time.time_ns() - t0)
+                    # only record on success — exception path timing is not meaningful
             except Exception as e:
                 self._log.warn("Bar dispatch failed", error=str(e))
             return
@@ -250,10 +283,13 @@ class Module(ABC):
             try:
                 obj = getattr(tyche_core, deser_name)(payload)
                 getattr(self, handler_name)(topic, obj)
+                if me:
+                    self._latency.setdefault(lkey, LatencyStats()).record(time.time_ns() - t0)
+                    # only record on success — exception path timing is not meaningful
             except Exception as e:
                 self._log.warn("Market dispatch failed", dtype=dtype, error=str(e))
         else:
-            self.on_raw(topic, payload)
+            self.on_raw(topic, payload)  # not timed
 
     def _pin_cpu(self):
         if self.cpu_core is None:

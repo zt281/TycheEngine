@@ -55,6 +55,7 @@ class ModuleConfig:
     nexus_address: str = "tcp://localhost:5555"
     bus_xsub: str = "tcp://localhost:5556"
     bus_xpub: str = "tcp://localhost:5557"
+    metrics_enabled: bool = False
 
     @classmethod
     def from_file(cls, path: str) -> "ModuleConfig":
@@ -68,4 +69,5 @@ class ModuleConfig:
             nexus_address=m.get("nexus_address", "tcp://localhost:5555"),
             bus_xsub=m.get("bus_xsub", "tcp://localhost:5556"),
             bus_xpub=m.get("bus_xpub", "tcp://localhost:5557"),
+            metrics_enabled=m.get("metrics_enabled", False),
         )
