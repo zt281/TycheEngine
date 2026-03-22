@@ -47,7 +47,7 @@ class Module(ABC):
         self._pub_sock: Optional[zmq.Socket] = None
         self._sub_sock: Optional[zmq.Socket] = None
         self._pair_sock: Optional[zmq.Socket] = None
-        self._latency: dict = {}
+        self._latency: dict[str, LatencyStats] = {}
 
     def on_start(self): pass
     def on_stop(self): pass
@@ -231,16 +231,17 @@ class Module(ABC):
     def _dispatch(self, topic: str, payload: bytes):
         parts = topic.split(".")
 
-        # Latency instrumentation — entirely skipped when metrics_enabled=False
-        if self.metrics_enabled:
-            _t0 = time.time_ns()
+        # Latency instrumentation — skipped when metrics_enabled=False
+        me = self.metrics_enabled
+        if me:
+            t0 = time.time_ns()
             # Determine stats key from topic structure
             if len(parts) >= 5 and parts[3] == "BAR":
-                _lkey = f"BAR.{parts[4]}"
+                lkey = f"BAR.{parts[4]}"
             elif len(parts) >= 4:
-                _lkey = parts[3]
+                lkey = parts[3]
             else:
-                _lkey = parts[-1] if parts else "_"
+                lkey = parts[-1] if parts else "_"
 
         # INTERNAL topics: INTERNAL.SUBSYSTEM.EVENT
         if parts[0] == "INTERNAL" and len(parts) >= 3:
@@ -250,8 +251,9 @@ class Module(ABC):
                 try:
                     obj = getattr(tyche_core, deser_name)(payload)
                     getattr(self, handler_name)(topic, obj)
-                    if self.metrics_enabled:
-                        self._latency.setdefault(_lkey, LatencyStats()).record(time.time_ns() - _t0)
+                    if me:
+                        self._latency.setdefault(lkey, LatencyStats()).record(time.time_ns() - t0)
+                        # only record on success — exception path timing is not meaningful
                 except Exception as e:
                     self._log.warn("Internal dispatch failed", event=event, error=str(e))
             else:
@@ -269,8 +271,9 @@ class Module(ABC):
                 bar = tyche_core.deserialize_bar(payload)
                 interval = suffix_to_bar_interval(parts[4])
                 self.on_bar(topic, bar, interval)
-                if self.metrics_enabled:
-                    self._latency.setdefault(_lkey, LatencyStats()).record(time.time_ns() - _t0)
+                if me:
+                    self._latency.setdefault(lkey, LatencyStats()).record(time.time_ns() - t0)
+                    # only record on success — exception path timing is not meaningful
             except Exception as e:
                 self._log.warn("Bar dispatch failed", error=str(e))
             return
@@ -280,8 +283,9 @@ class Module(ABC):
             try:
                 obj = getattr(tyche_core, deser_name)(payload)
                 getattr(self, handler_name)(topic, obj)
-                if self.metrics_enabled:
-                    self._latency.setdefault(_lkey, LatencyStats()).record(time.time_ns() - _t0)
+                if me:
+                    self._latency.setdefault(lkey, LatencyStats()).record(time.time_ns() - t0)
+                    # only record on success — exception path timing is not meaningful
             except Exception as e:
                 self._log.warn("Market dispatch failed", dtype=dtype, error=str(e))
         else:
