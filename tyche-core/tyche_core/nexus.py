@@ -7,11 +7,9 @@ import json
 import time
 import random
 from typing import Dict, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .protocol import READY, ACK, HB, CMD, REPLY, DISCO
-from .protocol import CMD_START, CMD_STOP, CMD_RECONFIGURE, CMD_STATUS
-from .protocol import STATUS_OK, STATUS_ERROR, PROTOCOL_VERSION
 
 
 @dataclass
@@ -180,7 +178,7 @@ class Nexus:
             return
 
         timestamp_ns = int.from_bytes(frames[0], "big")
-        correlation_id = int.from_bytes(frames[1], "big")
+        _correlation_id = int.from_bytes(frames[1], "big")
 
         with self._lock:
             key = identity.hex()

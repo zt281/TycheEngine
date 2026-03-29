@@ -254,7 +254,7 @@ class Module(ABC):
                     DISCO,
                     self._correlation_id.to_bytes(8, "big"),
                 ])
-            except:
+            except Exception:
                 pass
             self._nexus_socket.close()
 
