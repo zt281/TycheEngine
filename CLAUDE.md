@@ -61,7 +61,7 @@ Design and plan version numbers are independent (design_v3 ↔ plan_v2 is accept
 ### Architect Agent
 **Owns:** Design docs and implementation plans.
 **Does:** Reads the latest design spec, all existing plan and review docs, and the current impl log before writing anything. Summarises project state in the plan under `## Project State at Plan Time`. Writes/revises design and plan docs.
-**Does NOT:** Write production code, edit source files, run build commands.
+**Does NOT:** Write real code in docs, write production code, edit source files, run build commands.
 **Handoff:** Produces `docs/plan/{spec}_plan_v{N}.md`. Hands off to Plan Reviewer.
 
 ### Plan Reviewer Agent
