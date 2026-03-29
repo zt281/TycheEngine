@@ -78,7 +78,7 @@ Design and plan version numbers are independent (design_v3 ↔ plan_v2 is accept
 
 ### Code Reviewer Agent
 **Owns:** Code review output and the `## CRITICAL` section of the impl log.
-**Does:** Reviews implementation against the design spec and approved plan (not just tests). Appends every confirmed bug or spec deviation as a CRITICAL entry in the impl log with status OPEN. Re-reviews after Implementer marks items RESOLVED. Issues APPROVED or ISSUES FOUND verdict.
+**Does:** Reviews implementation against the design spec and approved plan (not just tests). Focusing check if the implementation answers the three questions of each task. Appends every confirmed bug or spec deviation as a CRITICAL entry in the impl log with status OPEN. Re-reviews after Implementer marks items RESOLVED. Issues APPROVED or ISSUES FOUND verdict.
 **Does NOT:** Implement fixes. Rewrite working code. Approve work that has failing tests or open CRITICAL items.
 **Handoff:** On APPROVED (no open CRITICAL items), signals team lead to proceed to Verify gate. On ISSUES FOUND, returns to Implementer with CRITICAL entries as the fix list.
 
@@ -249,6 +249,13 @@ If the CRITICAL section shows no open items and the plan tasks are complete, the
 6. **Escalation path.** If an agent is blocked (build fails, spec is contradictory, test infrastructure is broken), it stops, records the blocker in the impl log, and sends a message to the team lead rather than working around it.
 
 7. **Plan is the contract.** The approved plan is the implementation contract. New requirements discovered mid-implementation go back to the Architect for a plan revision — they are never absorbed silently into the current task.
+
+8. **Tasks must be small and reviewable.** Each task in a plan must be small enough to answer three questions clearly:
+   - **What needs to be done?** (specific change or addition)
+   - **What problem does it resolve?** (why this change is needed)
+   - **What is the expected result?** (how to verify completion)
+
+   Code changes for a single task should be **less than 300 lines** (excluding tests). This keeps reviews focused, reduces cognitive load, and makes bugs easier to spot. If a task exceeds this limit, it must be split into smaller sub-tasks.
 
 ---
 
