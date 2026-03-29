@@ -1,0 +1,15 @@
+{
+  "nexus_endpoint": "ipc:///tmp/tyche/nexus.sock",
+  "poll_interval_ms": 1000,
+  "modules": [
+    {
+      "name": "strategy.momentum",
+      "command": ["python", "strategies/momentum.py", "--nexus", "ipc:///tmp/tyche/nexus.sock", "--bus-xsub", "ipc:///tmp/tyche/bus_xsub.sock", "--bus-xpub", "ipc:///tmp/tyche/bus_xpub.sock"],
+      "restart_policy": "on-failure",
+      "max_restarts": 3,
+      "restart_window_seconds": 60,
+      "cpu_core": 2,
+      "environment": {}
+    }
+  ]
+}

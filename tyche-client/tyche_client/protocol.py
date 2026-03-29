@@ -1,0 +1,27 @@
+"""Wire protocol constants."""
+
+# Message types
+READY = b"READY"
+ACK = b"ACK"
+HB = b"HB"
+CMD = b"CMD"
+REPLY = b"REPLY"
+DISCO = b"DISCO"
+
+# Command types
+CMD_START = b"START"
+CMD_STOP = b"STOP"
+CMD_RECONFIGURE = b"RECONFIGURE"
+CMD_STATUS = b"STATUS"
+
+# Status codes
+STATUS_OK = b"OK"
+STATUS_ERROR = b"ERROR"
+
+# Protocol version
+PROTOCOL_VERSION = 1
+
+# Default timeouts
+DEFAULT_HEARTBEAT_INTERVAL_MS = 1000
+DEFAULT_REGISTRATION_TIMEOUT_MS = 5000
+HEARTBEAT_TIMEOUT_MULTIPLIER = 3

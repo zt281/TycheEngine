@@ -1,0 +1,22 @@
+[project]
+name = "tyche-core"
+version = "1.0.0"
+description = "TycheEngine core service (Nexus + Bus)"
+requires-python = ">=3.11"
+dependencies = [
+    "pyzmq>=25.0",
+    "msgpack>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+tyche-core = "tyche_core.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

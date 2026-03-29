@@ -1,0 +1,18 @@
+{
+  "nexus": {
+    "endpoint": "ipc:///tmp/tyche/nexus.sock",
+    "cpu_core": 0,
+    "heartbeat_interval_ms": 1000,
+    "heartbeat_timeout_ms": 3000
+  },
+  "bus": {
+    "xsub_endpoint": "ipc:///tmp/tyche/bus_xsub.sock",
+    "xpub_endpoint": "ipc:///tmp/tyche/bus_xpub.sock",
+    "cpu_core": 1,
+    "high_water_mark": 10000
+  },
+  "launcher": {
+    "enabled": false,
+    "config_path": "launcher-config.json"
+  }
+}
