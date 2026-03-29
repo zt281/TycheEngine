@@ -1,0 +1,11 @@
+{
+  "strategy": {
+    "name": "momentum",
+    "lookback_period": 20,
+    "threshold": 0.001
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/momentum.log"
+  }
+}
