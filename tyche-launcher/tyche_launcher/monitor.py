@@ -1,7 +1,6 @@
 """Process monitoring with circuit breaker."""
 
 import time
-import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
@@ -68,10 +67,10 @@ class ProcessMonitor:
             window_seconds=self.restart_window_seconds
         )
 
-    def record_start(self) -> None:
+    def record_start(self, pid: int) -> None:
         """Record a process start."""
         self.start_count += 1
-        self.pid = os.getpid()
+        self.pid = pid
         self.last_start_time = time.time()
 
     def record_exit(self, code: int) -> None:

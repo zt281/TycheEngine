@@ -71,10 +71,10 @@ def test_process_monitor_record_start():
     from tyche_launcher.monitor import ProcessMonitor
 
     monitor = ProcessMonitor(name="test.module", restart_policy="always")
-    monitor.record_start()
+    monitor.record_start(12345)
 
     assert monitor.start_count == 1
-    assert monitor.pid is not None
+    assert monitor.pid == 12345
 
 
 def test_process_monitor_record_exit_non_zero():
@@ -82,7 +82,7 @@ def test_process_monitor_record_exit_non_zero():
     from tyche_launcher.monitor import ProcessMonitor
 
     monitor = ProcessMonitor(name="test.module", restart_policy="on-failure")
-    monitor.record_start()
+    monitor.record_start(12345)
     monitor.record_exit(1)
 
     assert monitor.last_exit_code == 1
@@ -94,7 +94,7 @@ def test_process_monitor_record_exit_zero():
     from tyche_launcher.monitor import ProcessMonitor
 
     monitor = ProcessMonitor(name="test.module", restart_policy="always")
-    monitor.record_start()
+    monitor.record_start(12345)
     monitor.record_exit(0)
 
     assert monitor.last_exit_code == 0
@@ -105,9 +105,9 @@ def test_process_monitor_should_restart_on_failure():
     from tyche_launcher.monitor import ProcessMonitor
 
     monitor = ProcessMonitor(name="test.module", restart_policy="on-failure", max_restarts=3)
-    monitor.record_start()
+    monitor.record_start(12345)
     monitor.record_exit(1)
-    monitor.record_start()
+    monitor.record_start(12345)
     monitor.record_exit(1)
 
     assert monitor.should_restart() is True
@@ -118,7 +118,7 @@ def test_process_monitor_should_not_restart_never():
     from tyche_launcher.monitor import ProcessMonitor
 
     monitor = ProcessMonitor(name="test.module", restart_policy="never")
-    monitor.record_start()
+    monitor.record_start(12345)
     monitor.record_exit(1)
 
     assert monitor.should_restart() is False
@@ -130,7 +130,7 @@ def test_process_monitor_should_not_restart_max_restarts():
 
     monitor = ProcessMonitor(name="test.module", restart_policy="on-failure", max_restarts=2)
     for _ in range(2):
-        monitor.record_start()
+        monitor.record_start(12345)
         monitor.record_exit(1)
 
     # Now at max restarts
