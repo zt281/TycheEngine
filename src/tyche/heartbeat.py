@@ -22,10 +22,12 @@ class HeartbeatMonitor:
     def __init__(
         self,
         interval: float = HEARTBEAT_INTERVAL,
-        liveness: int = HEARTBEAT_LIVENESS
+        liveness: int = HEARTBEAT_LIVENESS,
+        initial_grace_period: bool = True
     ):
         self.interval = interval
-        self.liveness = liveness
+        # Give extra liveness for initial registration grace period
+        self.liveness = liveness * 2 if initial_grace_period else liveness
         self.last_seen = time.time()
 
     def update(self) -> None:

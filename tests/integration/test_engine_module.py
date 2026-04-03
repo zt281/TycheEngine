@@ -8,8 +8,13 @@ from tyche.example_module import ExampleModule
 from tyche.types import Endpoint
 
 
-# Use different port ranges for each test to avoid conflicts
-BASE_PORT = 58000
+# Port allocation per test:
+# registration = base
+# event = base + 1
+# xsub = event + 1 = base + 2  (auto-bound by engine)
+# heartbeat = base + 10  (must not conflict with xsub)
+# ack = event + 10 = base + 11  (auto-calculated by engine)
+BASE_PORT = 63000
 
 
 @pytest.mark.asyncio
@@ -19,19 +24,18 @@ async def test_module_registration():
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", base),
         event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 2)
+        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
     )
+    engine.start_nonblocking()
+    await asyncio.sleep(0.2)
 
     module = ExampleModule(
         engine_endpoint=Endpoint("127.0.0.1", base)
     )
 
     try:
-        await engine.start()
-        await asyncio.sleep(0.1)
-
         await module.start()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
 
         # Verify registration
         assert module.module_id in engine.modules
@@ -39,19 +43,20 @@ async def test_module_registration():
 
     finally:
         await module.stop()
-        await engine.stop()
-        await asyncio.sleep(0.1)  # Allow socket cleanup
+        engine.stop()
 
 
 @pytest.mark.asyncio
 async def test_event_broadcast():
     """Engine can broadcast events to subscribed modules."""
-    base = BASE_PORT + 10
+    base = BASE_PORT + 20
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", base),
         event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 2)
+        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
     )
+    engine.start_nonblocking()
+    await asyncio.sleep(0.2)
 
     received = []
 
@@ -65,42 +70,37 @@ async def test_event_broadcast():
     )
 
     try:
-        await engine.start()
-        await asyncio.sleep(0.1)
-
         module.add_interface("on_test_event", module.on_test_event)
         await module.start()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
 
         await engine.broadcast_event("on_test_event", {"data": "hello"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
 
         assert len(received) >= 0
 
     finally:
         await module.stop()
-        await engine.stop()
-        await asyncio.sleep(0.1)
+        engine.stop()
 
 
 @pytest.mark.asyncio
 async def test_module_heartbeat():
     """Module sends heartbeats to Engine."""
-    base = BASE_PORT + 20
+    base = BASE_PORT + 40
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", base),
         event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 2)
+        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
     )
+    engine.start_nonblocking()
+    await asyncio.sleep(0.2)
 
     module = ExampleModule(
         engine_endpoint=Endpoint("127.0.0.1", base)
     )
 
     try:
-        await engine.start()
-        await asyncio.sleep(0.1)
-
         await module.start()
         await asyncio.sleep(0.5)
 
@@ -109,19 +109,20 @@ async def test_module_heartbeat():
 
     finally:
         await module.stop()
-        await engine.stop()
-        await asyncio.sleep(0.1)
+        engine.stop()
 
 
 @pytest.mark.asyncio
 async def test_full_two_node_interaction():
     """Complete 2-node interaction: Engine + ExampleModule."""
-    base = BASE_PORT + 30
+    base = BASE_PORT + 60
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", base),
         event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 2)
+        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
     )
+    engine.start_nonblocking()
+    await asyncio.sleep(0.2)
 
     module = ExampleModule(
         engine_endpoint=Endpoint("127.0.0.1", base),
@@ -129,11 +130,8 @@ async def test_full_two_node_interaction():
     )
 
     try:
-        await engine.start()
-        await asyncio.sleep(0.1)
-
         await module.start()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
 
         assert module._registered
         assert module.module_id in engine.modules
@@ -156,4 +154,4 @@ async def test_full_two_node_interaction():
 
     finally:
         await module.stop()
-        await engine.stop()
+        engine.stop()

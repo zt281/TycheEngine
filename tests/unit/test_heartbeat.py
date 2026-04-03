@@ -7,8 +7,16 @@ from tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS
 
 
 def test_heartbeat_monitor_init():
-    """Monitor initializes with correct liveness."""
+    """Monitor initializes with correct liveness (with grace period)."""
     monitor = HeartbeatMonitor()
+    # With default initial_grace_period=True, liveness is doubled
+    assert monitor.liveness == HEARTBEAT_LIVENESS * 2
+    assert monitor.interval == HEARTBEAT_INTERVAL
+
+
+def test_heartbeat_monitor_init_no_grace():
+    """Monitor initializes with correct liveness (no grace period)."""
+    monitor = HeartbeatMonitor(initial_grace_period=False)
     assert monitor.liveness == HEARTBEAT_LIVENESS
     assert monitor.interval == HEARTBEAT_INTERVAL
 

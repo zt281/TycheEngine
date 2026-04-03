@@ -3,10 +3,10 @@
 Modules connect to TycheEngine and handle events using interface patterns.
 """
 
-import asyncio
+import threading
+import time
 from typing import Dict, List, Optional, Callable, Any
 import zmq
-from zmq.asyncio import Context, Socket
 
 from tyche.module_base import ModuleBase
 from tyche.types import (
@@ -14,7 +14,6 @@ from tyche.types import (
     MessageType, DurabilityLevel, ModuleId, HEARTBEAT_INTERVAL
 )
 from tyche.message import Message, serialize, deserialize
-from tyche.heartbeat import HeartbeatSender
 
 
 class TycheModule(ModuleBase):
@@ -48,17 +47,14 @@ class TycheModule(ModuleBase):
         self._interfaces: List[Interface] = []
 
         # ZMQ context and sockets
-        self.context: Optional[Context] = None
-        self.reg_socket: Optional[Socket] = None
-        self.event_sub: Optional[Socket] = None
-        self.heartbeat_socket: Optional[Socket] = None
+        self.context: Optional[zmq.Context] = None
+        self.reg_socket: Optional[zmq.Socket] = None
+        self.heartbeat_socket: Optional[zmq.Socket] = None
 
-        # Heartbeat sender
-        self._heartbeat_sender: Optional[HeartbeatSender] = None
-
-        # Async tasks
-        self._tasks: List[asyncio.Task] = []
+        # Threading
+        self._threads: List[threading.Thread] = []
         self._running = False
+        self._stop_event = threading.Event()
         self._registered = False
 
     @property
@@ -94,61 +90,68 @@ class TycheModule(ModuleBase):
             durability=durability
         ))
 
-    async def start(self) -> None:
-        """Start the module and connect to engine."""
-        self.context = Context()
+    def start(self) -> None:
+        """Start the module (alias for run, for compatibility with ModuleBase)."""
+        self.run()
+
+    def run(self) -> None:
+        """Start the module - blocks until stop() is called."""
+        self._start_workers()
+
+        # Block until stopped
+        try:
+            while not self._stop_event.is_set():
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+
+    def start_nonblocking(self) -> None:
+        """Start the module without blocking (for testing)."""
+        self._start_workers()
+
+    def _start_workers(self) -> None:
+        """Start worker threads and connect to engine."""
+        self.context = zmq.Context()
+        self._running = True
+        self._stop_event.clear()
 
         # Registration socket (REQ for REQ-ROUTER pattern)
         self.reg_socket = self.context.socket(zmq.REQ)
+        self.reg_socket.setsockopt(zmq.LINGER, 0)
         self.reg_socket.connect(str(self.engine_endpoint))
 
-        # Event subscription (SUB)
-        if self.event_endpoint:
-            self.event_sub = self.context.socket(zmq.SUB)
-            self.event_sub.connect(str(self.event_endpoint))
-
-        # Heartbeat socket (SUB to receive engine heartbeats, DEALER to send)
-        if self.heartbeat_endpoint:
-            self.heartbeat_socket = self.context.socket(zmq.DEALER)
-            self.heartbeat_socket.identity = self._module_id.encode()
-            self.heartbeat_socket.connect(str(self.heartbeat_endpoint))
-            self._heartbeat_sender = HeartbeatSender(
-                self.heartbeat_socket,
-                self._module_id
-            )
-
-        self._running = True
-
         # Register with engine
-        await self._register()
+        if not self._register():
+            print(f"[{self._module_id}] Failed to register with engine")
+            return
 
-        # Start background tasks
-        self._tasks = [
-            asyncio.create_task(self._receive_events()),
-            asyncio.create_task(self._send_heartbeats()),
+        # Start background threads
+        self._threads = [
+            threading.Thread(target=self._receive_heartbeats, name="heartbeat_recv"),
         ]
 
-    async def stop(self) -> None:
+        for t in self._threads:
+            t.start()
+
+    def stop(self) -> None:
         """Stop the module gracefully."""
         self._running = False
+        self._stop_event.set()
 
-        # Cancel all tasks
-        for task in self._tasks:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        # Wait for threads
+        for t in self._threads:
+            t.join(timeout=2.0)
 
         # Close sockets
-        for socket in [self.reg_socket, self.event_sub, self.heartbeat_socket]:
+        for socket in [self.reg_socket, self.heartbeat_socket]:
             if socket:
                 socket.close()
 
         if self.context:
             self.context.term()
+            self.context = None
 
-    async def _register(self) -> bool:
+    def _register(self) -> bool:
         """Register with TycheEngine.
 
         Returns:
@@ -179,57 +182,30 @@ class TycheModule(ModuleBase):
             }
         )
 
-        await self.reg_socket.send(serialize(msg))
+        self.reg_socket.send(serialize(msg))
 
-        # Wait for acknowledgment
-        if await self.reg_socket.poll(5000):  # 5 second timeout
-            reply_data = await self.reg_socket.recv()
+        # Wait for acknowledgment with timeout
+        self.reg_socket.setsockopt(zmq.RCVTIMEO, 5000)  # 5 second timeout
+        try:
+            reply_data = self.reg_socket.recv()
             reply = deserialize(reply_data)
 
             if reply.msg_type == MessageType.ACK:
                 self._registered = True
+                print(f"[{self._module_id}] Registered with engine")
                 return True
+        except zmq.error.Again:
+            print(f"[{self._module_id}] Registration timeout")
 
         return False
 
-    async def _receive_events(self) -> None:
-        """Receive and handle events."""
+    def _receive_heartbeats(self) -> None:
+        """Receive heartbeats from engine (placeholder)."""
+        # TODO: Implement heartbeat subscription
         while self._running:
-            try:
-                if not self.event_sub:
-                    await asyncio.sleep(0.1)
-                    continue
+            time.sleep(0.1)
 
-                # Subscribe to all events we handle
-                for event_name in self._handlers:
-                    self.event_sub.setsockopt(zmq.SUBSCRIBE, event_name.encode())
-
-                if await self.event_sub.poll(100):
-                    topic, data = await self.event_sub.recv_multipart()
-                    msg = deserialize(data)
-
-                    # Route to handler
-                    handler = self._handlers.get(msg.event)
-                    if handler:
-                        handler(msg.payload)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"Event receive error: {e}")
-
-    async def _send_heartbeats(self) -> None:
-        """Send periodic heartbeats to engine."""
-        while self._running:
-            try:
-                if self._heartbeat_sender and self._heartbeat_sender.should_send():
-                    self._heartbeat_sender.send()
-
-                await asyncio.sleep(HEARTBEAT_INTERVAL / 2)
-            except asyncio.CancelledError:
-                break
-
-    async def send_event(
+    def send_event(
         self,
         event: str,
         payload: Dict[str, Any],
@@ -253,9 +229,9 @@ class TycheModule(ModuleBase):
             payload=payload
         )
 
-        await self.reg_socket.send(serialize(msg))
+        self.reg_socket.send(serialize(msg))
 
-    async def call_ack(
+    def call_ack(
         self,
         event: str,
         payload: Dict[str, Any],
@@ -281,11 +257,12 @@ class TycheModule(ModuleBase):
             payload=payload
         )
 
-        await self.reg_socket.send(serialize(msg))
+        self.reg_socket.send(serialize(msg))
 
-        if await self.reg_socket.poll(timeout_ms):
-            reply_data = await self.reg_socket.recv()
+        self.reg_socket.setsockopt(zmq.RCVTIMEO, timeout_ms)
+        try:
+            reply_data = self.reg_socket.recv()
             reply = deserialize(reply_data)
             return reply.payload
-
-        return None
+        except zmq.error.Again:
+            return None

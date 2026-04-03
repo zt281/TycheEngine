@@ -45,6 +45,9 @@ class ExampleModule(TycheModule):
         self.received_events: list = []
         self.request_count = 0
 
+        # Auto-discover interfaces from methods
+        self._interfaces = self.discover_interfaces()
+
     def on_data(self, payload: Dict[str, Any]) -> None:
         """Handle fire-and-forget data events.
 
