@@ -16,6 +16,7 @@ dependencies = [
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.2.0",
     "pytest-cov>=4.1.0",
     "mypy>=1.5.0",
     "ruff>=0.0.280",
@@ -28,9 +29,9 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
+timeout = 30
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "timeout: marks tests with timeout",
 ]
 
 [tool.mypy]
