@@ -2,7 +2,6 @@
 
 import threading
 import time
-import pytest
 
 from tyche.engine import TycheEngine
 from tyche.module import TycheModule

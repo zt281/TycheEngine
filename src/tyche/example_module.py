@@ -10,8 +10,8 @@ This module serves as a reference implementation showing:
 
 import random
 import threading
-import time
 from typing import Any, Dict, Optional
+
 from tyche.module import TycheModule
 from tyche.types import Endpoint
 

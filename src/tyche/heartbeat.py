@@ -5,11 +5,11 @@ Workers send periodic heartbeats; broker tracks liveness.
 """
 
 import time
-from typing import Optional
+
 import zmq
 
-from tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS, MessageType
 from tyche.message import Message, serialize
+from tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS, MessageType
 
 
 class HeartbeatMonitor:

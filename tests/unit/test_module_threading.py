@@ -1,13 +1,9 @@
 """Tests for TycheModule threading implementation."""
 
-import threading
-import time
 
-import pytest
-import zmq
 
 from tyche.module import TycheModule
-from tyche.types import Endpoint, InterfacePattern, DurabilityLevel
+from tyche.types import Endpoint, InterfacePattern
 
 
 def test_module_has_run_method():

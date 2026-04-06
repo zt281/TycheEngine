@@ -1,12 +1,12 @@
 """Integration tests for 2-node Tyche Engine system."""
-import pytest
 import asyncio
-import time
-from tyche.engine import TycheEngine
-from tyche.module import TycheModule
-from tyche.example_module import ExampleModule
-from tyche.types import Endpoint
 
+import pytest
+
+from tyche.engine import TycheEngine
+from tyche.example_module import ExampleModule
+from tyche.module import TycheModule
+from tyche.types import Endpoint
 
 # Port allocation per test:
 # registration = base

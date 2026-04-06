@@ -1,8 +1,6 @@
 """Tests for TycheModule."""
-import pytest
-from unittest.mock import Mock, patch
 from tyche.module import TycheModule
-from tyche.types import Endpoint, ModuleId
+from tyche.types import Endpoint
 
 
 def test_module_init():

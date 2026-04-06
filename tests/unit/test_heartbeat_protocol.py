@@ -4,14 +4,13 @@ Verifies that modules send heartbeats to engine and don't expire prematurely.
 """
 
 import time
-import threading
 
 import pytest
 
 from tyche.engine import TycheEngine
+from tyche.heartbeat import HeartbeatManager
 from tyche.module import TycheModule
 from tyche.types import Endpoint
-from tyche.heartbeat import HeartbeatManager
 
 
 @pytest.mark.slow

@@ -4,6 +4,7 @@
 import argparse
 import signal
 import sys
+
 from tyche.example_module import ExampleModule
 from tyche.types import Endpoint
 

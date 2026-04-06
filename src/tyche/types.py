@@ -1,11 +1,10 @@
 """Core type definitions for Tyche Engine."""
 
-from enum import Enum, auto
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
 import hashlib
 import random
-
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 # Paranoid Pirate Pattern constants
 HEARTBEAT_INTERVAL = 1.0  # seconds

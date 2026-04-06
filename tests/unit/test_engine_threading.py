@@ -1,14 +1,12 @@
 """Tests for TycheEngine threading implementation."""
 
-import threading
 import time
 
-import pytest
 import zmq
 
 from tyche.engine import TycheEngine
-from tyche.types import Endpoint, MessageType
 from tyche.message import Message, serialize
+from tyche.types import Endpoint, MessageType
 
 
 def test_engine_has_run_method():

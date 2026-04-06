@@ -1,12 +1,13 @@
 """Message serialization using MessagePack."""
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
-from decimal import Decimal
-import msgpack
 import enum
+from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
-from tyche.types import MessageType, DurabilityLevel
+import msgpack
+
+from tyche.types import DurabilityLevel, MessageType
 
 
 @dataclass

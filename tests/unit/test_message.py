@@ -1,8 +1,8 @@
 """Tests for message serialization."""
-import pytest
 from decimal import Decimal
-from tyche.message import Message, Envelope, serialize, deserialize
-from tyche.types import MessageType, DurabilityLevel
+
+from tyche.message import Envelope, Message, deserialize, serialize
+from tyche.types import DurabilityLevel, MessageType
 
 
 def test_message_creation():

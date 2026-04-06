@@ -1,10 +1,10 @@
 """Abstract base class for Tyche modules."""
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Callable, Optional
 import inspect
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List, Optional
 
-from tyche.types import Interface, InterfacePattern, DurabilityLevel
+from tyche.types import DurabilityLevel, Interface, InterfacePattern
 
 
 class ModuleBase(ABC):

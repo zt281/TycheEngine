@@ -1,7 +1,7 @@
 """Tests for module base class."""
 import pytest
+
 from tyche.module_base import ModuleBase
-from tyche.types import Interface, InterfacePattern, DurabilityLevel
 
 
 def test_module_base_is_abstract():

@@ -4,9 +4,6 @@ import os
 import subprocess
 import sys
 
-import pytest
-
-
 # Get src directory for PYTHONPATH in subprocess tests
 SRC_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'src')
 

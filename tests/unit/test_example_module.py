@@ -1,5 +1,4 @@
 """Tests for ExampleModule."""
-import pytest
 from tyche.example_module import ExampleModule
 from tyche.types import Endpoint
 

@@ -1,7 +1,7 @@
 """Tests for Paranoid Pirate heartbeat protocol."""
-import pytest
 import time
 from unittest.mock import Mock
+
 from tyche.heartbeat import HeartbeatMonitor, HeartbeatSender
 from tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS
 

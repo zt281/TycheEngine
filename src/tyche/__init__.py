@@ -10,24 +10,24 @@ A high-performance distributed system built on ZeroMQ with:
 
 __version__ = "0.1.0"
 
-from tyche.types import (
-    ModuleId,
-    EventType,
-    InterfacePattern,
-    DurabilityLevel,
-    MessageType,
-    Endpoint,
-    Interface,
-    ModuleInfo,
-    HEARTBEAT_INTERVAL,
-    HEARTBEAT_LIVENESS,
-)
-from tyche.message import Message, Envelope, serialize, deserialize
-from tyche.heartbeat import HeartbeatMonitor, HeartbeatSender, HeartbeatManager
-from tyche.module_base import ModuleBase
-from tyche.module import TycheModule
 from tyche.engine import TycheEngine
 from tyche.example_module import ExampleModule
+from tyche.heartbeat import HeartbeatManager, HeartbeatMonitor, HeartbeatSender
+from tyche.message import Envelope, Message, deserialize, serialize
+from tyche.module import TycheModule
+from tyche.module_base import ModuleBase
+from tyche.types import (
+    HEARTBEAT_INTERVAL,
+    HEARTBEAT_LIVENESS,
+    DurabilityLevel,
+    Endpoint,
+    EventType,
+    Interface,
+    InterfacePattern,
+    MessageType,
+    ModuleId,
+    ModuleInfo,
+)
 
 __all__ = [
     # Version

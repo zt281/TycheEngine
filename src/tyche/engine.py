@@ -2,15 +2,21 @@
 
 import threading
 import time
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 import zmq
 
-from tyche.types import (
-    Endpoint, ModuleInfo, Interface, InterfacePattern,
-    DurabilityLevel, MessageType, HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS
-)
-from tyche.message import Message, serialize, deserialize
 from tyche.heartbeat import HeartbeatManager
+from tyche.message import Message, deserialize, serialize
+from tyche.types import (
+    HEARTBEAT_INTERVAL,
+    DurabilityLevel,
+    Endpoint,
+    Interface,
+    InterfacePattern,
+    MessageType,
+    ModuleInfo,
+)
 
 
 class TycheEngine:
@@ -134,7 +140,6 @@ class TycheEngine:
 
     def _create_module_info(self, msg: Message) -> ModuleInfo:
         """Create ModuleInfo from registration message."""
-        from tyche.types import Interface
 
         module_id = msg.payload.get("module_id")
         interfaces_data = msg.payload.get("interfaces", [])
@@ -232,7 +237,7 @@ class TycheEngine:
             try:
                 frames = socket.recv_multipart()
                 if len(frames) >= 2:
-                    identity = frames[0]
+                    _identity = frames[0]  # noqa: F841
                     msg_data = frames[2] if len(frames) > 2 and frames[1] == b"" else frames[1]
 
                     try:

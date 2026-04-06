@@ -1,8 +1,6 @@
 """Tests for TycheEngine."""
-import pytest
-import zmq
-import asyncio
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+
 from tyche.engine import TycheEngine
 from tyche.types import Endpoint
 

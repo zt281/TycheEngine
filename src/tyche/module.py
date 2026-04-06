@@ -5,15 +5,21 @@ Modules connect to TycheEngine and handle events using interface patterns.
 
 import threading
 import time
-from typing import Dict, List, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
+
 import zmq
 
+from tyche.message import Message, deserialize, serialize
 from tyche.module_base import ModuleBase
 from tyche.types import (
-    Endpoint, Interface, InterfacePattern,
-    MessageType, DurabilityLevel, ModuleId, HEARTBEAT_INTERVAL
+    HEARTBEAT_INTERVAL,
+    DurabilityLevel,
+    Endpoint,
+    Interface,
+    InterfacePattern,
+    MessageType,
+    ModuleId,
 )
-from tyche.message import Message, serialize, deserialize
 
 
 class TycheModule(ModuleBase):

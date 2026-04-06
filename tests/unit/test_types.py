@@ -1,13 +1,12 @@
 """Tests for core type definitions."""
-import pytest
 from tyche.types import (
-    ModuleId,
-    EventType,
-    InterfacePattern,
-    DurabilityLevel,
-    MessageType,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_LIVENESS,
+    DurabilityLevel,
+    EventType,
+    InterfacePattern,
+    MessageType,
+    ModuleId,
 )
 
 
