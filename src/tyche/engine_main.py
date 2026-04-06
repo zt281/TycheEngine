@@ -16,6 +16,8 @@ def main():
                         help='Port for event broadcasting (XPUB/XSUB)')
     parser.add_argument('--heartbeat-port', type=int, default=5558,
                         help='Port for heartbeat (PUB)')
+    parser.add_argument('--heartbeat-receive-port', type=int, default=5559,
+                        help='Port for receiving heartbeats from modules (ROUTER)')
     parser.add_argument('--host', default='127.0.0.1',
                         help='Host to bind to')
 
@@ -24,7 +26,8 @@ def main():
     engine = TycheEngine(
         registration_endpoint=Endpoint(args.host, args.registration_port),
         event_endpoint=Endpoint(args.host, args.event_port),
-        heartbeat_endpoint=Endpoint(args.host, args.heartbeat_port)
+        heartbeat_endpoint=Endpoint(args.host, args.heartbeat_port),
+        heartbeat_receive_endpoint=Endpoint(args.host, args.heartbeat_receive_port)
     )
 
     def shutdown(sig, frame):

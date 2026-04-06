@@ -26,11 +26,13 @@ def main():
     print()
 
     module = ExampleModule(
-        engine_endpoint=Endpoint("127.0.0.1", 5555)
+        engine_endpoint=Endpoint("127.0.0.1", 5555),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 5559)
     )
 
     print(f"Module ID: {module.module_id}")
     print("Connecting to engine at: tcp://127.0.0.1:5555")
+    print("Sending heartbeats to: tcp://127.0.0.1:5559")
     print()
     print("Press Ctrl+C to stop")
     print()

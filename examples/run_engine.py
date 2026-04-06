@@ -27,13 +27,15 @@ def main():
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", 5555),
         event_endpoint=Endpoint("127.0.0.1", 5556),
-        heartbeat_endpoint=Endpoint("127.0.0.1", 5558)
+        heartbeat_endpoint=Endpoint("127.0.0.1", 5558),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 5559)
     )
 
     print("Engine configuration:")
     print(f"  Registration: tcp://127.0.0.1:5555")
     print(f"  Events: tcp://127.0.0.1:5556")
-    print(f"  Heartbeat: tcp://127.0.0.1:5558")
+    print(f"  Heartbeat (out): tcp://127.0.0.1:5558")
+    print(f"  Heartbeat (in): tcp://127.0.0.1:5559")
     print()
     print("Press Ctrl+C to stop")
     print()

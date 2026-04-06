@@ -185,3 +185,42 @@ python examples/run_engine.py
 python examples/run_module.py
 ```
 
+
+---
+
+## Post-Implementation Bug Fixes
+
+### [TASK-7] Fix Ctrl+C Signal Handling
+
+**Status:** COMPLETED
+**Description:** Ctrl+C (SIGINT) didn't stop engine/module on Windows
+
+**Root Cause:** `time.sleep(0.1)` in main loop blocks signals on Windows
+
+**Fix:** Changed to `self._stop_event.wait(0.1)` which is properly interruptible
+
+**Files Modified:**
+- `src/tyche/engine.py` - `run()` method
+- `src/tyche/module.py` - `run()` method
+
+**Test:** `tests/unit/test_signal_handling.py`
+
+### [TASK-8] Implement Heartbeat Protocol
+
+**Status:** COMPLETED
+**Description:** Module expired immediately after registration
+
+**Root Cause:** Module never sent heartbeats; engine expected them
+
+**Fix:**
+1. **Engine:** Added `_heartbeat_receive_worker()` thread that listens on ROUTER socket for module heartbeats
+2. **Module:** Added `_send_heartbeats()` thread that sends periodic heartbeats to engine
+3. Added `heartbeat_receive_endpoint` parameter to both engine and module
+
+**Files Modified:**
+- `src/tyche/engine.py` - Added heartbeat receive endpoint and worker
+- `src/tyche/module.py` - Added heartbeat sending thread
+
+**Tests:** `tests/unit/test_heartbeat_protocol.py`
+- `test_module_does_not_expire_with_heartbeats` - Verifies heartbeats keep module alive
+- `test_module_expires_without_heartbeats` - Verifies expiration works when no heartbeats

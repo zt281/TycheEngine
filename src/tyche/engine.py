@@ -21,13 +21,17 @@ class TycheEngine:
         registration_endpoint: Endpoint,
         event_endpoint: Endpoint,
         heartbeat_endpoint: Endpoint,
-        ack_endpoint: Optional[Endpoint] = None
+        ack_endpoint: Optional[Endpoint] = None,
+        heartbeat_receive_endpoint: Optional[Endpoint] = None
     ):
         self.registration_endpoint = registration_endpoint
         self.event_endpoint = event_endpoint
         self.heartbeat_endpoint = heartbeat_endpoint
         self.ack_endpoint = ack_endpoint or Endpoint(
             event_endpoint.host, event_endpoint.port + 10
+        )
+        self.heartbeat_receive_endpoint = heartbeat_receive_endpoint or Endpoint(
+            heartbeat_endpoint.host, heartbeat_endpoint.port + 1
         )
 
         self.modules: Dict[str, ModuleInfo] = {}
@@ -43,12 +47,9 @@ class TycheEngine:
         """Start the engine - blocks until stop() is called."""
         self._start_workers()
 
-        # Block main thread
-        try:
-            while not self._stop_event.is_set():
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            pass
+        # Block main thread - use wait() instead of sleep() for signal compatibility
+        while not self._stop_event.is_set():
+            self._stop_event.wait(0.1)
 
     def start_nonblocking(self) -> None:
         """Start the engine without blocking (for testing)."""
@@ -64,6 +65,7 @@ class TycheEngine:
         self._threads = [
             threading.Thread(target=self._registration_worker, name="registration"),
             threading.Thread(target=self._heartbeat_worker, name="heartbeat"),
+            threading.Thread(target=self._heartbeat_receive_worker, name="hb_recv"),
             threading.Thread(target=self._monitor_worker, name="monitor"),
         ]
 
@@ -218,6 +220,35 @@ class TycheEngine:
                 self.unregister_module(module_id)
 
             time.sleep(HEARTBEAT_INTERVAL)
+
+    def _heartbeat_receive_worker(self) -> None:
+        """Receive heartbeats from modules and update liveness."""
+        socket = self.context.socket(zmq.ROUTER)
+        socket.setsockopt(zmq.LINGER, 0)
+        socket.bind(str(self.heartbeat_receive_endpoint))
+        socket.setsockopt(zmq.RCVTIMEO, 100)  # 100ms timeout for polling
+
+        while self._running:
+            try:
+                frames = socket.recv_multipart()
+                if len(frames) >= 2:
+                    identity = frames[0]
+                    msg_data = frames[2] if len(frames) > 2 and frames[1] == b"" else frames[1]
+
+                    try:
+                        msg = deserialize(msg_data)
+                        if msg.msg_type == MessageType.HEARTBEAT:
+                            module_id = msg.sender
+                            self.heartbeat_manager.update(module_id)
+                    except Exception:
+                        pass  # Ignore malformed messages
+            except zmq.error.Again:
+                continue  # Timeout, check _running
+            except Exception as e:
+                if self._running:
+                    print(f"Heartbeat receive error: {e}")
+
+        socket.close()
 
     async def broadcast_event(self, event: str, payload: Dict[str, Any]) -> None:
         """Broadcast event to all subscribers (async version for compatibility)."""

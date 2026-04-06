@@ -1,9 +1,14 @@
 """Tests for module_main entry point."""
 
+import os
 import subprocess
 import sys
 
 import pytest
+
+
+# Get src directory for PYTHONPATH in subprocess tests
+SRC_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'src')
 
 
 def test_module_main_module_exists():
@@ -22,11 +27,15 @@ def test_module_main_argparse():
 
 def test_module_main_help():
     """Test that module_main --help works."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = SRC_DIR
+
     result = subprocess.run(
         [sys.executable, "-m", "tyche.module_main", "--help"],
         capture_output=True,
         text=True,
         timeout=5,
+        env=env,
     )
     assert result.returncode == 0
     assert "Tyche Module" in result.stdout

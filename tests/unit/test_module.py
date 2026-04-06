@@ -21,9 +21,9 @@ def test_module_auto_generates_id():
         engine_endpoint=Endpoint("127.0.0.1", 5555)
     )
     assert module.module_id is not None
-    # Format: {deity}{6-char MD5} - deity varies in length (4-8 chars)
+    # Format: {deity}{6-char MD5} - deity varies in length (4-10 chars)
     assert len(module.module_id) >= 10  # min 4 + 6
-    assert len(module.module_id) <= 14  # max 8 + 6
+    assert len(module.module_id) <= 16  # max 10 (hephaestus) + 6
 
 
 def test_module_adds_interface():

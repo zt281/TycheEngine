@@ -33,12 +33,14 @@ class TycheModule(ModuleBase):
         engine_endpoint: Endpoint,
         module_id: Optional[str] = None,
         event_endpoint: Optional[Endpoint] = None,
-        heartbeat_endpoint: Optional[Endpoint] = None
+        heartbeat_endpoint: Optional[Endpoint] = None,
+        heartbeat_receive_endpoint: Optional[Endpoint] = None
     ):
         self._module_id = module_id or ModuleId.generate()
         self.engine_endpoint = engine_endpoint
         self.event_endpoint = event_endpoint
         self.heartbeat_endpoint = heartbeat_endpoint
+        self.heartbeat_receive_endpoint = heartbeat_receive_endpoint
 
         # Event handlers: event_name -> handler_function
         self._handlers: Dict[str, Callable] = {}
@@ -98,12 +100,9 @@ class TycheModule(ModuleBase):
         """Start the module - blocks until stop() is called."""
         self._start_workers()
 
-        # Block until stopped
-        try:
-            while not self._stop_event.is_set():
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            pass
+        # Block until stopped - use wait() instead of sleep() for signal compatibility
+        while not self._stop_event.is_set():
+            self._stop_event.wait(0.1)
 
     def start_nonblocking(self) -> None:
         """Start the module without blocking (for testing)."""
@@ -125,10 +124,22 @@ class TycheModule(ModuleBase):
             print(f"[{self._module_id}] Failed to register with engine")
             return
 
+        # Setup heartbeat socket if endpoint provided
+        if self.heartbeat_receive_endpoint:
+            self.heartbeat_socket = self.context.socket(zmq.DEALER)
+            self.heartbeat_socket.setsockopt(zmq.LINGER, 0)
+            self.heartbeat_socket.connect(str(self.heartbeat_receive_endpoint))
+
         # Start background threads
         self._threads = [
             threading.Thread(target=self._receive_heartbeats, name="heartbeat_recv"),
         ]
+
+        # Add heartbeat sender thread if configured
+        if self.heartbeat_receive_endpoint:
+            self._threads.append(
+                threading.Thread(target=self._send_heartbeats, name="heartbeat_send")
+            )
 
         for t in self._threads:
             t.start()
@@ -201,9 +212,33 @@ class TycheModule(ModuleBase):
 
     def _receive_heartbeats(self) -> None:
         """Receive heartbeats from engine (placeholder)."""
-        # TODO: Implement heartbeat subscription
+        # Engine sends broadcast heartbeats - modules can subscribe if needed
         while self._running:
             time.sleep(0.1)
+
+    def _send_heartbeats(self) -> None:
+        """Send periodic heartbeats to engine."""
+        if not self.heartbeat_socket:
+            return
+
+        while self._running:
+            try:
+                msg = Message(
+                    msg_type=MessageType.HEARTBEAT,
+                    sender=self._module_id,
+                    event="heartbeat",
+                    payload={"status": "alive"}
+                )
+                self.heartbeat_socket.send(serialize(msg))
+            except Exception as e:
+                if self._running:
+                    print(f"[{self._module_id}] Heartbeat send error: {e}")
+
+            # Wait for next heartbeat interval
+            for _ in range(int(HEARTBEAT_INTERVAL * 10)):
+                if not self._running:
+                    break
+                time.sleep(0.1)
 
     def send_event(
         self,

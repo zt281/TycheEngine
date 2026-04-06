@@ -5,8 +5,12 @@ This module serves as a reference implementation showing:
 - ack_{event}: Request-response with acknowledgment
 - whisper_{target}_{event}: Direct P2P messaging
 - on_common_{event}: Broadcast event handling
+- Ping-pong: Broadcast message passing between modules
 """
 
+import random
+import threading
+import time
 from typing import Any, Dict, Optional
 from tyche.module import TycheModule
 from tyche.types import Endpoint
@@ -29,7 +33,8 @@ class ExampleModule(TycheModule):
     def __init__(
         self,
         engine_endpoint: Endpoint,
-        module_id: Optional[str] = None
+        module_id: Optional[str] = None,
+        heartbeat_receive_endpoint: Optional[Endpoint] = None
     ):
         # Use athena as default deity
         if module_id is None:
@@ -38,12 +43,15 @@ class ExampleModule(TycheModule):
 
         super().__init__(
             engine_endpoint=engine_endpoint,
-            module_id=module_id
+            module_id=module_id,
+            heartbeat_receive_endpoint=heartbeat_receive_endpoint
         )
 
         # Track received events for demonstration
         self.received_events: list = []
         self.request_count = 0
+        self.ping_count = 0
+        self.pong_count = 0
 
         # Auto-discover interfaces from methods
         self._interfaces = self.discover_interfaces()
@@ -128,6 +136,57 @@ class ExampleModule(TycheModule):
         })
         print(f"[{self.module_id}] broadcast received: {payload}")
 
+    def on_common_ping(self, payload: Dict[str, Any]) -> None:
+        """Handle ping broadcast - respond with pong after random delay.
+
+        Pattern: on_common_{event}
+        Creates a ping-pong message passing demonstration between modules.
+
+        Args:
+            payload: Broadcast data containing 'sender' module ID
+        """
+        sender = payload.get("sender", "unknown")
+        self.ping_count += 1
+        print(f"[{self.module_id}] ping received from {sender} (total: {self.ping_count})")
+
+        # Broadcast pong after random delay (< 1 second)
+        delay = random.uniform(0.1, 0.9)
+        threading.Timer(delay, self._broadcast_pong).start()
+        print(f"[{self.module_id}] scheduling pong in {delay:.2f}s")
+
+    def on_common_pong(self, payload: Dict[str, Any]) -> None:
+        """Handle pong broadcast - respond with ping after random delay.
+
+        Pattern: on_common_{event}
+        Creates a ping-pong message passing demonstration between modules.
+
+        Args:
+            payload: Broadcast data containing 'sender' module ID
+        """
+        sender = payload.get("sender", "unknown")
+        self.pong_count += 1
+        print(f"[{self.module_id}] pong received from {sender} (total: {self.pong_count})")
+
+        # Broadcast ping after random delay (< 1 second)
+        delay = random.uniform(0.1, 0.9)
+        threading.Timer(delay, self._broadcast_ping).start()
+        print(f"[{self.module_id}] scheduling ping in {delay:.2f}s")
+
+    def _broadcast_ping(self) -> None:
+        """Broadcast a ping message to all modules."""
+        print(f"[{self.module_id}] broadcasting ping")
+        self.send_event("broadcast_ping", {"sender": self.module_id})
+
+    def _broadcast_pong(self) -> None:
+        """Broadcast a pong message to all modules."""
+        print(f"[{self.module_id}] broadcasting pong")
+        self.send_event("broadcast_pong", {"sender": self.module_id})
+
+    def start_ping_pong(self) -> None:
+        """Start the ping-pong cycle by broadcasting initial ping."""
+        print(f"[{self.module_id}] starting ping-pong cycle")
+        self._broadcast_ping()
+
     def get_stats(self) -> Dict[str, Any]:
         """Return module statistics.
 
@@ -139,5 +198,7 @@ class ExampleModule(TycheModule):
             "registered": self._registered,
             "request_count": self.request_count,
             "events_received": len(self.received_events),
+            "ping_count": self.ping_count,
+            "pong_count": self.pong_count,
             "interfaces": [i.name for i in self._interfaces]
         }

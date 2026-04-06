@@ -14,6 +14,8 @@ def main():
                         help='Engine host address')
     parser.add_argument('--engine-port', type=int, default=5555,
                         help='Engine registration port')
+    parser.add_argument('--heartbeat-port', type=int, default=5559,
+                        help='Engine heartbeat receive port (for sending heartbeats to)')
     parser.add_argument('--module-id', default=None,
                         help='Optional module ID (auto-generated if not provided)')
 
@@ -21,7 +23,8 @@ def main():
 
     module = ExampleModule(
         engine_endpoint=Endpoint(args.engine_host, args.engine_port),
-        module_id=args.module_id
+        module_id=args.module_id,
+        heartbeat_receive_endpoint=Endpoint(args.engine_host, args.heartbeat_port)
     )
 
     def shutdown(sig, frame):
