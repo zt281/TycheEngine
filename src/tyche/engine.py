@@ -92,6 +92,7 @@ class TycheEngine:
 
     def _registration_worker(self) -> None:
         """Handle module registrations in dedicated thread."""
+        assert self.context is not None
         socket = self.context.socket(zmq.ROUTER)
         socket.setsockopt(zmq.LINGER, 0)  # Don't wait on close
         socket.bind(str(self.registration_endpoint))
@@ -109,7 +110,7 @@ class TycheEngine:
 
         socket.close()
 
-    def _process_registration(self, socket, frames: List[bytes]) -> None:
+    def _process_registration(self, socket: zmq.Socket, frames: List[bytes]) -> None:
         """Process registration request."""
         if len(frames) < 3:
             return
@@ -141,7 +142,9 @@ class TycheEngine:
     def _create_module_info(self, msg: Message) -> ModuleInfo:
         """Create ModuleInfo from registration message."""
 
-        module_id = msg.payload.get("module_id")
+        module_id = msg.payload.get("module_id", "")
+        if not module_id:
+            module_id = "unknown_module"
         interfaces_data = msg.payload.get("interfaces", [])
 
         interfaces = [
@@ -195,6 +198,7 @@ class TycheEngine:
 
     def _heartbeat_worker(self) -> None:
         """Send heartbeat broadcasts."""
+        assert self.context is not None
         socket = self.context.socket(zmq.PUB)
         socket.setsockopt(zmq.LINGER, 0)  # Don't wait on close
         socket.bind(str(self.heartbeat_endpoint))
@@ -228,6 +232,7 @@ class TycheEngine:
 
     def _heartbeat_receive_worker(self) -> None:
         """Receive heartbeats from modules and update liveness."""
+        assert self.context is not None
         socket = self.context.socket(zmq.ROUTER)
         socket.setsockopt(zmq.LINGER, 0)
         socket.bind(str(self.heartbeat_receive_endpoint))

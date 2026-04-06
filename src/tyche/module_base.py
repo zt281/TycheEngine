@@ -2,7 +2,7 @@
 
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from tyche.types import DurabilityLevel, Interface, InterfacePattern
 
@@ -94,7 +94,7 @@ class ModuleBase(ABC):
         """
         handler = getattr(self, event, None)
         if callable(handler):
-            return handler
+            return cast(Callable[..., Any], handler)
         return None
 
     def handle_event(self, event: str, payload: Dict[str, Any]) -> Any:

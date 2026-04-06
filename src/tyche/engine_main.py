@@ -4,12 +4,13 @@
 import argparse
 import signal
 import sys
+from typing import Any
 
 from tyche.engine import TycheEngine
 from tyche.types import Endpoint
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Tyche Engine - Central broker')
     parser.add_argument('--registration-port', type=int, default=5555,
                         help='Port for module registration (ROUTER)')
@@ -31,7 +32,7 @@ def main():
         heartbeat_receive_endpoint=Endpoint(args.host, args.heartbeat_receive_port)
     )
 
-    def shutdown(sig, frame):
+    def shutdown(sig: int, frame: Any) -> None:
         print("\nShutting down engine...")
         engine.stop()
         sys.exit(0)

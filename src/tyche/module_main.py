@@ -4,12 +4,13 @@
 import argparse
 import signal
 import sys
+from typing import Any
 
 from tyche.example_module import ExampleModule
 from tyche.types import Endpoint
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Tyche Module - Example worker')
     parser.add_argument('--engine-host', default='127.0.0.1',
                         help='Engine host address')
@@ -28,7 +29,7 @@ def main():
         heartbeat_receive_endpoint=Endpoint(args.engine_host, args.heartbeat_port)
     )
 
-    def shutdown(sig, frame):
+    def shutdown(sig: int, frame: Any) -> None:
         print("\nShutting down module...")
         module.stop()
         sys.exit(0)

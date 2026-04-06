@@ -3,7 +3,7 @@
 import enum
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import msgpack
 
@@ -85,7 +85,7 @@ def serialize(message: Message) -> bytes:
         "timestamp": message.timestamp,
         "correlation_id": message.correlation_id,
     }
-    return msgpack.packb(data, default=_encode_decimal, use_bin_type=True)
+    return cast(bytes, msgpack.packb(data, default=_encode_decimal, use_bin_type=True))
 
 
 def deserialize(data: bytes) -> Message:

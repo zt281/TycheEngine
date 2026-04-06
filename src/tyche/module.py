@@ -292,7 +292,7 @@ class TycheModule(ModuleBase):
             return None
 
         msg = Message(
-            msg_type=MessageType.REQUEST,
+            msg_type=MessageType.COMMAND,
             sender=self._module_id,
             event=event,
             payload=payload
