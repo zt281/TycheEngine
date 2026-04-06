@@ -2,6 +2,19 @@
   <img src="resources/logo/tycheengine_logo_v5_4k_white.jpg" alt="Tyche Engine Logo" width="400">
 </p>
 
+<p align="center">
+  <a href="https://github.com/zt281/TycheEngine/actions/workflows/ci.yml">
+    <img src="https://github.com/zt281/TycheEngine/workflows/CI/badge.svg" alt="CI Status">
+  </a>
+  <a href="https://codecov.io/gh/zt281/TycheEngine">
+    <img src="https://codecov.io/gh/zt281/TycheEngine/branch/main/graph/badge.svg" alt="Coverage">
+  </a>
+  <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python 3.9+">
+  <a href="https://github.com/zt281/TycheEngine/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/zt281/TycheEngine" alt="License">
+  </a>
+</p>
+
 # Tyche Engine
 
 Tyche Engine is a high-performance distributed event-driven framework written in Python, built on ZeroMQ. It serves as a central processing system for orchestrating multi-process applications. The system consists of two core components:
