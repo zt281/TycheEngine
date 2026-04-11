@@ -18,6 +18,15 @@
 - [test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Added comprehensive documentation for the new administrative capabilities and admin endpoint functionality
+- Enhanced XPUB/XSUB event proxy documentation with separate event endpoints
+- Updated thread-safe operations documentation including registry locks and heartbeat queues
+- Expanded heartbeat management documentation with queue-based forwarding and improved monitoring
+- Added detailed API reference for new administrative features
+- Updated architectural diagrams to reflect enhanced engine architecture
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -33,9 +42,11 @@
 ## Introduction
 This document explains the core components of Tyche Engine: TycheEngine as the central broker, TycheModule as the base class for distributed modules, the Message system for serialization, HeartbeatManager for peer monitoring, and the type definitions. It covers component responsibilities, relationships, lifecycle management, APIs, parameters, return values, practical usage patterns, configuration options, and error handling strategies.
 
+**Updated** Enhanced with new administrative capabilities, XPUB/XSUB event proxy functionality, thread-safe operations, and improved heartbeat management.
+
 ## Project Structure
 Tyche Engine organizes its core logic under src/tyche with clear separation of concerns:
-- Broker engine: TycheEngine orchestrates registration, event routing, and heartbeat monitoring.
+- Broker engine: TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative queries.
 - Module base: ModuleBase defines the interface for modules; TycheModule provides a concrete implementation.
 - Messaging: Message and Envelope define the serialized message format and ZeroMQ framing.
 - Heartbeat: HeartbeatManager tracks peer liveness using a Paranoid Pirate pattern.
@@ -48,6 +59,8 @@ Engine["TycheEngine<br/>Broker"]
 HBMgr["HeartbeatManager<br/>Peer Liveness"]
 Msg["Message<br/>Serialization"]
 Types["Types<br/>Enums/Dataclasses"]
+Admin["Admin Worker<br/>State Queries"]
+EventProxy["Event Proxy<br/>XPUB/XSUB"]
 end
 subgraph "Tyche Module"
 ModBase["ModuleBase<br/>Abstract"]
@@ -57,6 +70,8 @@ end
 Engine --> HBMgr
 Engine --> Msg
 Engine --> Types
+Engine --> Admin
+Engine --> EventProxy
 TycheMod --> ModBase
 TycheMod --> Msg
 TycheMod --> Types
@@ -64,37 +79,39 @@ ExMod --> TycheMod
 ```
 
 **Diagram sources**
-- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
+- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
 
 **Section sources**
-- [engine.py:1-350](file://src/tyche/engine.py#L1-L350)
+- [engine.py:1-456](file://src/tyche/engine.py#L1-L456)
 - [module.py:1-401](file://src/tyche/module.py#L1-L401)
 - [module_base.py:1-120](file://src/tyche/module_base.py#L1-L120)
 - [message.py:1-168](file://src/tyche/message.py#L1-L168)
-- [heartbeat.py:1-142](file://src/tyche/heartbeat.py#L1-L142)
-- [types.py:1-102](file://src/tyche/types.py#L1-L102)
-- [example_module.py:1-167](file://src/tyche/example_module.py#L1-L167)
+- [heartbeat.py:1-153](file://src/tyche/heartbeat.py#L1-L153)
+- [types.py:1-105](file://src/tyche/types.py#L1-L105)
+- [example_module.py:1-183](file://src/tyche/example_module.py#L1-L183)
 
 ## Core Components
 This section documents the primary building blocks and their responsibilities.
 
 - TycheEngine
-  - Central broker managing module registration, event routing via XPUB/XSUB proxy, and heartbeat monitoring.
+  - Central broker managing module registration, event routing via XPUB/XSUB proxy, heartbeat monitoring, and administrative queries.
   - Exposes lifecycle methods run(), start_nonblocking(), and stop().
-  - Manages internal registry of modules and their interfaces.
-  - Provides endpoints for registration, event publishing/subscribing, and heartbeat exchange.
+  - Manages internal registry of modules and their interfaces with thread-safe operations.
+  - Provides endpoints for registration, event publishing/subscribing, heartbeat exchange, and administrative state queries.
+  - **Updated**: Now includes administrative worker for engine state queries and enhanced XPUB/XSUB proxy with separate event endpoints.
 
 - TycheModule
   - Base class for distributed modules; inherits from ModuleBase.
   - Handles registration handshake, event subscription/publishing, and heartbeat sending.
   - Supports interface patterns: on_, ack_, whisper_, on_common_, broadcast_.
   - Provides send_event() and call_ack() helpers for event-driven communication.
+  - **Updated**: Enhanced with improved heartbeat management and administrative endpoint support.
 
 - Message
   - Defines the Message dataclass and Envelope for ZeroMQ routing.
@@ -104,22 +121,24 @@ This section documents the primary building blocks and their responsibilities.
 - HeartbeatManager
   - Tracks peer liveness using a Paranoid Pirate pattern with configurable intervals and liveness thresholds.
   - Monitors individual peers and reports expired ones for automatic cleanup.
+  - **Updated**: Enhanced with thread-safe operations and improved monitoring capabilities.
 
 - Types
   - Defines enums for MessageType, InterfacePattern, DurabilityLevel, and EventType.
   - Provides dataclasses for Endpoint, Interface, ModuleInfo, and ModuleId utilities.
-  - Exposes constants for heartbeat timing.
+  - Exposes constants for heartbeat timing and administrative endpoint defaults.
+  - **Updated**: Added ADMIN_PORT_DEFAULT constant for administrative endpoint configuration.
 
 **Section sources**
-- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
+- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 
 ## Architecture Overview
-Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration and heartbeat monitoring.
+Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, and administrative state queries.
 
 ```mermaid
 sequenceDiagram
@@ -130,6 +149,7 @@ participant ZXPUB as "ZMQ XPUB"
 participant ZXSUB as "ZMQ XSUB"
 participant HBOUT as "ZMQ PUB"
 participant HBIN as "ZMQ ROUTER"
+participant Admin as "ZMQ ROUTER (Admin)"
 Note over Mod,Eng : Registration Handshake
 Mod->>Eng : REQ REGISTER
 Eng->>Eng : Deserialize and validate
@@ -144,12 +164,17 @@ Mod->>HBIN : DEALER heartbeat
 HBIN->>Eng : ROUTER heartbeat
 Eng->>Eng : HeartbeatManager.update()
 Eng->>Eng : Periodic tick_all() removes expired
+Note over Eng,Admin : Administrative Queries
+Admin->>Eng : ROUTER admin query
+Eng->>Eng : Process STATUS/MODULES/STATS
+Eng-->>Admin : JSON response
 ```
 
 **Diagram sources**
 - [engine.py:121-177](file://src/tyche/engine.py#L121-L177)
 - [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
 - [engine.py:281-349](file://src/tyche/engine.py#L281-L349)
+- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
 - [module.py:200-254](file://src/tyche/module.py#L200-L254)
 - [module.py:301-330](file://src/tyche/module.py#L301-L330)
 - [module.py:376-401](file://src/tyche/module.py#L376-L401)
@@ -159,9 +184,10 @@ Eng->>Eng : Periodic tick_all() removes expired
 ### TycheEngine
 Responsibilities:
 - Manage module registration via ROUTER socket.
-- Route events using an XPUB/XSUB proxy.
+- Route events using an XPUB/XSUB proxy with separate event endpoints.
 - Monitor peer liveness via heartbeat workers and HeartbeatManager.
 - Provide lifecycle control: run(), start_nonblocking(), stop().
+- **Updated**: Handle administrative queries via ROUTER socket for engine state monitoring.
 
 Key APIs and behaviors:
 - Constructor parameters:
@@ -170,6 +196,7 @@ Key APIs and behaviors:
   - heartbeat_endpoint: Endpoint for outbound heartbeat PUB.
   - ack_endpoint: Optional ACK endpoint derived from event_endpoint.
   - heartbeat_receive_endpoint: Endpoint for inbound heartbeat ROUTER.
+  - **Updated**: admin_endpoint: Optional administrative endpoint with default ADMIN_PORT_DEFAULT.
 - Lifecycle:
   - run(): Starts worker threads and blocks until stop().
   - start_nonblocking(): Starts worker threads without blocking.
@@ -177,35 +204,42 @@ Key APIs and behaviors:
 - Registration worker:
   - Receives multipart frames from modules, deserializes Message, and responds with ACK containing event ports.
 - Event proxy worker:
-  - Binds XPUB and XSUB, forwards messages between them.
+  - **Updated**: Binds separate XPUB and XSUB endpoints for bidirectional event flow.
+  - Forwards messages between XPUB and XSUB with thread-safe event counting.
 - Heartbeat workers:
-  - Outbound: Sends periodic HEARTBEAT messages via PUB.
+  - Outbound: Sends periodic HEARTBEAT messages via PUB with queue-based forwarding.
   - Inbound: Receives heartbeat ROUTER frames, deserializes, and updates HeartbeatManager.
 - Monitor worker:
   - Periodically calls HeartbeatManager.tick_all() and unregisters expired modules.
+- **Updated**: Admin worker:
+  - Handles administrative queries via ROUTER socket.
+  - Supports STATUS, MODULES, and STATS queries with thread-safe responses.
 
 Practical usage:
-- Start the engine as a standalone process with distinct endpoints for registration, events, and heartbeats.
-- Use examples/run_engine.py to launch the engine and examples/run_module.py to connect modules.
+- Start the engine as a standalone process with distinct endpoints for registration, events, heartbeats, and administration.
+- Use examples/run_engine.py to launch the engine with administrative capabilities.
 
 Integration patterns:
-- Modules connect to the engine’s registration endpoint for one-shot registration.
-- Modules publish events to the engine’s XSUB endpoint and subscribe via the engine’s XPUB endpoint.
-- Modules send heartbeats to the engine’s heartbeat receive endpoint.
+- Modules connect to the engine's registration endpoint for one-shot registration.
+- Modules publish events to the engine's XSUB endpoint and subscribe via the engine's XPUB endpoint.
+- Modules send heartbeats to the engine's heartbeat receive endpoint.
+- **Updated**: Administrative clients can query engine state via the admin endpoint.
 
 Error handling:
 - Graceful logging of errors in workers; exceptions are caught and logged without crashing the engine when still running.
 - Proper socket closure and context destruction on stop().
+- **Updated**: Thread-safe operations protect registry and state queries.
 
 **Section sources**
-- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
-- [run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
+- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
+- [run_engine.py:21-59](file://examples/run_engine.py#L21-L59)
 
 ### TycheModule
 Responsibilities:
 - Connect to TycheEngine, register interfaces, subscribe to events, and dispatch messages to handlers.
-- Send events via the engine’s event proxy and request acknowledgments via call_ack().
+- Send events via the engine's event proxy and request acknowledgments via call_ack().
 - Send periodic heartbeats to keep the engine informed of liveness.
+- **Updated**: Enhanced with improved heartbeat management and administrative endpoint support.
 
 Key APIs and behaviors:
 - Constructor parameters:
@@ -228,10 +262,11 @@ Key APIs and behaviors:
   - _event_receiver(): Receives events from XPUB, deserializes, and dispatches to handlers.
   - _dispatch(): Calls handler with payload; logs exceptions.
 - Event publishing:
-  - send_event(event, payload, recipient): Publishes to engine’s XSUB with topic framing.
+  - send_event(event, payload, recipient): Publishes to engine's XSUB with topic framing.
   - call_ack(event, payload, timeout_ms): Sends COMMAND via REQ and waits for ACK response.
 - Heartbeat:
-  - _send_heartbeats(): Sends periodic HEARTBEAT messages to engine’s heartbeat receive endpoint.
+  - _send_heartbeats(): Sends periodic HEARTBEAT messages to engine's heartbeat receive endpoint.
+- **Updated**: Enhanced heartbeat management with improved timing and error handling.
 
 Practical usage:
 - Extend TycheModule and implement handler methods following naming conventions.
@@ -239,7 +274,7 @@ Practical usage:
 - Call send_event() and call_ack() for event-driven communication.
 
 Integration patterns:
-- Modules connect to the engine’s registration endpoint and subscribe to topics matching their handler names.
+- Modules connect to the engine's registration endpoint and subscribe to topics matching their handler names.
 - Use call_ack() for request-response semantics requiring ACK replies.
 
 Error handling:
@@ -249,8 +284,8 @@ Error handling:
 **Section sources**
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
-- [run_module.py:22-51](file://examples/run_module.py#L22-L51)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
+- [run_module.py:22-67](file://examples/run_module.py#L22-L67)
 
 ### Message System
 Responsibilities:
@@ -294,6 +329,7 @@ Error handling:
 Responsibilities:
 - Track peer liveness using a Paranoid Pirate pattern with configurable intervals and liveness thresholds.
 - Provide registration, update, and expiration detection for peers.
+- **Updated**: Enhanced with thread-safe operations and improved monitoring capabilities.
 
 Key APIs and behaviors:
 - HeartbeatMonitor:
@@ -310,6 +346,8 @@ Key APIs and behaviors:
   - update(peer_id): Updates monitor for peer.
   - tick_all(): Decrements all monitors and returns expired peer IDs.
   - get_expired(): Returns expired peers without ticking.
+  - **Updated**: get_liveness(peer_id): Returns current liveness value for a peer.
+- **Updated**: Thread-safe operations via locks for concurrent access.
 
 Practical usage:
 - Engine uses HeartbeatManager to monitor module liveness and remove expired modules.
@@ -317,14 +355,15 @@ Practical usage:
 
 Error handling:
 - Graceful handling of missing monitors by creating new ones on update.
-- Thread-safe operations via locks.
+- **Updated**: Thread-safe operations prevent race conditions during concurrent access.
 
 **Section sources**
-- [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
+- [heartbeat.py:16-153](file://src/tyche/heartbeat.py#L16-L153)
 
 ### Type Definitions
 Responsibilities:
 - Provide shared enums, dataclasses, and constants for the engine and modules.
+- **Updated**: Include administrative endpoint configuration constants.
 
 Key definitions:
 - Enums:
@@ -340,13 +379,16 @@ Key definitions:
 - Constants:
   - HEARTBEAT_INTERVAL: Seconds between heartbeats.
   - HEARTBEAT_LIVENESS: Missed heartbeats before considered dead.
+  - **Updated**: ADMIN_PORT_DEFAULT: Default administrative endpoint port.
+- **Updated**: Enhanced constants for administrative endpoint configuration.
 
 Practical usage:
 - Use Endpoint to configure engine and module endpoints.
 - Use InterfacePattern and DurabilityLevel to define handler capabilities and persistence.
+- **Updated**: Use ADMIN_PORT_DEFAULT for administrative endpoint configuration.
 
 **Section sources**
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 
 ## Architecture Overview
 The following diagram maps the actual code relationships among core components.
@@ -366,6 +408,11 @@ class TycheEngine {
 +stop() void
 +register_module(module_info) void
 +unregister_module(module_id) void
++_admin_worker() void
++_event_proxy_worker() void
++_heartbeat_worker() void
++_heartbeat_receive_worker() void
++_monitor_worker() void
 }
 class TycheModule {
 +str module_id
@@ -401,6 +448,7 @@ class HeartbeatManager {
 +update(peer_id) void
 +tick_all() str[]
 +get_expired() str[]
++get_liveness(peer_id) int
 }
 TycheModule --|> ModuleBase
 TycheEngine --> HeartbeatManager : "uses"
@@ -409,11 +457,11 @@ TycheModule --> Message : "serializes/deserializes"
 ```
 
 **Diagram sources**
-- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
+- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 
 ## Detailed Component Analysis
 
@@ -479,12 +527,31 @@ end
 **Diagram sources**
 - [engine.py:281-349](file://src/tyche/engine.py#L281-L349)
 - [module.py:376-401](file://src/tyche/module.py#L376-L401)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 
 **Section sources**
 - [engine.py:281-349](file://src/tyche/engine.py#L281-L349)
 - [module.py:376-401](file://src/tyche/module.py#L376-L401)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+
+### Administrative Query Flow
+```mermaid
+sequenceDiagram
+participant AdminClient as "Admin Client"
+participant AdminWorker as "Admin Worker"
+participant Engine as "TycheEngine"
+AdminClient->>AdminWorker : ROUTER admin query
+AdminWorker->>Engine : Process query (STATUS/MODULES/STATS)
+Engine->>Engine : Thread-safe state access
+Engine-->>AdminWorker : JSON response
+AdminWorker-->>AdminClient : Response
+```
+
+**Diagram sources**
+- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
+
+**Section sources**
+- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
 
 ## Dependency Analysis
 The core components have minimal coupling and clear boundaries:
@@ -493,6 +560,7 @@ The core components have minimal coupling and clear boundaries:
 - HeartbeatManager is used by TycheEngine and can be used by modules independently.
 - Message depends on types for enums and durability levels.
 - Types are foundational and used across modules and engine.
+- **Updated**: Administrative endpoint constants are used by TycheEngine for configuration.
 
 ```mermaid
 graph LR
@@ -503,6 +571,7 @@ TycheMod["TycheModule"] --> Msg
 TycheMod --> Types
 ModBase["ModuleBase"] --> Types
 Msg --> Types
+AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 ```
 
 **Diagram sources**
@@ -523,6 +592,8 @@ Msg --> Types
 - MessagePack serialization is compact and fast; custom Decimal handling ensures precision without significant overhead.
 - Thread-per-worker design keeps I/O non-blocking; daemon threads ensure graceful shutdown.
 - XPUB/XSUB proxy minimizes fan-out costs by forwarding at the socket level.
+- **Updated**: Thread-safe operations use locks to prevent race conditions during concurrent access.
+- **Updated**: Administrative queries are handled asynchronously to minimize performance impact.
 
 ## Troubleshooting Guide
 Common issues and strategies:
@@ -538,12 +609,16 @@ Common issues and strategies:
 - Serialization errors:
   - Symptoms: MessagePack decode errors or unsupported types.
   - Actions: Ensure payloads only contain supported types or use Decimal-compatible structures; verify custom encoder/decoder behavior.
+- **Updated**: Administrative query failures:
+  - Symptoms: Admin client cannot connect to engine or query timeouts.
+  - Actions: Verify admin endpoint configuration, check network connectivity, and ensure engine admin worker is running.
 
 Validation via tests:
 - Engine registration/unregistration verified in unit tests.
 - Module interface discovery and lifecycle verified in unit tests.
 - Message serialization round-trip and envelope handling verified in unit tests.
 - Heartbeat protocol behavior validated in heartbeat protocol tests.
+- **Updated**: Administrative endpoint functionality tested in heartbeat protocol tests.
 
 **Section sources**
 - [test_engine.py:8-51](file://tests/unit/test_engine.py#L8-L51)
@@ -552,14 +627,15 @@ Validation via tests:
 - [test_heartbeat_protocol.py:16-119](file://tests/unit/test_heartbeat_protocol.py#L16-L119)
 
 ## Conclusion
-Tyche Engine’s core components form a cohesive, modular system:
-- TycheEngine orchestrates registration, event routing, and heartbeat monitoring.
+Tyche Engine's core components form a cohesive, modular system:
+- TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative state queries.
 - TycheModule provides a flexible, interface-driven development model with built-in helpers.
 - Message and Envelope ensure robust, typed serialization across the wire.
-- HeartbeatManager enforces reliability using a proven pattern.
-- Types unify configuration and behavior across the system.
+- HeartbeatManager enforces reliability using a proven pattern with thread-safe operations.
+- Types unify configuration and behavior across the system, including administrative endpoint defaults.
+- **Updated**: Enhanced administrative capabilities provide real-time monitoring and state inspection.
 
-Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, and straightforward integration patterns.
+Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, and straightforward integration patterns.
 
 ## Appendices
 
@@ -571,6 +647,7 @@ Together, these components enable scalable, resilient distributed systems with c
     - heartbeat_endpoint: Endpoint
     - ack_endpoint: Optional[Endpoint]
     - heartbeat_receive_endpoint: Optional[Endpoint]
+    - **Updated**: admin_endpoint: str (default: ADMIN_PORT_DEFAULT)
   - Behavior: Stores endpoints, initializes registry, and prepares HeartbeatManager.
 - Methods:
   - run(): Start workers and block until stop().
@@ -578,10 +655,17 @@ Together, these components enable scalable, resilient distributed systems with c
   - stop(): Stop workers, join threads, and destroy context.
   - register_module(module_info): Thread-safe registration.
   - unregister_module(module_id): Thread-safe unregistration.
+  - **Updated**: _admin_worker(): Handle administrative queries.
+  - **Updated**: _event_proxy_worker(): Enhanced XPUB/XSUB proxy with separate endpoints.
+  - **Updated**: _heartbeat_worker(): Queue-based heartbeat forwarding.
+  - **Updated**: _heartbeat_receive_worker(): Enhanced heartbeat processing.
 
 **Section sources**
 - [engine.py:34-118](file://src/tyche/engine.py#L34-L118)
 - [engine.py:200-234](file://src/tyche/engine.py#L200-L234)
+- [engine.py:255-297](file://src/tyche/engine.py#L255-L297)
+- [engine.py:300-371](file://src/tyche/engine.py#L300-L371)
+- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
 
 ### API Reference: TycheModule
 - Constructor
@@ -599,6 +683,7 @@ Together, these components enable scalable, resilient distributed systems with c
   - send_event(event, payload, recipient): Publish event via engine.
   - call_ack(event, payload, timeout_ms): Request-response with ACK.
   - discover_interfaces(): Auto-detect interfaces from method names.
+  - **Updated**: Enhanced heartbeat management with improved timing.
 
 **Section sources**
 - [module.py:41-197](file://src/tyche/module.py#L41-L197)
@@ -632,9 +717,10 @@ Together, these components enable scalable, resilient distributed systems with c
 - Methods:
   - register(peer_id), unregister(peer_id), update(peer_id)
   - tick_all() -> List[str], get_expired() -> List[str]
+  - **Updated**: get_liveness(peer_id) -> int
 
 **Section sources**
-- [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
+- [heartbeat.py:16-153](file://src/tyche/heartbeat.py#L16-L153)
 
 ### API Reference: Types
 - Enums:
@@ -643,19 +729,23 @@ Together, these components enable scalable, resilient distributed systems with c
   - Endpoint(host, port), Interface(name, pattern, event_type, durability), ModuleInfo(module_id, endpoint, interfaces, metadata)
 - Constants:
   - HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS
+  - **Updated**: ADMIN_PORT_DEFAULT
 
 **Section sources**
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 
 ### Practical Examples
 - Running the engine:
   - Configure endpoints and call run(); see examples/run_engine.py.
+  - **Updated**: Engine now includes administrative endpoint for state queries.
 - Running a module:
   - Instantiate ExampleModule with engine endpoint and heartbeat receive endpoint; call run(); see examples/run_module.py.
 - Implementing a custom module:
   - Extend TycheModule, implement handlers following naming conventions, and call add_interface() or rely on discover_interfaces().
+- **Updated**: Administrative queries:
+  - Use admin endpoint to query engine status, modules, and statistics.
 
 **Section sources**
-- [run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
-- [run_module.py:22-51](file://examples/run_module.py#L22-L51)
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [run_engine.py:21-59](file://examples/run_engine.py#L21-L59)
+- [run_module.py:22-67](file://examples/run_module.py#L22-L67)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)

@@ -15,10 +15,29 @@
 - [examples/run_engine.py](file://examples/run_engine.py)
 - [examples/run_module.py](file://examples/run_module.py)
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
+- [tests/unit/test_engine_main.py](file://tests/unit/test_engine_main.py)
+- [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
+- [tests/unit/test_example_module.py](file://tests/unit/test_example_module.py)
+- [tests/unit/test_heartbeat.py](file://tests/unit/test_heartbeat.py)
+- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
+- [tests/unit/test_message.py](file://tests/unit/test_message.py)
 - [tests/unit/test_module.py](file://tests/unit/test_module.py)
+- [tests/unit/test_module_base.py](file://tests/unit/test_module_base.py)
+- [tests/unit/test_module_main.py](file://tests/unit/test_module_main.py)
+- [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
+- [tests/unit/test_types.py](file://tests/unit/test_types.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated unit testing strategy to reflect expanded test coverage with 12 new test files
+- Added comprehensive threading and signal handling test documentation
+- Enhanced heartbeat protocol testing coverage with dedicated test file
+- Expanded integration testing documentation with detailed two-node system examples
+- Updated CI configuration to reflect current test execution patterns
+- Added new test categories and patterns for distributed component validation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -33,12 +52,12 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. It also includes guidance for writing tests for modules, engines, and message handling, continuous integration setup, automated testing pipelines, release procedures, debugging distributed systems, profiling performance, maintaining code quality, contribution guidelines, code review processes, and development environment setup.
+This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. The testing infrastructure has been significantly expanded with over 4000 lines of new test code covering unit, integration, and threading scenarios. It also includes guidance for writing tests for modules, engines, and message handling, continuous integration setup, automated testing pipelines, release procedures, debugging distributed systems, profiling performance, maintaining code quality, contribution guidelines, code review processes, and development environment setup.
 
 ## Project Structure
 Tyche Engine follows a layered architecture with clear separation between core components and tests:
 - Core library under src/tyche implementing the engine, modules, message handling, heartbeat, and types.
-- Tests organized into unit, integration, and property test areas.
+- Tests organized into unit, integration, and property test areas with comprehensive coverage.
 - Examples demonstrating standalone engine and module usage.
 - CI configured via GitHub Actions.
 
@@ -55,6 +74,9 @@ end
 subgraph "Tests (tests)"
 U1["unit/test_engine.py"]
 U2["unit/test_module.py"]
+U3["unit/test_engine_threading.py"]
+U4["unit/test_signal_handling.py"]
+U5["unit/test_heartbeat_protocol.py"]
 I1["integration/test_engine_module.py"]
 I2["integration/test_multiprocess.py"]
 CF["conftest.py"]
@@ -69,6 +91,9 @@ W["ci.yml"]
 end
 U1 --> A
 U2 --> B
+U3 --> A
+U4 --> A
+U5 --> D
 I1 --> A
 I1 --> B
 I2 --> A
@@ -78,6 +103,9 @@ X1 --> A
 X2 --> B
 P --> U1
 P --> U2
+P --> U3
+P --> U4
+P --> U5
 P --> I1
 P --> I2
 W --> P
@@ -92,6 +120,9 @@ W --> P
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
 - [tests/unit/test_module.py](file://tests/unit/test_module.py)
+- [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
+- [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
+- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 - [tests/conftest.py](file://tests/conftest.py)
@@ -173,20 +204,34 @@ MON -- "Expire Modules" --> R
 ## Detailed Component Analysis
 
 ### Unit Testing Strategy
-Unit tests focus on isolated logic and deterministic behavior:
+Unit tests focus on isolated logic and deterministic behavior with comprehensive coverage:
 - Test engine initialization and module registry operations.
 - Validate module interface registration and handler mapping.
 - Verify message serialization/deserialization and envelope handling.
 - Confirm heartbeat constants and manager behavior.
+- **New**: Threading safety and concurrent operation testing.
+- **New**: Signal handling and graceful shutdown verification.
+- **New**: Heartbeat protocol compliance and expiration logic.
 
 Recommended patterns:
 - Use mocks for external dependencies (e.g., ZeroMQ sockets) to isolate logic.
 - Prefer deterministic inputs (fixed ports, predefined module IDs).
 - Assert thread-safety where applicable using locks and state checks.
+- **Updated**: Leverage pytest markers for slow and timeout-sensitive tests.
 
 **Section sources**
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
+- [tests/unit/test_engine_main.py](file://tests/unit/test_engine_main.py)
+- [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
+- [tests/unit/test_example_module.py](file://tests/unit/test_example_module.py)
+- [tests/unit/test_heartbeat.py](file://tests/unit/test_heartbeat.py)
+- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
+- [tests/unit/test_message.py](file://tests/unit/test_message.py)
 - [tests/unit/test_module.py](file://tests/unit/test_module.py)
+- [tests/unit/test_module_base.py](file://tests/unit/test_module_base.py)
+- [tests/unit/test_module_main.py](file://tests/unit/test_module_main.py)
+- [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
+- [tests/unit/test_types.py](file://tests/unit/test_types.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/message.py](file://src/tyche/message.py)
@@ -194,16 +239,18 @@ Recommended patterns:
 - [src/tyche/types.py](file://src/tyche/types.py)
 
 ### Integration Testing Strategy
-Integration tests validate real ZeroMQ socket interactions:
+Integration tests validate real ZeroMQ socket interactions with comprehensive scenarios:
 - Two-node system: Engine + ExampleModule communicating via XPUB/XSUB and REQ/REP.
-- Heartbeat propagation and module liveness.
-- Event publishing and receiving across the proxy.
+- Heartbeat propagation and module liveness verification.
+- Event publishing and receiving across the proxy with handler dispatch.
 - Multi-process scenarios using subprocess to launch engine and module entry points.
+- **New**: Complete end-to-end interaction testing with handler invocation.
 
 Mocking and fixtures:
 - Use non-blocking start methods to spin up engine and module quickly.
 - Manage timing with small sleeps to allow sockets to bind/connect.
 - Use subprocess with PYTHONPATH set to src to run entry points.
+- **Updated**: Implement comprehensive fixture management for test isolation.
 
 **Section sources**
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
@@ -224,10 +271,12 @@ Note: The repository currently includes a performance test directory placeholder
 - Pytest configuration sets test paths, markers, and asyncio mode.
 - conftest.py adds src to Python path for imports in tests.
 - Use fixtures to encapsulate common setup (e.g., endpoints, engine and module instances).
+- **Updated**: Comprehensive fixture management for threading and signal handling scenarios.
 
 Best practices:
 - Keep fixtures reusable and parameterized for different scenarios.
 - Use mark.slow for long-running tests and deselect them by default.
+- **Updated**: Implement timeout decorators for distributed component tests.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -237,6 +286,8 @@ Best practices:
 - Replace ZeroMQ sockets with mocks in unit tests to simulate network conditions.
 - Use deterministic timing constants (heartbeat intervals) to control test execution.
 - For integration tests, rely on ephemeral ports and short timeouts to avoid flakiness.
+- **New**: Mock heartbeat managers and engine registries for isolation testing.
+- **New**: Use pytest monkeypatch for dynamic behavior modification in tests.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -247,21 +298,27 @@ Best practices:
 - Engines: Test registration, interface discovery, event proxy forwarding, and heartbeat monitoring.
 - Modules: Validate interface registration, subscription, event dispatch, and heartbeat sending.
 - Messages: Ensure serialization preserves types and handles special encodings (Decimal, Enum).
+- **New**: Threading safety: Test concurrent access to shared resources.
+- **New**: Signal handling: Verify graceful shutdown under various termination signals.
+- **New**: Heartbeat protocol: Validate expiration and renewal logic.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/message.py](file://src/tyche/message.py)
+- [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/types.py](file://src/tyche/types.py)
 
 ### Continuous Integration Setup and Automated Pipelines
 - CI runs linting (Ruff) and type checking (mypy) on pushes and pull requests.
 - Tests run on multiple OS and Python versions with coverage upload on Ubuntu + Python 3.11.
 - Slow tests are marked and can be deselected locally.
+- **Updated**: CI configuration optimized for expanded test suite.
 
 Recommendations:
 - Add property and performance tests to CI matrix with appropriate timeouts.
 - Integrate coverage reporting consistently across platforms.
+- **Updated**: Optimize CI matrix for faster feedback loops.
 
 **Section sources**
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
@@ -279,6 +336,8 @@ Recommendations:
 - Use logs from engine and module workers to trace message flow.
 - Validate endpoint bindings and port allocations.
 - For heartbeat issues, confirm intervals and liveness thresholds.
+- **New**: Thread debugging: Use threading.ident to track concurrent operations.
+- **New**: Signal handling debugging: Monitor signal delivery and cleanup sequences.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -289,6 +348,7 @@ Recommendations:
 - Measure hot-path latency and persistence throughput using benchmark tests.
 - Profile serialization/deserialization costs.
 - Evaluate backpressure handling under load.
+- **New**: Threading performance: Measure lock contention and thread switching overhead.
 
 **Section sources**
 - [README.md](file://README.md)
@@ -298,6 +358,7 @@ Recommendations:
 - Enforce linting with Ruff and type checking with mypy.
 - Keep tests minimal and focused; avoid over-mocking.
 - Use descriptive test names and clear assertions.
+- **Updated**: Maintain comprehensive test coverage for all public APIs.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -306,6 +367,7 @@ Recommendations:
 - Follow existing code style and lint rules.
 - Add tests for new features and bug fixes.
 - Keep PRs small and focused; include rationale and test coverage.
+- **Updated**: Ensure new tests cover threading, signal handling, and heartbeat scenarios.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -315,6 +377,7 @@ Recommendations:
 - Install dev dependencies (pytest, pytest-asyncio, pytest-timeout, pytest-cov, mypy, ruff).
 - Run linting and type checks locally before committing.
 - Execute unit tests and integration tests with proper PYTHONPATH.
+- **Updated**: Configure IDE for pytest integration and test discovery.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -328,11 +391,14 @@ graph LR
 T["tests/conftest.py"] --> I["src/tyche/__init__.py"]
 U1["tests/unit/test_engine.py"] --> E["src/tyche/engine.py"]
 U2["tests/unit/test_module.py"] --> M["src/tyche/module.py"]
+U3["tests/unit/test_engine_threading.py"] --> E
+U4["tests/unit/test_signal_handling.py"] --> E
+U5["tests/unit/test_heartbeat_protocol.py"] --> HB["src/tyche/heartbeat.py"]
 I1["tests/integration/test_engine_module.py"] --> E
 I1 --> M
 I2["tests/integration/test_multiprocess.py"] --> E
 I2 --> M
-E --> HB["src/tyche/heartbeat.py"]
+E --> HB
 E --> MSG["src/tyche/message.py"]
 E --> TP["src/tyche/types.py"]
 M --> MSG
@@ -346,6 +412,9 @@ HB --> TP
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
 - [tests/unit/test_module.py](file://tests/unit/test_module.py)
+- [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
+- [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
+- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -367,6 +436,7 @@ HB --> TP
 - Hot-path latency targets and persistence characteristics are documented in the project overview.
 - Use non-blocking starts in tests to reduce overhead.
 - Prefer ephemeral ports and short sleeps for integration tests to minimize flakiness.
+- **New**: Threading performance: Minimize lock contention and optimize thread synchronization.
 
 **Section sources**
 - [README.md](file://README.md)
@@ -377,6 +447,8 @@ Common issues and resolutions:
 - Heartbeat timeouts: Check intervals and liveness thresholds; confirm module heartbeat sockets are connected.
 - Event delivery gaps: Validate subscription topics and event proxy configuration.
 - Multi-process connectivity: Confirm subprocess PYTHONPATH and port availability.
+- **New**: Threading deadlocks: Use thread dumps to identify blocked operations.
+- **New**: Signal handling issues: Verify signal masks and cleanup handlers are properly installed.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -385,7 +457,7 @@ Common issues and resolutions:
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 
 ## Conclusion
-Tyche Engine’s testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests. By leveraging deterministic fixtures, controlled timing, and structured CI pipelines, contributors can maintain high-quality, reliable distributed components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization.
+Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests. The expanded test infrastructure with over 4000 lines of new test code provides comprehensive coverage of threading scenarios, signal handling, and heartbeat protocols. By leveraging deterministic fixtures, controlled timing, and structured CI pipelines, contributors can maintain high-quality, reliable distributed components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization.
 
 ## Appendices
 
