@@ -15,6 +15,15 @@
 - [README.md](file://README.md)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced thread safety documentation with comprehensive lock usage
+- Added comprehensive logging coverage for all worker threads
+- Updated daemon thread configuration details
+- Improved error handling documentation with try/except patterns
+- Added XPUB/XSUB proxy implementation details
+- Updated worker thread system with daemon thread configuration
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -30,6 +39,8 @@
 ## Introduction
 TycheEngine is a high-performance distributed event-driven framework built on ZeroMQ. The central broker component coordinates distributed modules through a multi-threaded architecture that handles registration, heartbeat monitoring, event proxying, and module lifecycle management. This document provides comprehensive coverage of the engine's design, initialization parameters, worker threads, registration process, interface discovery, thread-safety mechanisms, and operational patterns including graceful shutdown and error handling.
 
+**Updated** Enhanced with comprehensive logging, daemon thread configuration, and improved error handling throughout the worker threads.
+
 ## Project Structure
 The TycheEngine project organizes core functionality into focused modules:
 - Engine: Central broker implementation with multi-threaded workers
@@ -43,7 +54,7 @@ The TycheEngine project organizes core functionality into focused modules:
 graph TB
 subgraph "Core Engine"
 E["TycheEngine<br/>Central Broker"]
-EW["Worker Threads<br/>Registration/Heartbeat/Event Proxy/Monitor"]
+EW["Worker Threads<br/>Registration/Heartbeat/Event Proxy/Monitor<br/>Daemon Threads"]
 end
 subgraph "Module Layer"
 MB["ModuleBase<br/>Interface Discovery"]
@@ -54,6 +65,7 @@ subgraph "Infrastructure"
 HB["HeartbeatManager<br/>Paranoid Pirate"]
 MSG["Message<br/>Serialization"]
 TYP["Types<br/>Endpoints/Interfaces"]
+LOG["Logging<br/>Comprehensive Error Logging"]
 end
 E --> EW
 TM --> MB
@@ -61,6 +73,7 @@ EM --> TM
 E --> HB
 E --> MSG
 E --> TYP
+E --> LOG
 TM --> MSG
 TM --> TYP
 ```
@@ -85,23 +98,27 @@ The central broker comprises several key components that work together to orches
 ### TycheEngine Class
 The main engine class manages:
 - Endpoint configuration for registration, event distribution, and heartbeats
-- Thread-safe module registry and interface mapping
-- Multi-threaded worker system for concurrent operations
-- Graceful shutdown with resource cleanup
+- Thread-safe module registry and interface mapping with comprehensive locking
+- Multi-threaded worker system for concurrent operations with daemon thread configuration
+- Graceful shutdown with resource cleanup and proper thread joining
+
+**Updated** Enhanced with comprehensive logging throughout worker threads and improved error handling.
 
 ### Worker Thread System
-Five dedicated worker threads handle specific responsibilities:
-- Registration worker: Processes module registration requests
-- Heartbeat worker: Broadcasts periodic heartbeats
-- Heartbeat receive worker: Receives and processes module heartbeats
-- Monitor worker: Tracks module health and expiration
-- Event proxy worker: Manages XPUB/XSUB proxy for event distribution
+Five dedicated daemon worker threads handle specific responsibilities:
+- Registration worker: Processes module registration requests with comprehensive error logging
+- Heartbeat worker: Broadcasts periodic heartbeats with error handling
+- Heartbeat receive worker: Receives and processes module heartbeats with logging
+- Monitor worker: Tracks module health and expiration with logging
+- Event proxy worker: Manages XPUB/XSUB proxy for event distribution with bidirectional forwarding
+
+**Updated** All worker threads are configured as daemon threads for automatic cleanup.
 
 ### Module Registration and Interface Discovery
 Modules register with the engine through a standardized protocol:
-- One-shot registration using REQ/ROUTER sockets
-- Interface discovery via method naming conventions
-- Dynamic interface mapping for event routing
+- One-shot registration using REQ/ROUTER sockets with comprehensive error handling
+- Interface discovery via method naming conventions with auto-discovery
+- Dynamic interface mapping for event routing with thread-safe operations
 
 **Section sources**
 - [engine.py:25-118](file://src/tyche/engine.py#L25-L118)
@@ -130,13 +147,17 @@ end
 subgraph "Proxy Layer"
 XPUB["XPUB Socket"]
 XSUB["XSUB Socket"]
+PROXY["Event Proxy Worker<br/>Bidirectional Forwarding"]
+ENDPOINT["Event Sub Endpoint<br/>XSUB"]
 end
 REG --> MODREG
 EVT --> XPUB
 EVTSUB --> XSUB
 HBOUT --> MODHB
 HBIN --> MODHB
-XPUB --> XSUB
+XPUB --> PROXY
+XSUB --> PROXY
+PROXY --> ENDPOINT
 MODPUB --> XSUB
 XSUB --> MODSUB
 ```
@@ -148,9 +169,9 @@ XSUB --> MODSUB
 - [module.py:133-177](file://src/tyche/module.py#L133-L177)
 
 The architecture supports four primary communication patterns:
-- **Registration**: Request-Reply (REQ/ROUTER) for initial handshake
-- **Event Distribution**: Pub-Sub (XPUB/XSUB) for fire-and-forget broadcasting
-- **Heartbeat Monitoring**: Pub-Sub (PUB/SUB) for reliability
+- **Registration**: Request-Reply (REQ/ROUTER) for initial handshake with error handling
+- **Event Distribution**: Pub-Sub (XPUB/XSUB) for fire-and-forget broadcasting with proxy
+- **Heartbeat Monitoring**: Pub-Sub (PUB/SUB) for reliability with comprehensive logging
 - **Direct Communication**: Dealer-Router for point-to-point messaging
 
 **Section sources**
@@ -177,6 +198,10 @@ class TycheEngine {
 +run() void
 +start_nonblocking() void
 +stop() void
+-RLock _lock
+-Thread[] _threads
+-Event _stop_event
+-bool _running
 }
 class HeartbeatManager {
 +dict~str,HeartbeatMonitor~ monitors
@@ -184,6 +209,7 @@ class HeartbeatManager {
 +unregister(peer_id) void
 +update(peer_id) void
 +tick_all() str[]
+-RLock _lock
 }
 class ModuleInfo {
 +string module_id
@@ -213,7 +239,7 @@ Key initialization parameters:
 - [engine_main.py:13-48](file://src/tyche/engine_main.py#L13-L48)
 
 ### Worker Thread System
-The engine employs five dedicated worker threads for concurrent operations:
+The engine employs five dedicated daemon worker threads for concurrent operations:
 
 ```mermaid
 sequenceDiagram
@@ -223,30 +249,34 @@ participant HB as "Heartbeat Worker"
 participant HBR as "Heartbeat Receive Worker"
 participant Mon as "Monitor Worker"
 participant EP as "Event Proxy Worker"
-Main->>Reg : Start registration thread
-Main->>HB : Start heartbeat thread
-Main->>HBR : Start heartbeat receive thread
-Main->>Mon : Start monitor thread
-Main->>EP : Start event proxy thread
+Main->>Reg : Start daemon thread
+Main->>HB : Start daemon thread
+Main->>HBR : Start daemon thread
+Main->>Mon : Start daemon thread
+Main->>EP : Start daemon thread
 loop Registration Loop
 Reg->>Reg : Receive registration frames
-Reg->>Reg : Process registration
+Reg->>Reg : Process registration with logging
 Reg->>Main : Register module
 end
 loop Heartbeat Loop
 HB->>HB : Send heartbeat message
+HB->>HB : Log heartbeat broadcast
 HB->>Main : Broadcast heartbeat
 end
 loop Heartbeat Receive Loop
 HBR->>HBR : Receive heartbeat frames
+HBR->>HBR : Log heartbeat processing
 HBR->>Main : Update module liveness
 end
 loop Monitor Loop
-Mon->>Main : Check module expiration
+Mon->>Mon : Check module expiration
+Mon->>Mon : Log expired modules
 Mon->>Main : Unregister expired modules
 end
 loop Event Proxy Loop
 EP->>EP : Forward XPUB/XSUB messages
+EP->>EP : Log proxy operations
 EP->>Main : Route events
 end
 ```
@@ -259,12 +289,14 @@ end
 - [engine.py:341-349](file://src/tyche/engine.py#L341-L349)
 - [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
 
-Worker responsibilities:
-- **Registration Worker**: Handles module registration requests via ROUTER socket
-- **Heartbeat Worker**: Periodically broadcasts heartbeat messages via PUB socket
-- **Heartbeat Receive Worker**: Processes incoming heartbeats via ROUTER socket
-- **Monitor Worker**: Checks module liveness and unregisters expired modules
-- **Event Proxy Worker**: Routes events between XPUB and XSUB sockets
+Worker responsibilities with enhanced error handling:
+- **Registration Worker**: Handles module registration requests via ROUTER socket with comprehensive error logging
+- **Heartbeat Worker**: Periodically broadcasts heartbeat messages via PUB socket with error handling
+- **Heartbeat Receive Worker**: Processes incoming heartbeats via ROUTER socket with logging
+- **Monitor Worker**: Checks module liveness and unregisters expired modules with logging
+- **Event Proxy Worker**: Routes events between XPUB and XSUB sockets with bidirectional forwarding
+
+**Updated** All worker threads are configured as daemon threads for automatic cleanup and comprehensive logging throughout all operations.
 
 **Section sources**
 - [engine.py:79-104](file://src/tyche/engine.py#L79-L104)
@@ -286,9 +318,9 @@ participant Ack as "ACK Socket"
 Module->>Engine : Connect to registration endpoint
 Module->>Router : SEND REGISTER message
 Router->>Engine : Receive registration frames
-Engine->>Engine : Deserialize message
+Engine->>Engine : Deserialize message with error handling
 Engine->>Engine : Create ModuleInfo
-Engine->>Engine : register_module()
+Engine->>Engine : register_module() with lock
 Engine->>Ack : SEND ACK with ports
 Ack->>Module : Receive ACK message
 Module->>Module : Store event ports
@@ -301,11 +333,11 @@ Engine->>Engine : Update heartbeat monitoring
 - [engine.py:200-213](file://src/tyche/engine.py#L200-L213)
 - [module.py:200-254](file://src/tyche/module.py#L200-L254)
 
-Registration flow:
+Registration flow with enhanced error handling:
 1. Module connects to registration endpoint using REQ socket
 2. Sends REGISTER message containing module ID and interface definitions
-3. Engine deserializes message and creates ModuleInfo
-4. Registers module in thread-safe registry
+3. Engine deserializes message with comprehensive error handling
+4. Creates ModuleInfo and registers module in thread-safe registry with locking
 5. Sends ACK message with event publishing and subscription ports
 6. Module stores returned ports for event communication
 
@@ -387,10 +419,12 @@ HeartbeatManager --> HeartbeatMonitor : "manages"
 - [heartbeat.py:119-133](file://src/tyche/heartbeat.py#L119-L133)
 
 Thread-safety mechanisms:
-- **Global Registry Lock**: Protects module registry and interface mapping
-- **Heartbeat Manager Lock**: Ensures atomic updates to monitor state
-- **Atomic Operations**: All registry modifications occur within locked sections
-- **Graceful Shutdown**: Proper cleanup of sockets and context destruction
+- **Global Registry Lock**: Protects module registry and interface mapping with comprehensive locking
+- **Heartbeat Manager Lock**: Ensures atomic updates to monitor state with thread-safe operations
+- **Atomic Operations**: All registry modifications occur within locked sections with proper error handling
+- **Graceful Shutdown**: Proper cleanup of sockets and context destruction with thread joining
+
+**Updated** Enhanced with comprehensive logging throughout all thread-safe operations.
 
 **Section sources**
 - [engine.py:57-65](file://src/tyche/engine.py#L57-L65)
@@ -405,11 +439,11 @@ The event proxy provides efficient event distribution:
 flowchart TD
 Start([Event Proxy Start]) --> BindXPUB["Bind XPUB socket"]
 BindXPUB --> BindXSUB["Bind XSUB socket"]
-BindXSUB --> PollLoop["Poll for events"]
+BindXSUB --> PollLoop["Poll for events with timeout"]
 PollLoop --> CheckXPUB{"XPUB has data?"}
-CheckXPUB --> |Yes| ForwardXPUB["Forward XPUB to XSUB"]
+CheckXPUB --> |Yes| ForwardXPUB["Forward XPUB to XSUB with logging"]
 CheckXPUB --> |No| CheckXSUB{"XSUB has data?"}
-CheckXSUB --> |Yes| ForwardXSUB["Forward XSUB to XPUB"]
+CheckXSUB --> |Yes| ForwardXSUB["Forward XSUB to XPUB with logging"]
 CheckXSUB --> |No| PollLoop
 ForwardXPUB --> PollLoop
 ForwardXSUB --> PollLoop
@@ -419,10 +453,12 @@ ForwardXSUB --> PollLoop
 - [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
 
 Event proxy characteristics:
-- **Bidirectional forwarding**: Messages flow from XPUB to XSUB and vice versa
-- **Non-blocking operation**: Uses poller for efficient event handling
+- **Bidirectional forwarding**: Messages flow from XPUB to XSUB and vice versa with comprehensive logging
+- **Non-blocking operation**: Uses poller with timeout for efficient event handling
 - **Automatic subscription**: Handles subscription/unsubscription messages transparently
-- **Resource management**: Proper socket cleanup during shutdown
+- **Resource management**: Proper socket cleanup during shutdown with error handling
+
+**Updated** Enhanced with comprehensive logging throughout the proxy operations and improved error handling.
 
 **Section sources**
 - [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
@@ -450,7 +486,9 @@ Heartbeat protocol details:
 - **Interval**: Configurable (default 1.0 seconds)
 - **Liveness**: 3 missed heartbeats before considering module dead
 - **Grace Period**: Extended liveness during initial registration
-- **Monitoring**: Thread-safe tracking of all connected modules
+- **Monitoring**: Thread-safe tracking of all connected modules with comprehensive logging
+
+**Updated** Enhanced with comprehensive logging throughout heartbeat operations and improved error handling.
 
 **Section sources**
 - [heartbeat.py:16-50](file://src/tyche/heartbeat.py#L16-L50)
@@ -466,6 +504,8 @@ subgraph "External Dependencies"
 ZMQ["ZeroMQ"]
 MSGPACK["MessagePack"]
 THREADING["Python Threading"]
+LOGGING["Python Logging"]
+ENDIAN["Endianness Handling"]
 end
 subgraph "Internal Dependencies"
 ENGINE["TycheEngine"]
@@ -479,6 +519,9 @@ ZMQ --> ENGINE
 MSGPACK --> MSG
 THREADING --> ENGINE
 THREADING --> MODULE
+LOGGING --> ENGINE
+LOGGING --> MODULE
+ENDIAN --> MSG
 ENGINE --> HB
 ENGINE --> MSG
 ENGINE --> TYPES
@@ -496,10 +539,12 @@ BASE --> TYPES
 - [types.py:3-7](file://src/tyche/types.py#L3-L7)
 
 Dependency relationships:
-- **Engine depends on**: HeartbeatManager, Message serialization, Endpoint types
-- **Module depends on**: ModuleBase, Message serialization, Endpoint types
-- **HeartbeatManager depends on**: Message types and constants
-- **All components depend on**: ZeroMQ and MessagePack libraries
+- **Engine depends on**: HeartbeatManager, Message serialization, Endpoint types, comprehensive logging
+- **Module depends on**: ModuleBase, Message serialization, Endpoint types, logging
+- **HeartbeatManager depends on**: Message types and constants, thread-safe operations
+- **All components depend on**: ZeroMQ, MessagePack, Python threading, logging infrastructure
+
+**Updated** Enhanced with comprehensive logging infrastructure and improved error handling throughout dependencies.
 
 **Section sources**
 - [engine.py:8-20](file://src/tyche/engine.py#L8-L20)
@@ -513,15 +558,19 @@ The engine is designed for high-performance distributed computing:
 
 - **ZeroMQ Patterns**: Leverages native socket patterns for optimal throughput
 - **Non-blocking I/O**: Uses pollers and timeouts for responsive operation
-- **Thread Safety**: Minimizes contention through targeted locking
+- **Thread Safety**: Minimizes contention through targeted locking with comprehensive logging
 - **Memory Efficiency**: MessagePack serialization reduces overhead
 - **Scalability**: Modular architecture supports horizontal scaling
+- **Daemon Threads**: Automatic cleanup of worker threads for resource management
+
+**Updated** Enhanced with comprehensive logging for performance monitoring and improved error handling for reliability.
 
 Key performance characteristics:
-- **Registration latency**: Sub-millisecond for typical registration
-- **Event throughput**: Thousands of events per second with XPUB/XSUB
-- **Heartbeat overhead**: Minimal impact (<1% CPU for monitoring)
+- **Registration latency**: Sub-millisecond for typical registration with error handling
+- **Event throughput**: Thousands of events per second with XPUB/XSUB proxy
+- **Heartbeat overhead**: Minimal impact (<1% CPU for monitoring) with comprehensive logging
 - **Memory usage**: Linear with number of registered modules
+- **Thread cleanup**: Automatic daemon thread cleanup for resource management
 
 ## Troubleshooting Guide
 
@@ -532,24 +581,30 @@ Key performance characteristics:
 - Check module interface definitions
 - Confirm network firewall settings
 - Review engine logs for detailed error messages
+- Check for timeout issues in registration process
 
 **Heartbeat Problems**
 - Validate heartbeat endpoint accessibility
 - Check module heartbeat intervals
 - Monitor network latency between components
 - Review engine heartbeat monitoring logs
+- Verify proper daemon thread configuration
 
 **Event Delivery Issues**
 - Verify event endpoint bindings
 - Check module subscription patterns
 - Monitor XPUB/XSUB socket states
 - Review event filtering logic
+- Check proxy worker thread status
 
 **Shutdown Issues**
 - Ensure proper signal handling
 - Verify graceful shutdown completion
-- Check for hanging threads
+- Check for daemon thread cleanup
 - Monitor socket cleanup
+- Review thread join operations
+
+**Updated** Enhanced troubleshooting with comprehensive logging guidance and daemon thread considerations.
 
 **Section sources**
 - [engine.py:136-142](file://src/tyche/engine.py#L136-L142)
@@ -559,11 +614,14 @@ Key performance characteristics:
 ### Error Handling Strategies
 The engine implements comprehensive error handling:
 
-- **Worker Isolation**: Each worker runs independently with local error handling
+- **Worker Isolation**: Each worker runs independently with local error handling and logging
 - **Graceful Degradation**: Non-critical failures don't affect core operations
-- **Logging**: Comprehensive error logging with context information
-- **Resource Cleanup**: Proper socket and context destruction on shutdown
+- **Comprehensive Logging**: Extensive error logging with context information throughout worker threads
+- **Resource Cleanup**: Proper socket and context destruction on shutdown with thread joining
 - **Timeout Management**: Configurable timeouts prevent indefinite blocking
+- **Daemon Thread Management**: Automatic cleanup of worker threads for resource management
+
+**Updated** Enhanced error handling with comprehensive logging throughout all worker threads and improved daemon thread configuration.
 
 **Section sources**
 - [engine.py:136-142](file://src/tyche/engine.py#L136-L142)
@@ -572,6 +630,8 @@ The engine implements comprehensive error handling:
 
 ## Conclusion
 TycheEngine's central broker provides a robust foundation for distributed event-driven systems. Its multi-threaded architecture, comprehensive error handling, and adherence to ZeroMQ patterns enable high-performance coordination of heterogeneous modules. The Paranoid Pirate heartbeat implementation ensures reliable operation, while the XPUB/XSUB proxy delivers efficient event distribution. The modular design supports easy extension and maintenance, making it suitable for production-scale distributed systems.
+
+**Updated** Enhanced with comprehensive logging, daemon thread configuration, and improved error handling throughout the worker threads, making the system more reliable and easier to debug.
 
 ## Appendices
 
@@ -586,7 +646,7 @@ engine = TycheEngine(
     heartbeat_endpoint=Endpoint("127.0.0.1", 5558),
     heartbeat_receive_endpoint=Endpoint("127.0.0.1", 5559)
 )
-engine.run()  # Blocks until stop()
+engine.run()  # Blocks until stop() with daemon thread management
 ```
 
 **Module Registration Example**
@@ -596,7 +656,7 @@ module = ExampleModule(
     engine_endpoint=Endpoint("127.0.0.1", 5555),
     heartbeat_receive_endpoint=Endpoint("127.0.0.1", 5559)
 )
-module.run()  # Starts registration and event processing
+module.run()  # Starts registration and event processing with logging
 ```
 
 **Graceful Shutdown Procedure**
@@ -610,6 +670,8 @@ signal.signal(signal.SIGINT, shutdown_handler)
 signal.signal(signal.SIGTERM, shutdown_handler)
 ```
 
+**Updated** Enhanced examples with daemon thread management and comprehensive logging.
+
 **Section sources**
 - [run_engine.py:27-47](file://examples/run_engine.py#L27-L47)
 - [run_module.py:28-46](file://examples/run_module.py#L28-L46)
@@ -621,6 +683,9 @@ signal.signal(signal.SIGTERM, shutdown_handler)
 - **heartbeat_port**: Port for heartbeat broadcasts (default: 5558)
 - **heartbeat_receive_port**: Port for receiving module heartbeats (default: 5559)
 - **host**: Host binding address (default: 127.0.0.1)
+- **daemon_threads**: All worker threads configured as daemon threads for automatic cleanup
+
+**Updated** Added daemon thread configuration details for automatic resource management.
 
 **Section sources**
 - [engine_main.py:14-26](file://src/tyche/engine_main.py#L14-L26)

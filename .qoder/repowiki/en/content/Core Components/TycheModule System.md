@@ -17,6 +17,14 @@
 - [test_example_module.py](file://tests/unit/test_example_module.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced interface discovery mechanism with improved pattern detection
+- Added `start_nonblocking()` methods for non-blocking module and engine execution
+- Strengthened abstract class enforcement and error handling
+- Improved handler management and lifecycle control
+- Enhanced communication pattern support with better method signature validation
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -40,6 +48,8 @@ The framework supports four primary communication patterns:
 
 Built around the Paranoid Pirate Pattern for reliability and the ZeroMQ REQ/REP, PUB/SUB, and DEALER/ROUTER socket patterns, TycheModule ensures high-performance, scalable distributed processing.
 
+**Updated** Enhanced with improved interface discovery, better error handling, and non-blocking execution capabilities.
+
 ## Project Structure
 
 The TycheEngine project follows a clean modular architecture with clear separation of concerns:
@@ -52,21 +62,23 @@ TM[TycheModule]
 ENG[TycheEngine]
 MSG[Message System]
 TYP[Type Definitions]
-end
+HB[Heartbeat Manager]
+ENDPT[Endpoints]
+IFACE[Interface Patterns]
+END
 subgraph "Examples"
 EM[ExampleModule]
 MM[module_main.py]
-end
+END
 subgraph "Utilities"
-HB[Heartbeat Manager]
 RUNM[run_module.py]
 RUNE[run_engine.py]
-end
+END
 subgraph "Tests"
 TMB[test_module_base.py]
 TMU[test_module.py]
 TEM[test_example_module.py]
-end
+END
 MB --> TM
 TM --> ENG
 TM --> MSG
@@ -82,6 +94,7 @@ RUNE --> ENG
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
+- [types.py:51-58](file://src/tyche/types.py#L51-L58)
 
 **Section sources**
 - [module_base.py:1-120](file://src/tyche/module_base.py#L1-L120)
@@ -106,6 +119,8 @@ The automatic interface discovery system analyzes method names to determine comm
 - `whisper_{target}_{event}` → WHISPER pattern (direct P2P)
 - `on_common_{event}` → ON_COMMON pattern (broadcast to all)
 
+**Updated** Enhanced with stronger abstract class enforcement and improved error handling for invalid method signatures.
+
 **Section sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 
@@ -119,12 +134,15 @@ Core features include:
 - **Event Routing**: Automatic subscription to discovered interfaces and event dispatch
 - **ACK Handling**: Request-response pattern with timeout management
 - **Heartbeat Monitoring**: Integration with engine's heartbeat system for liveness detection
+- **Non-blocking Execution**: Support for `start_nonblocking()` method for testing scenarios
 
 The module maintains separate sockets for different communication patterns:
 - REQ socket for one-time registration
 - PUB socket for event publishing to engine's XSUB
 - SUB socket for event subscription from engine's XPUB
 - DEALER socket for heartbeat transmission
+
+**Updated** Added `start_nonblocking()` method for non-blocking module execution and enhanced error handling throughout the lifecycle.
 
 **Section sources**
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
@@ -178,6 +196,8 @@ The architecture leverages ZeroMQ's advanced socket patterns:
 - **DEALER/ROUTER**: Reliable request-response with identity preservation
 - **PUB/SUB**: Heartbeat monitoring and broadcast communication
 
+**Updated** Enhanced with improved error handling and non-blocking execution support.
+
 **Section sources**
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
 - [module.py:13-401](file://src/tyche/module.py#L13-L401)
@@ -214,6 +234,8 @@ CheckComplete --> |No| ReturnInterfaces["Return discovered interfaces"]
 
 The discovery system supports four distinct interface patterns, each with specific behavioral guarantees and method signature requirements.
 
+**Updated** Enhanced with improved pattern detection and better error handling for malformed method signatures.
+
 **Section sources**
 - [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
 
@@ -241,6 +263,7 @@ class TycheModule {
 +call_ack(event : str, payload : Dict, timeout_ms : int)
 +run() : void
 +stop() : void
++start_nonblocking() : void
 }
 class ExampleModule {
 +on_data(payload : Dict)
@@ -260,6 +283,8 @@ TycheModule <|-- ExampleModule
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+
+**Updated** Added `start_nonblocking()` method for non-blocking module execution and enhanced handler management.
 
 ### Module Lifecycle Management
 
@@ -283,6 +308,8 @@ The lifecycle includes:
 2. **Registration**: One-shot handshake with engine
 3. **Runtime**: Event processing and heartbeat maintenance
 4. **Cleanup**: Resource destruction and graceful shutdown
+
+**Updated** Enhanced with `start_nonblocking()` method for non-blocking execution and improved error handling throughout the lifecycle.
 
 **Section sources**
 - [module.py:116-197](file://src/tyche/module.py#L116-L197)
@@ -311,6 +338,8 @@ Each communication pattern has specific implementation requirements and behavior
 - Behavior: Broadcast to all subscribers without load balancing
 - Use cases: Consensus protocols, state synchronization
 
+**Updated** Enhanced with better method signature validation and improved error handling for pattern mismatches.
+
 **Section sources**
 - [module_base.py:13-17](file://src/tyche/module_base.py#L13-L17)
 - [types.py:51-58](file://src/tyche/types.py#L51-L58)
@@ -338,6 +367,8 @@ HBMgr->>Engine : Unregister expired modules
 - [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
 - [engine.py:307-350](file://src/tyche/engine.py#L307-L350)
 
+**Updated** Enhanced with improved heartbeat monitoring and better error handling for malformed heartbeat messages.
+
 **Section sources**
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
 - [engine.py:279-350](file://src/tyche/engine.py#L279-L350)
@@ -352,7 +383,7 @@ subgraph "External Dependencies"
 ZMQ[ZeroMQ]
 MSGPACK[MessagePack]
 THREADING[Threading]
-end
+END
 subgraph "Internal Dependencies"
 TYPES[types.py]
 MESSAGE[message.py]
@@ -361,7 +392,7 @@ MODULE[module.py]
 ENGINE[engine.py]
 HEARTBEAT[heartbeat.py]
 EXAMPLE[example_module.py]
-end
+END
 MODULE --> BASE
 MODULE --> TYPES
 MODULE --> MESSAGE
@@ -387,6 +418,8 @@ The dependency graph reveals a well-structured system where:
 - Network concerns are encapsulated in specialized modules
 - Examples demonstrate proper usage patterns
 - Tests validate system behavior without external dependencies
+
+**Updated** Enhanced with improved error handling and non-blocking execution support across all components.
 
 **Section sources**
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
@@ -414,6 +447,8 @@ The TycheModule system is designed for high-performance distributed processing w
 - **Weak References**: Prevent circular references in event routing
 - **Context Management**: Proper socket lifecycle management
 
+**Updated** Enhanced with non-blocking execution support and improved error handling for better resource management.
+
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
@@ -438,6 +473,8 @@ The TycheModule system is designed for high-performance distributed processing w
 **Causes**: Heartbeat timeouts, network latency, system overload
 **Solutions**: Adjust heartbeat intervals, increase liveness thresholds, monitor system resources
 
+**Updated** Enhanced with improved error handling and better logging for troubleshooting.
+
 **Section sources**
 - [module.py:247-254](file://src/tyche/module.py#L247-L254)
 - [engine.py:341-350](file://src/tyche/engine.py#L341-L350)
@@ -450,6 +487,8 @@ The TycheModule system is designed for high-performance distributed processing w
 4. **Test Network Connectivity**: Verify ZeroMQ socket connectivity and routing
 5. **Profile Performance**: Measure event processing latency and throughput
 
+**Updated** Enhanced with non-blocking execution debugging and improved error handling diagnostics.
+
 ## Conclusion
 
 The TycheModule system provides a robust foundation for building distributed, event-driven applications. Its design emphasizes:
@@ -458,7 +497,10 @@ The TycheModule system provides a robust foundation for building distributed, ev
 - **Reliability**: ZeroMQ patterns and heartbeat monitoring ensure fault tolerance
 - **Performance**: Asynchronous processing and efficient socket management maximize throughput
 - **Maintainability**: Clear abstractions and automatic interface discovery reduce boilerplate code
+- **Enhanced Execution**: Non-blocking execution support for testing and production scenarios
 
 The system successfully balances simplicity with power, enabling developers to build complex distributed systems while maintaining clean, testable code. The comprehensive example implementation and extensive test coverage provide excellent guidance for extending the framework with custom modules.
+
+**Updated** The enhanced module functionality includes improved interface discovery, better error handling, non-blocking execution capabilities, and stronger abstract class enforcement, making it even more suitable for production environments.
 
 Future enhancements could include dynamic module loading, plugin architectures, and enhanced monitoring capabilities, all while maintaining the core design principles that make TycheModule an effective distributed computing platform.
