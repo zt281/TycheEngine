@@ -160,7 +160,7 @@ class ExampleModule(TycheModule):
             value: The value to echo back from the original ping (if provided).
         """
         if self._running:
-            payload = {"sender": self.module_id}
+            payload: Dict[str, Any] = {"sender": self.module_id}
             if value is not None:
                 payload["value"] = value
             self.send_event("on_common_pong", payload)
