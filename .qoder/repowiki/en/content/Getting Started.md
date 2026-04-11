@@ -3,6 +3,7 @@
 <cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
+- [.gitmodules](file://.gitmodules)
 - [pyproject.toml](file://pyproject.toml)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
@@ -16,19 +17,27 @@
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Updated installation instructions to reflect the GitHub wiki as a git submodule
+- Added documentation management section explaining the centralized wiki approach
+- Updated troubleshooting guidance to include submodule-related issues
+- Enhanced verification steps to include wiki submodule validation
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [System Requirements](#system-requirements)
 3. [Installation](#installation)
 4. [Environment Setup](#environment-setup)
-5. [First Run: Engine and Module](#first-run-engine-and-module)
-6. [Basic Workflow: From Startup to Event Handling](#basic-workflow-from-startup-to-event-handling)
-7. [Essential Concepts](#essential-concepts)
-8. [Practical Examples Using Provided Scripts](#practical-examples-using-provided-scripts)
-9. [Command-Line Arguments and Configuration Options](#command-line-arguments-and-configuration-options)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Verification Steps](#verification-steps)
-12. [Conclusion](#conclusion)
+5. [Documentation Management](#documentation-management)
+6. [First Run: Engine and Module](#first-run-engine-and-module)
+7. [Basic Workflow: From Startup to Event Handling](#basic-workflow-from-startup-to-event-handling)
+8. [Essential Concepts](#essential-concepts)
+9. [Practical Examples Using Provided Scripts](#practical-examples-using-provided-scripts)
+10. [Command-Line Arguments and Configuration Options](#command-line-arguments-and-configuration-options)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Verification Steps](#verification-steps)
+13. [Conclusion](#conclusion)
 
 ## Introduction
 Tyche Engine is a high-performance, distributed, event-driven framework written in Python and built on ZeroMQ. It orchestrates multi-process applications through:
@@ -60,9 +69,12 @@ Install the package in development mode to use the provided examples and run the
   - pip install -e .
 - Verify installation by importing the core modules from the examples directory.
 
+**Updated** Added note about wiki submodule for comprehensive documentation access
+
 Notes:
 - The examples demonstrate running the engine and module as separate processes.
 - The examples add the source directory to the Python path to import the library modules.
+- Documentation is now maintained in a separate GitHub wiki repository accessed via git submodule.
 
 **Section sources**
 - [examples/run_engine.py:14-15](file://examples/run_engine.py#L14-L15)
@@ -84,6 +96,36 @@ Networking:
 - [pyproject.toml:10-23](file://pyproject.toml#L10-L23)
 - [examples/run_engine.py:27-32](file://examples/run_engine.py#L27-L32)
 - [examples/run_module.py:28-31](file://examples/run_module.py#L28-L31)
+
+## Documentation Management
+**New Section** The Tyche Engine documentation is now centrally managed in a separate GitHub wiki repository for improved organization and version control.
+
+### Wiki Repository Structure
+The documentation is maintained in a dedicated wiki repository that follows the same version control practices as the codebase:
+- Separate lifecycle from main code repository
+- Dedicated commit history for documentation changes
+- Improved collaboration and review processes
+- Versioned documentation releases
+
+### Accessing Documentation
+The wiki is included as a git submodule in this repository:
+
+```bash
+# Clone with submodules (recommended)
+git clone --recurse-submodules https://github.com/zt281/TycheEngine.git
+
+# Or initialize submodules in existing clone
+git submodule update --init --recursive
+```
+
+### Managing Documentation Changes
+- Documentation changes are made in the wiki repository
+- Updates are synchronized through submodule updates
+- Maintains separation between code and documentation concerns
+- Enables independent release cycles for documentation and code
+
+**Section sources**
+- [.gitmodules:1-4](file://.gitmodules#L1-L4)
 
 ## First Run: Engine and Module
 Follow these steps to run your first engine and module processes.
@@ -210,7 +252,7 @@ Common issues and resolutions:
   - Change the port numbers in the example scripts if the default ports are in use.
 - Engine not reachable:
   - Ensure the engine is started before the module.
-  - Confirm the module’s registration endpoint matches the engine’s registration endpoint.
+  - Confirm the module's registration endpoint matches the engine's registration endpoint.
 - No events received:
   - Verify the module subscribed to the correct event topics.
   - Confirm the event names match the handler method names (e.g., on_data).
@@ -219,11 +261,16 @@ Common issues and resolutions:
   - Ensure the module is sending heartbeats to the correct endpoint.
 - Serialization errors:
   - Ensure payloads are serializable by the MessagePack encoder used by the framework.
+- **Wiki submodule issues**:
+  - **Missing documentation**: Run `git submodule update --init --recursive` to initialize the wiki submodule
+  - **Outdated documentation**: Use `git submodule update --remote wiki` to pull latest wiki changes
+  - **Wiki not accessible**: Verify the wiki repository URL in `.gitmodules` points to the correct wiki repository
 
 Verification steps:
 - Check engine logs for registration ACK and heartbeat PUB messages.
 - Check module logs for registration success and subscription confirmation.
 - Use the integration tests as a reference for expected behavior.
+- **Documentation verification**: Ensure wiki submodule is properly initialized and accessible.
 
 **Section sources**
 - [tests/integration/test_engine_module.py:14-41](file://tests/integration/test_engine_module.py#L14-L41)
@@ -235,9 +282,16 @@ Verification steps:
 After running the engine and module:
 - Confirm the engine prints its endpoints and waits for interrupts.
 - Confirm the module prints its module ID and connection endpoints.
-- Verify that the module is registered in the engine’s module registry.
-- Verify that the module’s discovered interfaces appear in the engine’s registry.
+- Verify that the module is registered in the engine's module registry.
+- Verify that the module's discovered interfaces appear in the engine's registry.
 - Verify that events published by the module are delivered to subscribers.
+
+**Updated** Added documentation verification steps
+
+Additional verification for documentation:
+- Confirm wiki submodule is initialized: `git submodule status`
+- Verify documentation files are accessible in the wiki directory
+- Test that documentation navigation works correctly
 
 **Section sources**
 - [examples/run_engine.py:34-49](file://examples/run_engine.py#L34-L49)
@@ -247,5 +301,9 @@ After running the engine and module:
 
 ## Conclusion
 You now have the essentials to install Tyche Engine, configure your environment, and run your first engine and module. Use the provided examples to verify the setup, explore the interface patterns, and build upon the foundation of event-driven, distributed processing with ZeroMQ.
+
+**Updated** Note about centralized documentation management for improved maintenance and collaboration.
+
+The documentation is now maintained in a separate GitHub wiki repository, providing better organization and version control for documentation alongside code changes. This centralized approach ensures that documentation evolves independently while maintaining synchronization with the main codebase through the git submodule system.
 
 [No sources needed since this section summarizes without analyzing specific files]

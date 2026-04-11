@@ -17,6 +17,13 @@
 - [pyproject.toml](file://pyproject.toml)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced documentation structure with centralized GitHub wiki submodule organization
+- Integrated specialized architecture overview sections covering system design, communication patterns, deployment topology, heartbeat reliability, and module management
+- Expanded documentation coverage to include detailed component analysis, dependency relationships, and operational considerations
+- Added comprehensive coverage of ZeroMQ-based communication patterns and reliability mechanisms
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -38,6 +45,12 @@ Key architectural characteristics:
 - Paranoid Pirate pattern for heartbeat-based failure detection
 - Async persistence model for low-latency hot path and background durability
 - Human-readable module IDs and standardized interface naming conventions
+
+**Section sources**
+- [README.md:18-348](file://README.md#L18-L348)
+- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
+- [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
 
 ## Project Structure
 The repository organizes the system into cohesive modules under src/tyche, with examples and CLI entry points for quick startup. External dependencies are minimal and focused on ZeroMQ and MessagePack.
@@ -115,13 +128,13 @@ These components interact through well-defined sockets and message protocols, en
 - [types.py:14-102](file://src/tyche/types.py#L14-L102)
 
 ## Architecture Overview
-Tyche Engine’s architecture is centered on a small set of ZeroMQ sockets and a thread-per-worker design. The engine exposes:
+Tyche Engine's architecture is centered on a small set of ZeroMQ sockets and a thread-per-worker design. The engine exposes:
 - Registration endpoint (ROUTER) for initial module handshake
 - Event endpoints (XPUB/XSUB) for pub-sub event distribution
 - Heartbeat endpoints (PUB/SUB) for health monitoring
 - Optional ACK routing endpoint (ROUTER/DEALER) for request-response acknowledgments
 
-Modules connect using REQ for registration, PUB/SUB for events, and DEALER for heartbeats. The engine’s event proxy mirrors XPUB to XSUB traffic, enabling modules to publish to the engine’s XPUB and subscribe via the engine’s XPUB.
+Modules connect using REQ for registration, PUB/SUB for events, and DEALER for heartbeats. The engine's event proxy mirrors XPUB to XSUB traffic, enabling modules to publish to the engine's XPUB and subscribe via the engine's XPUB.
 
 ```mermaid
 graph TB
@@ -210,9 +223,9 @@ TycheEngine --> HeartbeatManager : "uses"
 
 ### TycheModule: Distributed Worker
 TycheModule provides the module-side implementation:
-- One-shot registration handshake via REQ to the engine’s ROUTER
-- Event publishing via PUB to the engine’s XSUB and subscribing via SUB from the engine’s XPUB
-- Heartbeat sending via DEALER to the engine’s ROUTER
+- One-shot registration handshake via REQ to the engine's ROUTER
+- Event publishing via PUB to the engine's XSUB and subscribing via SUB from the engine's XPUB
+- Heartbeat sending via DEALER to the engine's ROUTER
 - Event dispatching to handler methods discovered by naming convention
 
 ```mermaid
@@ -269,7 +282,7 @@ ExampleModule --> TycheModule : "extends"
 ### Heartbeat Monitoring: Paranoid Pirate Pattern
 The heartbeat subsystem implements the Paranoid Pirate pattern:
 - Engine periodically publishes heartbeats on a PUB socket
-- Modules send heartbeats to the engine’s ROUTER via DEALER
+- Modules send heartbeats to the engine's ROUTER via DEALER
 - Engine updates liveness counters and removes expired modules on tick intervals
 
 ```mermaid

@@ -15,19 +15,36 @@
 - [run_module.py](file://examples/run_module.py)
 - [tyche_engine_design_v1.md](file://docs/design/tyche_engine_design_v1.md)
 - [pyproject.toml](file://pyproject.toml)
+- [.gitmodules](file://.gitmodules)
+- [wiki/Home.md](file://wiki/Home.md)
+- [wiki/Getting Started.md](file://wiki/Getting Started.md)
+- [wiki/Project Overview.md](file://wiki/Project Overview.md)
+- [wiki/API Reference/API Reference.md](file://wiki/API Reference/API Reference.md)
+- [wiki/Architecture Overview/System Design.md](file://wiki/Architecture Overview/System Design.md)
+- [wiki/Communication Patterns/Communication Patterns.md](file://wiki/Communication Patterns/Communication Patterns.md)
+- [wiki/Core Components/Core Components.md](file://wiki/Core Components/Core Components.md)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated documentation infrastructure section to reflect the new GitHub wiki submodule
+- Added comprehensive coverage of the wiki's organizational structure and content
+- Enhanced documentation positioning to highlight the transition from README-based to structured wiki documentation
+- Updated references to include all wiki documentation sections
+- Revised architecture overview to incorporate the expanded documentation ecosystem
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [Project Structure](#project-structure)
-3. [Core Components](#core-components)
-4. [Architecture Overview](#architecture-overview)
-5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+2. [Documentation Infrastructure](#documentation-infrastructure)
+3. [Project Structure](#project-structure)
+4. [Core Components](#core-components)
+5. [Architecture Overview](#architecture-overview)
+6. [Detailed Component Analysis](#detailed-component-analysis)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
 Tyche Engine is a high-performance distributed event-driven framework built on ZeroMQ for orchestrating multi-process applications. It enables teams to compose complex systems from loosely coupled modules that communicate asynchronously via standardized event patterns. The framework emphasizes:
@@ -38,11 +55,60 @@ Tyche Engine is a high-performance distributed event-driven framework built on Z
 
 Tyche Engine positions itself as a pragmatic alternative to monolithic architectures and heavyweight middleware, offering predictable performance, clear operational semantics, and straightforward scaling patterns.
 
+**Updated** Enhanced documentation infrastructure with comprehensive GitHub wiki submodule providing structured, multi-section documentation covering API references, architecture overviews, communication patterns, and implementation details.
+
+## Documentation Infrastructure
+The Tyche Engine project now features a comprehensive documentation infrastructure organized through a dedicated GitHub wiki submodule. This enhanced documentation system provides structured, multi-level coverage of the framework's capabilities and implementation details.
+
+### Wiki Submodule Structure
+The documentation is maintained as a separate GitHub wiki repository accessed through a Git submodule located at the `wiki` directory. This modular approach allows for independent maintenance and versioning of documentation content.
+
+### Comprehensive Documentation Coverage
+The wiki encompasses several key documentation areas:
+
+**API Reference Documentation**
+- Complete API documentation for all public classes and functions
+- Detailed method signatures, parameters, return values, and usage examples
+- Type definitions and constant references
+- Error handling and exception documentation
+
+**Architecture Overview**
+- System design documentation explaining core architectural decisions
+- Communication patterns documentation detailing the four primary messaging patterns
+- Deployment and topology guides for various operational scenarios
+- Heartbeat and reliability mechanisms
+
+**Core Components Documentation**
+- Detailed analysis of TycheEngine central broker functionality
+- TycheModule base class documentation with practical usage patterns
+- Message system documentation including serialization and routing
+- Heartbeat management and reliability protocols
+- Type definitions and utility classes
+
+**Practical Guides**
+- Getting started documentation with installation and setup instructions
+- Implementation logs documenting development progress
+- Testing and development guidelines
+- Configuration and deployment best practices
+
+### Documentation Organization Benefits
+- **Structured Navigation**: Logical organization into distinct sections for easy navigation
+- **Cross-Referencing**: Comprehensive linking between related documentation sections
+- **Version Control**: Separate versioning of documentation independent from code changes
+- **Community Contribution**: Dedicated space for community contributions and improvements
+- **Search Optimization**: Structured content facilitates better search and discovery
+
+**Section sources**
+- [.gitmodules:1-4](file://.gitmodules#L1-L4)
+- [wiki/Home.md:1-2](file://wiki/Home.md#L1-L2)
+- [wiki/Getting Started.md:1-251](file://wiki/Getting Started.md#L1-L251)
+- [wiki/Project Overview.md:1-469](file://wiki/Project Overview.md#L1-L469)
+
 ## Project Structure
 At a high level, the repository is organized into:
 - Core framework: engine, module base, messaging, types, and heartbeat management
 - Examples: runnable demonstrations of engine and module processes
-- Documentation: design specifications and implementation notes
+- Documentation: comprehensive wiki-based documentation with API references, architecture overviews, and implementation details
 - Tests: unit, integration, and property-based coverage
 
 ```mermaid
@@ -60,12 +126,16 @@ G["run_engine.py"]
 H["run_module.py"]
 I["example_module.py"]
 end
-subgraph "Docs"
-J["tyche_engine_design_v1.md"]
-K["README.md"]
+subgraph "Wiki Documentation"
+J["API Reference"]
+K["Architecture Overview"]
+L["Communication Patterns"]
+M["Core Components"]
+N["Getting Started"]
 end
 subgraph "Config"
-L["pyproject.toml"]
+O["pyproject.toml"]
+P[".gitmodules"]
 end
 A --> D
 A --> E
@@ -81,6 +151,15 @@ H --> B
 J --> A
 J --> B
 J --> E
+K --> A
+K --> B
+L --> A
+L --> B
+M --> A
+M --> B
+N --> G
+N --> H
+P --> J
 ```
 
 **Diagram sources**
@@ -93,13 +172,13 @@ J --> E
 - [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
 - [run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
 - [run_module.py:22-51](file://examples/run_module.py#L22-L51)
-- [tyche_engine_design_v1.md:1-126](file://docs/design/tyche_engine_design_v1.md#L1-L126)
-- [README.md:18-348](file://README.md#L18-L348)
 - [pyproject.toml:1-63](file://pyproject.toml#L1-L63)
+- [.gitmodules:1-4](file://.gitmodules#L1-L4)
 
 **Section sources**
 - [README.md:18-348](file://README.md#L18-L348)
 - [pyproject.toml:5-13](file://pyproject.toml#L5-L13)
+- [.gitmodules:1-4](file://.gitmodules#L1-L4)
 
 ## Core Components
 - TycheEngine: Central broker that manages module registration, event routing, and heartbeat monitoring. It runs as a standalone process and coordinates inter-module communication.
@@ -124,7 +203,7 @@ Key benefits:
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
 
 ## Architecture Overview
-Tyche Engine’s architecture is event-centric and transport-agnostic, leveraging ZeroMQ socket patterns to implement:
+Tyche Engine's architecture is event-centric and transport-agnostic, leveraging ZeroMQ socket patterns to implement:
 - Registration: REQ/ROUTER for handshake and interface discovery
 - Event distribution: XPUB/XSUB proxy for pub-sub broadcasting
 - Load balancing: PUSH/PULL for fair distribution across workers
@@ -221,7 +300,7 @@ TycheEngine --> HeartbeatManager : "uses"
 ### TycheModule: Module Runtime
 Responsibilities:
 - Registration handshake via REQ socket
-- Event publishing to engine’s XSUB and subscribing to engine’s XPUB
+- Event publishing to engine's XSUB and subscribing to engine's XPUB
 - Handler dispatch based on event names
 - Heartbeat transmission to engine
 - Request-response via temporary REQ sockets for ACK patterns
@@ -438,7 +517,9 @@ Common scenarios and guidance:
 - [README.md:290-299](file://README.md#L290-L299)
 
 ## Conclusion
-Tyche Engine delivers a focused, high-performance foundation for distributed event-driven systems. By combining ZeroMQ’s socket patterns with a clean module abstraction, it achieves low-latency hot paths, robust reliability, and practical operational modes spanning live trading, backtesting, and research. Its design favors explicitness, modularity, and incremental scaling, enabling teams to build resilient, observable systems that evolve with their needs.
+Tyche Engine delivers a focused, high-performance foundation for distributed event-driven systems. By combining ZeroMQ's socket patterns with a clean module abstraction, it achieves low-latency hot paths, robust reliability, and practical operational modes spanning live trading, backtesting, and research. Its design favors explicitness, modularity, and incremental scaling, enabling teams to build resilient, observable systems that evolve with their needs.
+
+**Updated** The framework now includes a comprehensive documentation infrastructure through the GitHub wiki submodule, providing structured, multi-level documentation that enhances developer onboarding and system understanding.
 
 ## Appendices
 
@@ -467,3 +548,22 @@ Advantages over traditional approaches:
 - [README.md:45-103](file://README.md#L45-L103)
 - [README.md:197-205](file://README.md#L197-L205)
 - [README.md:300-321](file://README.md#L300-L321)
+
+### Enhanced Documentation Ecosystem
+**Updated** The project now features a comprehensive documentation ecosystem through the GitHub wiki submodule, providing:
+
+- **Structured Documentation**: Organized into logical sections covering API references, architecture overviews, communication patterns, and core components
+- **Multi-Level Coverage**: From high-level overviews to detailed technical implementation guides
+- **Cross-Referencing**: Comprehensive linking between related documentation sections for seamless navigation
+- **Independent Maintenance**: Separate versioning and maintenance of documentation content
+- **Community Accessibility**: Dedicated space for community contributions and improvements
+
+This enhanced documentation infrastructure significantly improves the developer experience by providing clear pathways to understanding the framework's capabilities, implementation details, and best practices.
+
+**Section sources**
+- [.gitmodules:1-4](file://.gitmodules#L1-L4)
+- [wiki/Getting Started.md:1-251](file://wiki/Getting Started.md#L1-L251)
+- [wiki/API Reference/API Reference.md:1-452](file://wiki/API Reference/API Reference.md#L1-L452)
+- [wiki/Architecture Overview/System Design.md:1-497](file://wiki/Architecture Overview/System Design.md#L1-L497)
+- [wiki/Communication Patterns/Communication Patterns.md:1-436](file://wiki/Communication Patterns/Communication Patterns.md#L1-L436)
+- [wiki/Core Components/Core Components.md:1-661](file://wiki/Core Components/Core Components.md#L1-L661)
