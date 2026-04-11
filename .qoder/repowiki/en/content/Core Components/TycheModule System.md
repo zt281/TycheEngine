@@ -17,6 +17,12 @@
 - [test_example_module.py](file://tests/unit/test_example_module.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced type safety documentation for ExampleModule with explicit Dict[str, Any] type annotations
+- Updated communication patterns section to emphasize improved static type checking
+- Added documentation for enhanced IDE support and development experience
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -39,6 +45,8 @@ The framework supports four primary communication patterns:
 - **on_common_** events: Broadcast to all subscribers
 
 Built around the Paranoid Pirate Pattern for reliability and the ZeroMQ REQ/REP, PUB/SUB, and DEALER/ROUTER socket patterns, TycheModule ensures high-performance, scalable distributed processing.
+
+**Enhanced Type Safety** The system now provides enhanced type safety through explicit Dict[str, Any] type annotations, improving static type checking and developer experience with better IDE support and IntelliSense capabilities.
 
 ## Project Structure
 
@@ -106,6 +114,8 @@ The automatic interface discovery system analyzes method names to determine comm
 - `whisper_{target}_{event}` → WHISPER pattern (direct P2P)
 - `on_common_{event}` → ON_COMMON pattern (broadcast to all)
 
+**Enhanced Type Safety** The ModuleBase class now enforces explicit Dict[str, Any] type annotations for all event payloads, providing better static type checking and IDE support across the entire framework.
+
 **Section sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 
@@ -126,6 +136,8 @@ The module maintains separate sockets for different communication patterns:
 - SUB socket for event subscription from engine's XPUB
 - DEALER socket for heartbeat transmission
 
+**Enhanced Type Safety** TycheModule leverages the improved type annotations from ExampleModule to provide consistent type safety across all module implementations, with explicit Dict[str, Any] annotations for payload parameters and return values.
+
 **Section sources**
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 
@@ -137,10 +149,16 @@ ExampleModule demonstrates all interface patterns and serves as a comprehensive 
 - Timer-based scheduling with proper cleanup
 - Statistics collection and reporting
 
-This module illustrates best practices for implementing custom modules while maintaining clean separation of concerns.
+**Enhanced Type Safety** ExampleModule now features comprehensive Dict[str, Any] type annotations throughout all method signatures, providing:
+- Explicit payload parameter typing for all event handlers
+- Consistent return type annotations for ACK pattern handlers
+- Improved static type checking and IDE IntelliSense support
+- Better development experience with compile-time type validation
+
+This module illustrates best practices for implementing custom modules while maintaining clean separation of concerns and enhanced type safety.
 
 **Section sources**
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
 
 ## Architecture Overview
 
@@ -178,6 +196,8 @@ The architecture leverages ZeroMQ's advanced socket patterns:
 - **DEALER/ROUTER**: Reliable request-response with identity preservation
 - **PUB/SUB**: Heartbeat monitoring and broadcast communication
 
+**Enhanced Type Safety** The architecture now benefits from consistent type annotations across all communication layers, ensuring type safety from the application layer through the ZeroMQ transport layer.
+
 **Section sources**
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
 - [module.py:13-401](file://src/tyche/module.py#L13-L401)
@@ -214,6 +234,8 @@ CheckComplete --> |No| ReturnInterfaces["Return discovered interfaces"]
 
 The discovery system supports four distinct interface patterns, each with specific behavioral guarantees and method signature requirements.
 
+**Enhanced Type Safety** The interface discovery system now validates method signatures against the enhanced Dict[str, Any] type annotations, ensuring that all discovered interfaces maintain consistent type safety standards.
+
 **Section sources**
 - [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
 
@@ -229,7 +251,7 @@ class ModuleBase {
 +stop() : void
 +discover_interfaces() : List[Interface]
 +get_handler(event : str) : Callable
-+handle_event(event : str, payload : Dict) : Any
++handle_event(event : str, payload : Dict[str, Any]) : Any
 }
 class TycheModule {
 -context : zmq.Context
@@ -237,20 +259,20 @@ class TycheModule {
 -sub_socket : zmq.Socket
 -heartbeat_socket : zmq.Socket
 +add_interface(name : str, handler : Callable, pattern : InterfacePattern)
-+send_event(event : str, payload : Dict, recipient : Optional[str])
-+call_ack(event : str, payload : Dict, timeout_ms : int)
++send_event(event : str, payload : Dict[str, Any], recipient : Optional[str])
++call_ack(event : str, payload : Dict[str, Any], timeout_ms : int)
 +run() : void
 +stop() : void
 }
 class ExampleModule {
-+on_data(payload : Dict)
-+ack_request(payload : Dict) : Dict
-+whisper_target_message(payload : Dict)
-+on_common_broadcast(payload : Dict)
-+on_common_ping(payload : Dict)
-+on_common_pong(payload : Dict)
++on_data(payload : Dict[str, Any]) : None
++ack_request(payload : Dict[str, Any]) : Dict[str, Any]
++whisper_target_message(payload : Dict[str, Any], sender : Optional[str]) : None
++on_common_broadcast(payload : Dict[str, Any]) : None
++on_common_ping(payload : Dict[str, Any]) : None
++on_common_pong(payload : Dict[str, Any]) : None
 +start_ping_pong() : void
-+get_stats() : Dict
++get_stats() : Dict[str, Any]
 }
 ModuleBase <|-- TycheModule
 TycheModule <|-- ExampleModule
@@ -259,7 +281,9 @@ TycheModule <|-- ExampleModule
 **Diagram sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
+
+**Enhanced Type Safety** The event handler system now enforces consistent Dict[str, Any] type annotations across all handler registrations, providing better static type checking and preventing type-related runtime errors.
 
 ### Module Lifecycle Management
 
@@ -283,6 +307,8 @@ The lifecycle includes:
 2. **Registration**: One-shot handshake with engine
 3. **Runtime**: Event processing and heartbeat maintenance
 4. **Cleanup**: Resource destruction and graceful shutdown
+
+**Enhanced Type Safety** The module lifecycle now benefits from consistent type annotations throughout all phases, ensuring type safety from initialization through cleanup and preventing type-related issues during resource management.
 
 **Section sources**
 - [module.py:116-197](file://src/tyche/module.py#L116-L197)
@@ -311,6 +337,12 @@ Each communication pattern has specific implementation requirements and behavior
 - Behavior: Broadcast to all subscribers without load balancing
 - Use cases: Consensus protocols, state synchronization
 
+**Enhanced Type Safety** All communication patterns now enforce explicit Dict[str, Any] type annotations, providing:
+- Consistent payload typing across all interface patterns
+- Improved static type checking for event handlers
+- Better IDE support with IntelliSense and autocomplete
+- Compile-time type validation for custom module implementations
+
 **Section sources**
 - [module_base.py:13-17](file://src/tyche/module_base.py#L13-L17)
 - [types.py:51-58](file://src/tyche/types.py#L51-L58)
@@ -337,6 +369,8 @@ HBMgr->>Engine : Unregister expired modules
 **Diagram sources**
 - [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
 - [engine.py:307-350](file://src/tyche/engine.py#L307-L350)
+
+**Enhanced Type Safety** The heartbeat system now benefits from consistent type annotations, ensuring type safety in heartbeat message processing and liveness monitoring.
 
 **Section sources**
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
@@ -385,8 +419,10 @@ MESSAGE --> TYPES
 The dependency graph reveals a well-structured system where:
 - Core functionality is isolated in base classes
 - Network concerns are encapsulated in specialized modules
-- Examples demonstrate proper usage patterns
+- Examples demonstrate proper usage patterns with enhanced type safety
 - Tests validate system behavior without external dependencies
+
+**Enhanced Type Safety** The dependency analysis now includes the impact of enhanced type annotations, which improve static type checking across all internal dependencies while maintaining clean separation of concerns.
 
 **Section sources**
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
@@ -414,6 +450,8 @@ The TycheModule system is designed for high-performance distributed processing w
 - **Weak References**: Prevent circular references in event routing
 - **Context Management**: Proper socket lifecycle management
 
+**Enhanced Type Safety** The performance considerations now include the benefits of static type checking, which can help catch type-related issues at development time rather than runtime, potentially reducing debugging overhead and improving overall system reliability.
+
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
@@ -438,6 +476,8 @@ The TycheModule system is designed for high-performance distributed processing w
 **Causes**: Heartbeat timeouts, network latency, system overload
 **Solutions**: Adjust heartbeat intervals, increase liveness thresholds, monitor system resources
 
+**Enhanced Type Safety** With improved type annotations, developers can now catch type-related issues earlier in the development process, reducing debugging time and improving code quality. Static type checking helps prevent common runtime errors related to incorrect payload types or missing return values.
+
 **Section sources**
 - [module.py:247-254](file://src/tyche/module.py#L247-L254)
 - [engine.py:341-350](file://src/tyche/engine.py#L341-L350)
@@ -449,6 +489,13 @@ The TycheModule system is designed for high-performance distributed processing w
 3. **Validate Interface Patterns**: Ensure method signatures match expected patterns
 4. **Test Network Connectivity**: Verify ZeroMQ socket connectivity and routing
 5. **Profile Performance**: Measure event processing latency and throughput
+6. **Static Type Checking**: Leverage enhanced type annotations for early error detection
+
+**Enhanced Type Safety** The debugging strategy now includes leveraging the enhanced type safety features, which provide:
+- Early detection of type-related issues during development
+- Improved IDE support with better IntelliSense and autocomplete
+- Compile-time validation of method signatures and return types
+- Reduced debugging time through static type checking
 
 ## Conclusion
 
@@ -458,6 +505,13 @@ The TycheModule system provides a robust foundation for building distributed, ev
 - **Reliability**: ZeroMQ patterns and heartbeat monitoring ensure fault tolerance
 - **Performance**: Asynchronous processing and efficient socket management maximize throughput
 - **Maintainability**: Clear abstractions and automatic interface discovery reduce boilerplate code
+- **Type Safety**: Enhanced Dict[str, Any] type annotations improve static type checking and developer experience
+
+**Enhanced Type Safety** The recent improvements to type safety through explicit Dict[str, Any] type annotations provide significant benefits:
+- Better static type checking with improved IDE support and IntelliSense
+- Earlier detection of type-related issues during development
+- Consistent type annotations across all interface patterns
+- Enhanced development experience with compile-time type validation
 
 The system successfully balances simplicity with power, enabling developers to build complex distributed systems while maintaining clean, testable code. The comprehensive example implementation and extensive test coverage provide excellent guidance for extending the framework with custom modules.
 

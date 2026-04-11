@@ -16,6 +16,13 @@
 - [test_example_module.py](file://tests/unit/test_example_module.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced type annotation examples in Event Handler Patterns section to demonstrate best practices
+- Updated ExampleModule implementation examples to show explicit Dict[str, Any] payload type declarations
+- Added guidance on payload type declaration patterns for handler methods
+- Improved documentation of type safety practices in event handling
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -29,14 +36,14 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive API documentation for the TycheModule and TycheModuleBase classes. It covers constructor parameters, method signatures, lifecycle hooks, automatic interface discovery, event handler registration patterns (on_*, ack_*, whisper_*, on_common_*), communication patterns, thread safety, async capabilities, and ZeroMQ socket integration. It also includes examples of custom module implementation, interface definition, event processing, module registration, endpoint configuration, and error handling strategies.
+This document provides comprehensive API documentation for the TycheModule and TycheModuleBase classes. It covers constructor parameters, method signatures, lifecycle hooks, automatic interface discovery, event handler registration patterns (on_*, ack_*, whisper_*, on_common_*), communication patterns, thread safety, async capabilities, and ZeroMQ socket integration. It also includes examples of custom module implementation, interface definition, event processing, module registration, endpoint configuration, error handling strategies, and demonstrates best practices for type annotations in payload declarations.
 
 ## Project Structure
 The Tyche Engine is organized around a core module abstraction and a concrete implementation that integrates with a central engine via ZeroMQ. Key modules include:
 - Module base and concrete module implementation
 - Types and message definitions
 - Engine that manages registration, event routing, and heartbeats
-- Example module demonstrating all interface patterns
+- Example module demonstrating all interface patterns with improved type annotations
 - Examples for running the engine and a module
 
 ```mermaid
@@ -52,7 +59,7 @@ E["TycheEngine<br/>Central broker"]
 HB["HeartbeatManager<br/>Liveness tracking"]
 end
 subgraph "Examples"
-EM["ExampleModule<br/>Pattern showcase"]
+EM["ExampleModule<br/>Pattern showcase<br/>with improved type annotations"]
 RM["run_module.py<br/>Standalone module"]
 RE["run_engine.py<br/>Standalone engine"]
 end
@@ -71,22 +78,22 @@ RE --> E
 **Diagram sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
 - [run_module.py:22-51](file://examples/run_module.py#L22-L51)
 - [run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
 
 **Section sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
 - [run_module.py:22-51](file://examples/run_module.py#L22-L51)
 - [run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
 
@@ -118,7 +125,7 @@ This section documents the base and concrete module classes, focusing on constru
     - start()/run(): Start the module (blocks until stop())
     - start_nonblocking(): Start without blocking (for testing)
     - stop(): Stop the module gracefully
-    - send_event(event, payload, recipient): Publish an event through the engine’s event proxy
+    - send_event(event, payload, recipient): Publish an event through the engine's event proxy
     - call_ack(event, payload, timeout_ms): Send a request and wait for an ACK reply
     - Internal helpers
       - _register(): One-shot registration handshake with engine
@@ -208,8 +215,8 @@ Lifecycle:
 
 Socket architecture:
 - REQ: One-shot registration handshake (closed after use)
-- PUB: Publish events to engine’s XSUB
-- SUB: Subscribe to events from engine’s XPUB
+- PUB: Publish events to engine's XSUB
+- SUB: Subscribe to events from engine's XPUB
 - DEALER: Send heartbeats to engine
 
 Interface management:
@@ -217,7 +224,7 @@ Interface management:
 - discover_interfaces(): Auto-discovers interfaces from method names
 
 Event handling:
-- send_event(event, payload, recipient): Publishes event to engine’s event proxy
+- send_event(event, payload, recipient): Publishes event to engine's event proxy
 - call_ack(event, payload, timeout_ms): Sends request and waits for ACK reply using a temporary REQ socket
 
 Heartbeat:
@@ -281,6 +288,21 @@ Interface discovery:
 - discover_interfaces(): Scans methods for naming patterns and builds Interface definitions with durability defaults
 - _get_pattern_for_name(): Determines pattern from method name
 
+**Updated** Enhanced type annotation examples demonstrating best practices for payload declarations
+
+Payload type declarations should use explicit Dict[str, Any] annotations to ensure type safety and clarity. The ExampleModule demonstrates these patterns:
+
+- **Fire-and-forget handlers**: `on_data(payload: Dict[str, Any]) -> None`
+- **Request-response handlers**: `ack_request(payload: Dict[str, Any]) -> Dict[str, Any]`
+- **Direct P2P handlers**: `whisper_athena_message(payload: Dict[str, Any], sender: Optional[str] = None) -> None`
+- **Broadcast handlers**: `on_common_broadcast(payload: Dict[str, Any]) -> None`
+
+These explicit type annotations provide:
+- Clear contract documentation for handler parameters
+- IDE autocompletion and type checking support
+- Runtime type safety validation
+- Consistent interface patterns across all handler types
+
 ```mermaid
 flowchart TD
 Start(["Method Name"]) --> CheckPrefix{"Starts with?"}
@@ -303,6 +325,7 @@ Build --> End
 **Section sources**
 - [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
 - [module.py:87-111](file://src/tyche/module.py#L87-L111)
+- [example_module.py:80-122](file://src/tyche/example_module.py#L80-L122)
 
 ### Communication Patterns and ZeroMQ Integration
 TycheModule uses ZeroMQ for:
@@ -427,42 +450,87 @@ Engine error handling:
 - [engine.py:337-339](file://src/tyche/engine.py#L337-L339)
 
 ### Examples of Custom Module Implementation
-The ExampleModule demonstrates all interface patterns and lifecycle usage:
-- Auto-discovery of interfaces from methods
-- Fire-and-forget on_{event} handlers
-- Request-response ack_{event} handlers returning dictionaries
-- Direct P2P whisper_{target}_{event} handlers
-- Broadcast on_common_{event} handlers
-- Stats reporting and graceful shutdown
+The ExampleModule demonstrates all interface patterns and lifecycle usage with improved type annotations:
+
+**Updated** Enhanced type annotations showing best practices for payload declarations
+
+- Auto-discovery of interfaces from methods with explicit type annotations
+- Fire-and-forget on_{event} handlers with Dict[str, Any] payload parameters
+- Request-response ack_{event} handlers returning dictionaries with proper type hints
+- Direct P2P whisper_{target}_{event} handlers with optional sender parameters
+- Broadcast on_common_{event} handlers with explicit payload type declarations
+- Stats reporting and graceful shutdown with proper type annotations
+
+The ExampleModule showcases these type annotation patterns:
+
+```python
+def on_data(self, payload: Dict[str, Any]) -> None:
+    """Handle fire-and-forget data events."""
+    self.received_events.append({"event": "on_data", "payload": payload})
+
+def ack_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle request with acknowledgment."""
+    self.request_count += 1
+    request_id = payload.get("request_id", "unknown")
+    
+    return {
+        "status": "acknowledged",
+        "request_id": request_id,
+        "module_id": self.module_id,
+        "count": self.request_count,
+    }
+
+def whisper_athena_message(
+    self,
+    payload: Dict[str, Any],
+    sender: Optional[str] = None,
+) -> None:
+    """Handle direct P2P whisper message."""
+    self.received_events.append(
+        {"event": "whisper_athena_message", "payload": payload, "sender": sender}
+    )
+
+def on_common_broadcast(self, payload: Dict[str, Any]) -> None:
+    """Handle broadcast events to ALL subscribers."""
+    self.received_events.append(
+        {"event": "on_common_broadcast", "payload": payload}
+    )
+```
+
+These explicit type annotations provide:
+- Clear documentation of expected payload structure
+- IDE autocompletion and type checking support
+- Runtime type safety validation
+- Consistent interface patterns across all handler types
 
 ```mermaid
 classDiagram
 class ExampleModule {
--received_events : Dict[]
+-received_events : Dict[]str, Any~~
 -request_count : int
 -ping_count : int
 -pong_count : int
 -_pending_timers : Timer[]
 -_timer_lock : Lock
-+on_data(payload) void
-+ack_request(payload) Dict
-+whisper_athena_message(payload, sender) void
-+on_common_broadcast(payload) void
-+on_common_ping(payload) void
-+on_common_pong(payload) void
++on_data(payload : Dict~str, Any~) void
++ack_request(payload : Dict~str, Any~) Dict~str, Any~
++whisper_athena_message(payload : Dict~str, Any~, sender : Optional~str~) void
++on_common_broadcast(payload : Dict~str, Any~) void
++on_common_ping(payload : Dict~str, Any~) void
++on_common_pong(payload : Dict~str, Any~) void
 +start_ping_pong() void
-+get_stats() Dict
++get_stats() Dict~str, Any~
 +stop() void
 }
 ExampleModule --|> TycheModule
 ```
 
 **Diagram sources**
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 
 **Section sources**
-- [example_module.py:19-167](file://src/tyche/example_module.py#L19-L167)
+- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
 
 ## Dependency Analysis
 TycheModule depends on:
@@ -492,14 +560,14 @@ E --> ZMQ
 **Diagram sources**
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
 - [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
 
 **Section sources**
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
 - [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
-- [types.py:14-102](file://src/tyche/types.py#L14-L102)
+- [types.py:14-105](file://src/tyche/types.py#L14-L105)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
 
@@ -509,8 +577,6 @@ E --> ZMQ
 - MessagePack serialization minimizes payload size
 - Async persistence model keeps hot path low-latency
 - Engine uses XPUB/XSUB proxy for scalable event distribution
-
-[No sources needed since this section provides general guidance]
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -531,9 +597,7 @@ Validation via tests:
 - [test_example_module.py:7-94](file://tests/unit/test_example_module.py#L7-L94)
 
 ## Conclusion
-TycheModule and TycheModuleBase provide a robust foundation for building distributed modules with standardized event handler patterns, automatic interface discovery, and ZeroMQ-based communication. The concrete implementation integrates seamlessly with TycheEngine, offering registration, event routing, and heartbeat monitoring. The examples demonstrate practical usage across all interface patterns, and the tests validate core behaviors and error handling.
-
-[No sources needed since this section summarizes without analyzing specific files]
+TycheModule and TycheModuleBase provide a robust foundation for building distributed modules with standardized event handler patterns, automatic interface discovery, and ZeroMQ-based communication. The concrete implementation integrates seamlessly with TycheEngine, offering registration, event routing, and heartbeat monitoring. The examples demonstrate practical usage across all interface patterns with improved type annotations, showcasing best practices for payload type declarations using explicit Dict[str, Any] annotations. The tests validate core behaviors and error handling, ensuring reliable operation in production environments.
 
 ## Appendices
 
@@ -564,10 +628,42 @@ TycheModule and TycheModuleBase provide a robust foundation for building distrib
     - start()/run(): Start the module (blocks until stop())
     - start_nonblocking(): Start without blocking (for testing)
     - stop(): Stop the module gracefully
-    - send_event(event, payload, recipient): Publish an event through the engine’s event proxy
+    - send_event(event, payload, recipient): Publish an event through the engine's event proxy
     - call_ack(event, payload, timeout_ms): Send a request and wait for an ACK reply
     - Internal helpers: _register(), _subscribe_to_interfaces(), _event_receiver(), _dispatch(), _send_heartbeats()
+
+### Type Annotation Best Practices
+
+**Updated** Enhanced guidance for payload type declarations
+
+When implementing event handlers, follow these type annotation best practices:
+
+1. **Explicit Payload Types**: Always declare payload parameters as `Dict[str, Any]` for maximum flexibility
+2. **Return Type Consistency**: 
+   - Fire-and-forget handlers: `-> None`
+   - Request-response handlers: `-> Dict[str, Any]`
+   - Direct P2P handlers: `-> None`
+   - Broadcast handlers: `-> None`
+3. **Optional Parameters**: Use `Optional[T]` for parameters that may be None
+4. **Type Checking**: Enable type checking in your development environment for early error detection
+
+Example patterns:
+```python
+# Fire-and-forget handler
+def on_data(self, payload: Dict[str, Any]) -> None: ...
+
+# Request-response handler  
+def ack_request(self, payload: Dict[str, Any]) -> Dict[str, Any]: ...
+
+# Direct P2P handler with optional sender
+def whisper_target_event(
+    self, 
+    payload: Dict[str, Any], 
+    sender: Optional[str] = None
+) -> None: ...
+```
 
 **Section sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [example_module.py:80-122](file://src/tyche/example_module.py#L80-L122)
