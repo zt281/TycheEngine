@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional
 HEARTBEAT_INTERVAL = 1.0  # seconds
 HEARTBEAT_LIVENESS = 3    # missed heartbeats before considered dead
 
+# Admin endpoint default port
+ADMIN_PORT_DEFAULT = 5560
+
 
 class ModuleId:
     """Module identifier with format: {deity_name}{6-char MD5}."""

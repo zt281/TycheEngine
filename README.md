@@ -338,6 +338,22 @@ ZeroMQ provides the right balance of performance and reliability patterns for Ty
 | Backtesting large datasets | Use Parquet format, streaming replay |
 | Research data export | Batch to HDF5/Parquet, avoid CSV for large datasets |
 
+## Terminal UI Dashboard
+
+Tyche Engine includes a real-time terminal dashboard for monitoring engine state, active modules, and event flow. Built with OpenTUI and Bun, it provides an intuitive interface for observing system health without leaving the terminal.
+
+See [tui/README.md](tui/README.md) for full documentation.
+
+**Quick Start:**
+
+```bash
+# Terminal 1: Start the engine
+python examples/run_engine.py
+
+# Terminal 2: Start the TUI dashboard
+cd tui && bun install && bun run start
+```
+
 ## References
 
 - [ZeroMQ Guide](https://zguide.zeromq.org/) - The definitive guide to ZeroMQ patterns

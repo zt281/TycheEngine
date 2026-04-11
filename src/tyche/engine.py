@@ -1,6 +1,7 @@
 """TycheEngine - Central broker using threads for multi-process support."""
 
 import logging
+import queue
 import threading
 import time
 from typing import Dict, List, Optional, Tuple
@@ -10,6 +11,7 @@ import zmq
 from tyche.heartbeat import HeartbeatManager
 from tyche.message import Message, deserialize, serialize
 from tyche.types import (
+    ADMIN_PORT_DEFAULT,
     HEARTBEAT_INTERVAL,
     DurabilityLevel,
     Endpoint,
@@ -37,7 +39,8 @@ class TycheEngine:
         event_endpoint: Endpoint,
         heartbeat_endpoint: Endpoint,
         ack_endpoint: Optional[Endpoint] = None,
-        heartbeat_receive_endpoint: Optional[Endpoint] = None
+        heartbeat_receive_endpoint: Optional[Endpoint] = None,
+        admin_endpoint: str = f"tcp://*:{ADMIN_PORT_DEFAULT}"
     ):
         self.registration_endpoint = registration_endpoint
         self.event_endpoint = event_endpoint
@@ -52,12 +55,21 @@ class TycheEngine:
         self.event_sub_endpoint = Endpoint(
             event_endpoint.host, event_endpoint.port + 1
         )
+        self._admin_endpoint = admin_endpoint
 
         # Thread-safe registry
         self._lock = threading.Lock()
         self.modules: Dict[str, ModuleInfo] = {}
         self.interfaces: Dict[str, List[Tuple[str, Interface]]] = {}
         self.heartbeat_manager = HeartbeatManager()
+
+        # Uptime and counters
+        self._start_time = time.time()
+        self._event_count = 0
+        self._register_count = 0
+
+        # Thread-safe queue for forwarding module heartbeats to PUB socket
+        self._heartbeat_queue: queue.Queue[Message] = queue.Queue()
 
         self.context: Optional[zmq.Context] = None
         self._running = False
@@ -97,6 +109,9 @@ class TycheEngine:
             ),
             threading.Thread(
                 target=self._event_proxy_worker, name="event_proxy", daemon=True
+            ),
+            threading.Thread(
+                target=self._admin_worker, name="admin", daemon=True
             ),
         ]
 
@@ -158,6 +173,8 @@ class TycheEngine:
             if msg.msg_type == MessageType.REGISTER:
                 module_info = self._create_module_info(msg)
                 self.register_module(module_info)
+                with self._lock:
+                    self._register_count += 1
 
                 ack = Message(
                     msg_type=MessageType.ACK,
@@ -270,6 +287,8 @@ class TycheEngine:
                 if xsub in events:
                     frame = xsub.recv_multipart()
                     xpub.send_multipart(frame)
+                    with self._lock:
+                        self._event_count += 1
         except Exception as e:
             logger.error("Event proxy worker failed: %s", e)
         finally:
@@ -288,6 +307,7 @@ class TycheEngine:
 
             while self._running:
                 try:
+                    # Send engine heartbeat
                     msg = Message(
                         msg_type=MessageType.HEARTBEAT,
                         sender="engine",
@@ -295,6 +315,15 @@ class TycheEngine:
                         payload={"timestamp": time.time()},
                     )
                     socket.send_multipart([b"heartbeat", serialize(msg)])
+
+                    # Forward any module heartbeats from the queue
+                    while True:
+                        try:
+                            module_msg = self._heartbeat_queue.get_nowait()
+                            socket.send_multipart([b"heartbeat", serialize(module_msg)])
+                        except queue.Empty:
+                            break
+
                     time.sleep(HEARTBEAT_INTERVAL)
                 except Exception as e:
                     if self._running:
@@ -326,6 +355,8 @@ class TycheEngine:
                             msg = deserialize(msg_data)
                             if msg.msg_type == MessageType.HEARTBEAT:
                                 self.heartbeat_manager.update(msg.sender)
+                                # Forward module heartbeat to PUB socket via queue
+                                self._heartbeat_queue.put(msg)
                         except Exception:
                             pass  # Ignore malformed heartbeat messages
                 except zmq.error.Again:
@@ -347,3 +378,78 @@ class TycheEngine:
                 self.unregister_module(module_id)
 
             time.sleep(HEARTBEAT_INTERVAL)
+
+    def _admin_worker(self) -> None:
+        """Admin ROUTER socket for querying engine state."""
+        assert self.context is not None
+        socket = self.context.socket(zmq.ROUTER)
+        socket.setsockopt(zmq.LINGER, 0)
+        try:
+            socket.bind(self._admin_endpoint)
+            socket.setsockopt(zmq.RCVTIMEO, 100)
+
+            while self._running:
+                try:
+                    frames = socket.recv_multipart()
+                    self._process_admin_query(socket, frames)
+                except zmq.error.Again:
+                    continue
+                except Exception as e:
+                    if self._running:
+                        logger.error("Admin query error: %s", e)
+        except Exception as e:
+            logger.error("Admin worker failed to start: %s", e)
+        finally:
+            socket.close()
+
+    def _process_admin_query(
+        self, socket: zmq.Socket, frames: List[bytes]
+    ) -> None:
+        """Process an admin query request."""
+        if len(frames) < 2:
+            return
+
+        identity = frames[0]
+        # ROUTER adds identity frame; REQ adds empty delimiter
+        msg_data = frames[2] if len(frames) >= 3 and frames[1] == b"" else frames[1]
+
+        try:
+            import msgpack
+
+            query = msgpack.unpackb(msg_data, raw=False)
+            response: dict = {}
+
+            if query == "STATUS":
+                with self._lock:
+                    uptime = time.time() - self._start_time
+                    response = {
+                        "status": "running",
+                        "uptime": uptime,
+                        "module_count": len(self.modules),
+                        "event_count": self._event_count,
+                        "register_count": self._register_count,
+                    }
+            elif query == "MODULES":
+                with self._lock:
+                    modules_list = []
+                    for module_id, module_info in self.modules.items():
+                        liveness = self.heartbeat_manager.get_liveness(module_id)
+                        modules_list.append({
+                            "module_id": module_id,
+                            "interfaces": [i.name for i in module_info.interfaces],
+                            "liveness": liveness,
+                        })
+                    response = {"modules": modules_list}
+            elif query == "STATS":
+                with self._lock:
+                    response = {
+                        "event_count": self._event_count,
+                        "register_count": self._register_count,
+                        "module_count": len(self.modules),
+                    }
+            else:
+                response = {"error": f"Unknown query: {query}"}
+
+            socket.send_multipart([identity, b"", msgpack.packb(response)])
+        except Exception as e:
+            logger.error("Failed to process admin query: %s", e)

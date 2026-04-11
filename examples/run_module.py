@@ -11,12 +11,16 @@ Usage:
 
 import sys
 import os
+import logging
+import time
 
 # Add src to path for examples
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from tyche.example_module import ExampleModule
 from tyche.types import Endpoint
+
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(name)s - %(levelname)s - %(message)s')
 
 
 def main():
@@ -38,7 +42,19 @@ def main():
     print()
 
     try:
-        module.run()  # Blocks until interrupted
+        # Start module in non-blocking mode so we can call start_ping_pong()
+        module.start_nonblocking()
+
+        # Wait briefly for registration to complete
+        time.sleep(1)
+
+        # Start the ping-pong event cycle
+        print("Starting ping-pong event generation...")
+        module.start_ping_pong()
+
+        # Keep the main thread alive
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\nShutting down...")
         module.stop()

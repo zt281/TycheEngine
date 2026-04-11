@@ -20,6 +20,8 @@ def main() -> None:
                         help='Port for heartbeat (PUB)')
     parser.add_argument('--heartbeat-receive-port', type=int, default=5559,
                         help='Port for receiving heartbeats from modules (ROUTER)')
+    parser.add_argument('--admin-port', type=int, default=5560,
+                        help='Port for admin queries (ROUTER)')
     parser.add_argument('--host', default='127.0.0.1',
                         help='Host to bind to')
 
@@ -29,7 +31,8 @@ def main() -> None:
         registration_endpoint=Endpoint(args.host, args.registration_port),
         event_endpoint=Endpoint(args.host, args.event_port),
         heartbeat_endpoint=Endpoint(args.host, args.heartbeat_port),
-        heartbeat_receive_endpoint=Endpoint(args.host, args.heartbeat_receive_port)
+        heartbeat_receive_endpoint=Endpoint(args.host, args.heartbeat_receive_port),
+        admin_endpoint=f"tcp://{args.host}:{args.admin_port}"
     )
 
     def shutdown(sig: int, frame: Any) -> None:
@@ -44,6 +47,7 @@ def main() -> None:
     print(f"  Registration: port {args.registration_port}")
     print(f"  Events: port {args.event_port}")
     print(f"  Heartbeat: port {args.heartbeat_port}")
+    print(f"  Admin: port {args.admin_port}")
 
     engine.run()  # Blocking call
 

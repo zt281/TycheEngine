@@ -139,3 +139,14 @@ class HeartbeatManager:
                 peer_id for peer_id, monitor in self.monitors.items()
                 if monitor.is_expired()
             ]
+
+    def get_liveness(self, peer_id: str) -> int:
+        """Get current liveness value for a peer.
+
+        Returns:
+            Current liveness counter value, or -1 if peer not found.
+        """
+        with self._lock:
+            if peer_id in self.monitors:
+                return self.monitors[peer_id].liveness
+            return -1

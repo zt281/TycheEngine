@@ -125,29 +125,45 @@ class ExampleModule(TycheModule):
         """Handle ping broadcast - respond with pong after random delay.
 
         Pattern: on_common_{event}
+        Echoes back the same value from the ping payload in the pong reply.
         """
         self.ping_count += 1
+        value = payload.get("value")
         delay = random.uniform(0.1, 0.9)
-        self._schedule_timer(delay, self._broadcast_pong)
+        self._schedule_timer(delay, lambda: self._broadcast_pong(value))
 
-    def on_common_pong(self, payload: Dict[str, Any]) -> None:
-        """Handle pong broadcast - respond with ping after random delay.
+    # def on_common_pong(self, payload: Dict[str, Any]) -> None:
+    #     """Handle pong broadcast - respond with ping after random delay.
 
-        Pattern: on_common_{event}
-        """
-        self.pong_count += 1
-        delay = random.uniform(0.1, 0.9)
-        self._schedule_timer(delay, self._broadcast_ping)
+    #     Pattern: on_common_{event}
+    #     """
+    #     self.pong_count += 1
+    #     delay = random.uniform(0.1, 0.9)
+    #     self._schedule_timer(delay, self._broadcast_ping)
 
     def _broadcast_ping(self) -> None:
-        """Broadcast a ping message to all modules."""
-        if self._running:
-            self.send_event("on_common_ping", {"sender": self.module_id})
+        """Broadcast a ping message to all modules with a random value.
 
-    def _broadcast_pong(self) -> None:
-        """Broadcast a pong message to all modules."""
+        Generates a random integer between 0 and 100, includes it in the payload,
+        and schedules the next ping with a random delay of 0-3 seconds.
+        """
         if self._running:
-            self.send_event("on_common_pong", {"sender": self.module_id})
+            value = random.randint(0, 100)
+            self.send_event("on_common_ping", {"sender": self.module_id, "value": value})
+            delay = random.uniform(0, 3)
+            self._schedule_timer(delay, self._broadcast_ping)
+
+    def _broadcast_pong(self, value: Optional[int] = None) -> None:
+        """Broadcast a pong message to all modules.
+
+        Args:
+            value: The value to echo back from the original ping (if provided).
+        """
+        if self._running:
+            payload = {"sender": self.module_id}
+            if value is not None:
+                payload["value"] = value
+            self.send_event("on_common_pong", payload)
 
     def start_ping_pong(self) -> None:
         """Start the ping-pong cycle by broadcasting initial ping."""
