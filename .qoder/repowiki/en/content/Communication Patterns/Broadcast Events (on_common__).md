@@ -11,7 +11,15 @@
 - [README.md](file://README.md)
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
+- [test_example_module.py](file://tests/unit/test_example_module.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated the "Implementing on_common_* Handlers" section to clarify the intentional design decision to exclude on_common_pong handler
+- Added documentation explaining the testing rationale for avoiding infinite ping-pong loops
+- Enhanced troubleshooting guidance with specific mention of ping-pong broadcast patterns
+- Updated practical examples to reflect the current implementation status
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -26,7 +34,9 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains Tyche Engine’s broadcast event pattern using the on_common_* naming convention. Modules can publish events that are distributed to all connected subscribers regardless of specific targeting. The broadcast mechanism relies on ZeroMQ XPUB/XSUB proxy inside the engine to distribute events from publishers to subscribers. We cover how modules declare broadcast handlers, how the event proxy distributes messages, subscriber management, and practical guidance for building scalable broadcast communication patterns.
+This document explains Tyche Engine's broadcast event pattern using the on_common_* naming convention. Modules can publish events that are distributed to all connected subscribers regardless of specific targeting. The broadcast mechanism relies on ZeroMQ XPUB/XSUB proxy inside the engine to distribute events from publishers to subscribers. We cover how modules declare broadcast handlers, how the event proxy distributes messages, subscriber management, and practical guidance for building scalable broadcast communication patterns.
+
+**Updated** Clarified that the on_common_pong handler is intentionally excluded to prevent infinite ping-pong loops during testing and development.
 
 ## Project Structure
 Tyche Engine organizes broadcast-related functionality across several modules:
@@ -79,8 +89,8 @@ Key broadcast-related elements:
 
 ## Architecture Overview
 Broadcast events traverse the following path:
-- Publishers (modules) send events to the engine’s XSUB endpoint.
-- The engine’s XPUB/XSUB proxy forwards events to the XPUB endpoint.
+- Publishers (modules) send events to the engine's XSUB endpoint.
+- The engine's XPUB/XSUB proxy forwards events to the XPUB endpoint.
 - Subscribers (modules) connect SUB sockets to the XPUB endpoint and subscribe to topics matching their handler names.
 
 ```mermaid
@@ -180,21 +190,25 @@ Handler --> End(["Done"])
 - The engine will discover these methods and subscribe to the corresponding topics automatically.
 - Handlers receive the event payload and can perform side effects, logging, or initiate further actions.
 
+**Important Design Note**: The on_common_pong handler is intentionally not implemented to prevent infinite ping-pong loops during testing and development. The ExampleModule demonstrates a ping-pong broadcast pattern using on_common_ping and on_common_pong methods, but the pong handler is commented out to avoid creating an endless loop of broadcast messages.
+
 Practical example references:
 - on_common_broadcast handler in ExampleModule.
-- on_common_ping and on_common_pong handlers demonstrate a ping-pong broadcast loop.
+- on_common_ping handler demonstrates ping-pong broadcast loop initiation.
+- on_common_pong handler is intentionally excluded to prevent infinite loops.
 
 **Section sources**
 - [module_base.py:74-84](file://src/tyche/module_base.py#L74-L84)
 - [example_module.py:115-150](file://src/tyche/example_module.py#L115-L150)
+- [test_example_module.py:22-24](file://tests/unit/test_example_module.py#L22-L24)
 
 ### Publishing Broadcast Events
 - Modules publish events using the send_event method with the desired topic name.
-- The engine’s event proxy forwards the event to all subscribers who have subscribed to that topic.
+- The engine's event proxy forwards the event to all subscribers who have subscribed to that topic.
 
 References:
 - send_event implementation for publishing.
-- ExampleModule’s _broadcast_ping/_broadcast_pong methods show how to publish on_common_* events.
+- ExampleModule's _broadcast_ping/_broadcast_pong methods show how to publish on_common_* events.
 
 **Section sources**
 - [module.py:301-330](file://src/tyche/module.py#L301-L330)
@@ -253,8 +267,7 @@ Example["ExampleModule"] --> TycheModule
   - Use durability levels judiciously; broadcasts are best-effort by design.
   - Monitor subscriber lag and adjust fan-out or rate accordingly.
   - For strict ordering or guaranteed delivery, consider alternative patterns (e.g., load-balanced on_* or request-response ack_*).
-
-[No sources needed since this section provides general guidance]
+- **Ping-Pong Pattern Considerations**: The ping-pong broadcast pattern demonstrates global distribution but requires careful implementation to avoid infinite loops. The on_common_pong handler is intentionally excluded to prevent uncontrolled broadcast cycles.
 
 ## Troubleshooting Guide
 Common issues and remedies:
@@ -262,7 +275,7 @@ Common issues and remedies:
   - Ensure the method name follows on_common_* and is discoverable by ModuleBase.
   - Verify the module registered successfully and subscribed to the topic.
 - No subscribers receiving events:
-  - Confirm the engine’s event proxy is running and bound to the expected endpoints.
+  - Confirm the engine's event proxy is running and bound to the expected endpoints.
   - Check that publishers are sending to the correct topic and that subscribers are subscribed to that topic.
 - Performance degradation:
   - Reduce fan-out by narrowing event scope or using selective subscriptions.
@@ -270,16 +283,18 @@ Common issues and remedies:
 - Slow subscribers:
   - Implement back-pressure or throttling in handlers.
   - Consider splitting high-frequency broadcasts into multiple channels.
+- **Ping-Pong Loop Issues**: If experiencing unexpected broadcast loops, verify that the on_common_pong handler is not implemented. The current design intentionally excludes this handler to prevent infinite ping-pong scenarios during testing and development.
 
 **Section sources**
 - [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
 - [module.py:258-298](file://src/tyche/module.py#L258-L298)
 - [engine.py:238-278](file://src/tyche/engine.py#L238-L278)
+- [test_example_module.py:22-24](file://tests/unit/test_example_module.py#L22-L24)
 
 ## Conclusion
-Tyche Engine’s on_common_* broadcast pattern enables global event distribution across all connected subscribers. The XPUB/XSUB proxy ensures efficient fan-out, while ModuleBase and TycheModule provide clean interfaces for declaring handlers and publishing events. For large-scale deployments, carefully consider broadcast fan-out, payload sizes, and subscriber performance to maintain system responsiveness.
+Tyche Engine's on_common_* broadcast pattern enables global event distribution across all connected subscribers. The XPUB/XSUB proxy ensures efficient fan-out, while ModuleBase and TycheModule provide clean interfaces for declaring handlers and publishing events. For large-scale deployments, carefully consider broadcast fan-out, payload sizes, and subscriber performance to maintain system responsiveness.
 
-[No sources needed since this section summarizes without analyzing specific files]
+**Updated** The broadcast pattern intentionally avoids infinite ping-pong loops by excluding the on_common_pong handler, ensuring stable testing and development environments while maintaining the ability to demonstrate broadcast functionality validation.
 
 ## Appendices
 
@@ -290,7 +305,7 @@ Tyche Engine’s on_common_* broadcast pattern enables global event distribution
 - ExampleModule demonstrates:
   - Declaring on_common_* handlers.
   - Publishing broadcast events via send_event with on_common_* topics.
-  - Implementing ping-pong broadcast loops to illustrate global distribution.
+  - Implementing ping-pong broadcast loops to illustrate global distribution (with on_common_pong handler intentionally excluded).
 
 **Section sources**
 - [run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
@@ -301,7 +316,9 @@ Tyche Engine’s on_common_* broadcast pattern enables global event distribution
 - Interface pattern: ON_COMMON for on_common_*.
 - Delivery: Best-effort broadcast; no guaranteed ordering or delivery.
 - Use cases: Global announcements, cache invalidation, state synchronization, and consensus signals.
+- **Design Note**: The ping-pong broadcast pattern is demonstrated but intentionally excludes the on_common_pong handler to prevent infinite loops during testing and development.
 
 **Section sources**
 - [types.py:51-58](file://src/tyche/types.py#L51-L58)
 - [README.md:64-102](file://README.md#L64-L102)
+- [test_example_module.py:22-24](file://tests/unit/test_example_module.py#L22-L24)
