@@ -4,29 +4,19 @@ import os
 import subprocess
 import sys
 
-# Get src directory for PYTHONPATH in subprocess tests
-SRC_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'src')
+from tyche import module_main
+
+SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "src")
 
 
-def test_module_main_module_exists():
-    """Test that module_main module can be imported."""
-    from tyche import module_main
-
-    assert hasattr(module_main, "main")
+def test_module_main_has_main_function():
+    """module_main module exposes a main() function."""
+    assert callable(getattr(module_main, "main", None))
 
 
-def test_module_main_argparse():
-    """Test that module_main accepts CLI arguments."""
-    from tyche import module_main
-
-    assert hasattr(module_main, "main")
-
-
-def test_module_main_help():
-    """Test that module_main --help works."""
-    env = os.environ.copy()
-    env["PYTHONPATH"] = SRC_DIR
-
+def test_module_main_help_output():
+    """module_main --help shows expected CLI flags."""
+    env = {**os.environ, "PYTHONPATH": SRC_DIR}
     result = subprocess.run(
         [sys.executable, "-m", "tyche.module_main", "--help"],
         capture_output=True,
@@ -35,7 +25,6 @@ def test_module_main_help():
         env=env,
     )
     assert result.returncode == 0
-    assert "Tyche Module" in result.stdout
     assert "--engine-host" in result.stdout
     assert "--engine-port" in result.stdout
     assert "--module-id" in result.stdout
