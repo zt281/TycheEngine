@@ -1,7 +1,7 @@
 """Core type definitions for Tyche Engine."""
 
-import hashlib
 import random
+import secrets
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -28,14 +28,12 @@ class ModuleId:
             deity: Optional deity name. If None, random selection.
 
         Returns:
-            Module ID string in format {deity}{6-char MD5}
+            Module ID string in format {deity}{6-char hex}
         """
         if deity is None:
             deity = random.choice(cls.DEITIES)
 
-        # Generate 6-char MD5 hash suffix
-        hash_input = f"{deity}{random.getrandbits(32)}".encode()
-        hash_suffix = hashlib.md5(hash_input).hexdigest()[:6]
+        hash_suffix = secrets.token_hex(3)  # 6 hex chars
 
         return f"{deity}{hash_suffix}"
 

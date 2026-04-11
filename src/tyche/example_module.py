@@ -10,10 +10,10 @@ This module serves as a reference implementation showing:
 
 import random
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from tyche.module import TycheModule
-from tyche.types import Endpoint
+from tyche.types import Endpoint, ModuleId
 
 
 class ExampleModule(TycheModule):
@@ -22,7 +22,7 @@ class ExampleModule(TycheModule):
     Demonstrates:
     - on_data: Fire-and-forget event handler
     - ack_request: Request-response handler
-    - whisper_target_message: Direct P2P handler
+    - whisper_athena_message: Direct P2P handler
     - on_common_broadcast: Broadcast event handler
 
     Args:
@@ -34,165 +34,127 @@ class ExampleModule(TycheModule):
         self,
         engine_endpoint: Endpoint,
         module_id: Optional[str] = None,
-        heartbeat_receive_endpoint: Optional[Endpoint] = None
+        heartbeat_receive_endpoint: Optional[Endpoint] = None,
     ):
-        # Use athena as default deity
         if module_id is None:
-            from tyche.types import ModuleId
             module_id = ModuleId.generate("athena")
 
         super().__init__(
             engine_endpoint=engine_endpoint,
             module_id=module_id,
-            heartbeat_receive_endpoint=heartbeat_receive_endpoint
+            heartbeat_receive_endpoint=heartbeat_receive_endpoint,
         )
 
         # Track received events for demonstration
-        self.received_events: list = []
+        self.received_events: List[Dict[str, Any]] = []
         self.request_count = 0
         self.ping_count = 0
         self.pong_count = 0
 
+        # Track pending timers so we can cancel them on stop
+        self._pending_timers: List[threading.Timer] = []
+        self._timer_lock = threading.Lock()
+
         # Auto-discover interfaces from methods
         self._interfaces = self.discover_interfaces()
+
+    def stop(self) -> None:
+        """Stop the module and cancel all pending timers."""
+        # Cancel outstanding timers before shutting down sockets
+        with self._timer_lock:
+            for timer in self._pending_timers:
+                timer.cancel()
+            self._pending_timers.clear()
+
+        super().stop()
+
+    def _schedule_timer(self, delay: float, fn: Any) -> None:
+        """Schedule a timer and track it for cleanup."""
+        with self._timer_lock:
+            if not self._running:
+                return
+            timer = threading.Timer(delay, fn)
+            self._pending_timers.append(timer)
+            timer.start()
 
     def on_data(self, payload: Dict[str, Any]) -> None:
         """Handle fire-and-forget data events.
 
         Pattern: on_{event}
-        Delivery: At-least-once, FIFO
-        Behavior: No response required
-
-        Args:
-            payload: Event data containing 'message' or other fields
         """
-        self.received_events.append({
-            "event": "on_data",
-            "payload": payload
-        })
-        print(f"[{self.module_id}] on_data received: {payload}")
+        self.received_events.append({"event": "on_data", "payload": payload})
 
     def ack_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Handle request with acknowledgment.
 
         Pattern: ack_{event}
-        Delivery: At-least-once with confirmation
-        Behavior: Must return ACK response within timeout
-
-        Args:
-            payload: Request data containing 'request_id' and other fields
-
-        Returns:
-            ACK response with status and request_id
         """
         self.request_count += 1
         request_id = payload.get("request_id", "unknown")
 
-        response = {
+        return {
             "status": "acknowledged",
             "request_id": request_id,
             "module_id": self.module_id,
-            "count": self.request_count
+            "count": self.request_count,
         }
-
-        print(f"[{self.module_id}] ack_request processed: {request_id}")
-        return response
 
     def whisper_athena_message(
         self,
         payload: Dict[str, Any],
-        sender: Optional[str] = None
+        sender: Optional[str] = None,
     ) -> None:
         """Handle direct P2P whisper message.
 
         Pattern: whisper_{target}_{event}
-        Delivery: Best-effort or confirmed (configurable)
-        Behavior: Direct module-to-module, bypasses Engine routing
-
-        Args:
-            payload: Message data
-            sender: Optional sender module ID
         """
-        self.received_events.append({
-            "event": "whisper_athena_message",
-            "payload": payload,
-            "sender": sender
-        })
-        print(f"[{self.module_id}] whisper received from {sender}: {payload}")
+        self.received_events.append(
+            {"event": "whisper_athena_message", "payload": payload, "sender": sender}
+        )
 
     def on_common_broadcast(self, payload: Dict[str, Any]) -> None:
         """Handle broadcast events to ALL subscribers.
 
         Pattern: on_common_{event}
-        Delivery: Best-effort broadcast
-        Behavior: All subscribers receive, no back-pressure
-
-        Args:
-            payload: Broadcast data
         """
-        self.received_events.append({
-            "event": "on_common_broadcast",
-            "payload": payload
-        })
-        print(f"[{self.module_id}] broadcast received: {payload}")
+        self.received_events.append(
+            {"event": "on_common_broadcast", "payload": payload}
+        )
 
     def on_common_ping(self, payload: Dict[str, Any]) -> None:
         """Handle ping broadcast - respond with pong after random delay.
 
         Pattern: on_common_{event}
-        Creates a ping-pong message passing demonstration between modules.
-
-        Args:
-            payload: Broadcast data containing 'sender' module ID
         """
-        sender = payload.get("sender", "unknown")
         self.ping_count += 1
-        print(f"[{self.module_id}] ping received from {sender} (total: {self.ping_count})")
-
-        # Broadcast pong after random delay (< 1 second)
         delay = random.uniform(0.1, 0.9)
-        threading.Timer(delay, self._broadcast_pong).start()
-        print(f"[{self.module_id}] scheduling pong in {delay:.2f}s")
+        self._schedule_timer(delay, self._broadcast_pong)
 
     def on_common_pong(self, payload: Dict[str, Any]) -> None:
         """Handle pong broadcast - respond with ping after random delay.
 
         Pattern: on_common_{event}
-        Creates a ping-pong message passing demonstration between modules.
-
-        Args:
-            payload: Broadcast data containing 'sender' module ID
         """
-        sender = payload.get("sender", "unknown")
         self.pong_count += 1
-        print(f"[{self.module_id}] pong received from {sender} (total: {self.pong_count})")
-
-        # Broadcast ping after random delay (< 1 second)
         delay = random.uniform(0.1, 0.9)
-        threading.Timer(delay, self._broadcast_ping).start()
-        print(f"[{self.module_id}] scheduling ping in {delay:.2f}s")
+        self._schedule_timer(delay, self._broadcast_ping)
 
     def _broadcast_ping(self) -> None:
         """Broadcast a ping message to all modules."""
-        print(f"[{self.module_id}] broadcasting ping")
-        self.send_event("broadcast_ping", {"sender": self.module_id})
+        if self._running:
+            self.send_event("on_common_ping", {"sender": self.module_id})
 
     def _broadcast_pong(self) -> None:
         """Broadcast a pong message to all modules."""
-        print(f"[{self.module_id}] broadcasting pong")
-        self.send_event("broadcast_pong", {"sender": self.module_id})
+        if self._running:
+            self.send_event("on_common_pong", {"sender": self.module_id})
 
     def start_ping_pong(self) -> None:
         """Start the ping-pong cycle by broadcasting initial ping."""
-        print(f"[{self.module_id}] starting ping-pong cycle")
         self._broadcast_ping()
 
     def get_stats(self) -> Dict[str, Any]:
-        """Return module statistics.
-
-        Returns:
-            Dict with event counts and status
-        """
+        """Return module statistics."""
         return {
             "module_id": self.module_id,
             "registered": self._registered,
@@ -200,5 +162,5 @@ class ExampleModule(TycheModule):
             "events_received": len(self.received_events),
             "ping_count": self.ping_count,
             "pong_count": self.pong_count,
-            "interfaces": [i.name for i in self._interfaces]
+            "interfaces": [i.name for i in self._interfaces],
         }

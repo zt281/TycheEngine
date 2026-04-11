@@ -1,148 +1,156 @@
-"""Integration tests for 2-node Tyche Engine system."""
-import asyncio
+"""Integration tests for 2-node Tyche Engine system.
 
-import pytest
+Tests actual Engine + Module interaction using real ZMQ sockets.
+"""
+
+import time
 
 from tyche.engine import TycheEngine
 from tyche.example_module import ExampleModule
 from tyche.module import TycheModule
 from tyche.types import Endpoint
 
-# Port allocation per test:
-# registration = base
-# event = base + 1
-# xsub = event + 1 = base + 2  (auto-bound by engine)
-# heartbeat = base + 10  (must not conflict with xsub)
-# ack = event + 10 = base + 11  (auto-calculated by engine)
-BASE_PORT = 63000
 
-
-@pytest.mark.asyncio
-async def test_module_registration():
-    """Module can register with Engine."""
-    base = BASE_PORT
+def test_module_registration():
+    """Module registers with Engine and appears in the module registry."""
     engine = TycheEngine(
-        registration_endpoint=Endpoint("127.0.0.1", base),
-        event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
+        registration_endpoint=Endpoint("127.0.0.1", 24000),
+        event_endpoint=Endpoint("127.0.0.1", 24002),
+        heartbeat_endpoint=Endpoint("127.0.0.1", 24004),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24006),
     )
     engine.start_nonblocking()
-    await asyncio.sleep(0.2)
+    time.sleep(0.3)
 
     module = ExampleModule(
-        engine_endpoint=Endpoint("127.0.0.1", base)
+        engine_endpoint=Endpoint("127.0.0.1", 24000),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24006),
+        module_id="reg_test_mod",
     )
 
     try:
-        await module.start()
-        await asyncio.sleep(0.2)
+        module.start_nonblocking()
+        time.sleep(0.5)
 
-        # Verify registration
-        assert module.module_id in engine.modules
-        assert engine.modules[module.module_id].module_id == module.module_id
-
+        assert module._registered
+        assert "reg_test_mod" in engine.modules
+        assert engine.modules["reg_test_mod"].module_id == "reg_test_mod"
     finally:
-        await module.stop()
+        module.stop()
         engine.stop()
 
 
-@pytest.mark.asyncio
-async def test_event_broadcast():
-    """Engine can broadcast events to subscribed modules."""
-    base = BASE_PORT + 20
+def test_event_pubsub():
+    """Module publishes an event and another module receives it via XPUB/XSUB proxy."""
     engine = TycheEngine(
-        registration_endpoint=Endpoint("127.0.0.1", base),
-        event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
+        registration_endpoint=Endpoint("127.0.0.1", 24100),
+        event_endpoint=Endpoint("127.0.0.1", 24102),
+        heartbeat_endpoint=Endpoint("127.0.0.1", 24104),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24106),
     )
     engine.start_nonblocking()
-    await asyncio.sleep(0.2)
+    time.sleep(0.3)
 
     received = []
 
-    class TestModule(TycheModule):
-        def on_test_event(self, payload):
+    class ReceiverModule(TycheModule):
+        def on_test_event(self, payload: dict) -> None:
             received.append(payload)
 
-    module = TestModule(
-        engine_endpoint=Endpoint("127.0.0.1", base),
-        module_id="test123456"
+    receiver = ReceiverModule(
+        engine_endpoint=Endpoint("127.0.0.1", 24100),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24106),
+        module_id="receiver_001",
+    )
+    receiver.add_interface("on_test_event", receiver.on_test_event)
+
+    sender = TycheModule(
+        engine_endpoint=Endpoint("127.0.0.1", 24100),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24106),
+        module_id="sender_001",
     )
 
     try:
-        module.add_interface("on_test_event", module.on_test_event)
-        await module.start()
-        await asyncio.sleep(0.3)
+        receiver.start_nonblocking()
+        time.sleep(0.3)
+        sender.start_nonblocking()
+        time.sleep(0.5)
 
-        await engine.broadcast_event("on_test_event", {"data": "hello"})
-        await asyncio.sleep(0.3)
+        # Send event through the proxy
+        sender.send_event("on_test_event", {"data": "hello"})
+        time.sleep(0.5)
 
-        assert len(received) >= 0
-
+        assert len(received) >= 1, f"Expected at least 1 event, got {len(received)}"
+        assert received[0]["data"] == "hello"
     finally:
-        await module.stop()
+        sender.stop()
+        receiver.stop()
         engine.stop()
 
 
-@pytest.mark.asyncio
-async def test_module_heartbeat():
-    """Module sends heartbeats to Engine."""
-    base = BASE_PORT + 40
+def test_module_heartbeat_keeps_alive():
+    """Module sends heartbeats to Engine and stays registered."""
     engine = TycheEngine(
-        registration_endpoint=Endpoint("127.0.0.1", base),
-        event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
+        registration_endpoint=Endpoint("127.0.0.1", 24200),
+        event_endpoint=Endpoint("127.0.0.1", 24202),
+        heartbeat_endpoint=Endpoint("127.0.0.1", 24204),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24206),
     )
     engine.start_nonblocking()
-    await asyncio.sleep(0.2)
+    time.sleep(0.3)
 
     module = ExampleModule(
-        engine_endpoint=Endpoint("127.0.0.1", base)
+        engine_endpoint=Endpoint("127.0.0.1", 24200),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24206),
+        module_id="hb_test_mod",
     )
 
     try:
-        await module.start()
-        await asyncio.sleep(0.5)
+        module.start_nonblocking()
+        time.sleep(0.5)
 
-        assert module.module_id in engine.modules
-        assert module.module_id in engine.heartbeat_manager.monitors
-
+        assert "hb_test_mod" in engine.modules
+        assert "hb_test_mod" in engine.heartbeat_manager.monitors
     finally:
-        await module.stop()
+        module.stop()
         engine.stop()
 
 
-@pytest.mark.asyncio
-async def test_full_two_node_interaction():
-    """Complete 2-node interaction: Engine + ExampleModule."""
-    base = BASE_PORT + 60
+def test_full_two_node_interaction():
+    """Complete 2-node interaction: Engine + ExampleModule with handler dispatch."""
     engine = TycheEngine(
-        registration_endpoint=Endpoint("127.0.0.1", base),
-        event_endpoint=Endpoint("127.0.0.1", base + 1),
-        heartbeat_endpoint=Endpoint("127.0.0.1", base + 10)
+        registration_endpoint=Endpoint("127.0.0.1", 24300),
+        event_endpoint=Endpoint("127.0.0.1", 24302),
+        heartbeat_endpoint=Endpoint("127.0.0.1", 24304),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24306),
     )
     engine.start_nonblocking()
-    await asyncio.sleep(0.2)
+    time.sleep(0.3)
 
     module = ExampleModule(
-        engine_endpoint=Endpoint("127.0.0.1", base),
-        module_id="athenatest1"
+        engine_endpoint=Endpoint("127.0.0.1", 24300),
+        heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24306),
+        module_id="athenatest1",
     )
 
     try:
-        await module.start()
-        await asyncio.sleep(0.3)
+        module.start_nonblocking()
+        time.sleep(0.5)
 
+        # Registration succeeded
         assert module._registered
-        assert module.module_id in engine.modules
+        assert "athenatest1" in engine.modules
 
-        module_info = engine.modules[module.module_id]
+        # Interfaces are discovered
+        module_info = engine.modules["athenatest1"]
         interface_names = [i.name for i in module_info.interfaces]
         assert "on_data" in interface_names
         assert "ack_request" in interface_names
 
+        # Direct handler invocation works
         module.on_data({"test": "data"})
         assert len(module.received_events) == 1
+        assert module.received_events[0]["payload"]["test"] == "data"
 
         response = module.ack_request({"request_id": "test123"})
         assert response["status"] == "acknowledged"
@@ -151,7 +159,7 @@ async def test_full_two_node_interaction():
         stats = module.get_stats()
         assert stats["module_id"] == "athenatest1"
         assert stats["request_count"] == 1
-
+        assert stats["events_received"] == 1
     finally:
-        await module.stop()
+        module.stop()
         engine.stop()
