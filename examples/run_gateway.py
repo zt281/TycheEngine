@@ -15,17 +15,17 @@ Usage:
     python examples/run_strategy.py
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 import time
 from decimal import Decimal
 
 # Add src to path for examples
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+from modules.trading.gateway.simulated import SimulatedGateway
 from tyche.types import Endpoint
-from tyche.trading.gateway.simulated import SimulatedGateway
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,7 +62,7 @@ def main() -> None:
     print(f"Gateway ID: {gateway.module_id}")
     print(f"Venue: {gateway.venue_name}")
     print(f"Instruments: {', '.join(INSTRUMENTS)}")
-    print(f"Tick interval: 0.5s")
+    print("Tick interval: 0.5s")
     print()
     print("Connecting to engine at tcp://127.0.0.1:5555")
     print("Press Ctrl+C to stop")

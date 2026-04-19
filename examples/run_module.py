@@ -9,9 +9,9 @@ Usage:
     python examples/run_module.py
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 import time
 
 # Add src to path for examples
