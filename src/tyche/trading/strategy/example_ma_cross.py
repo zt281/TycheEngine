@@ -12,7 +12,7 @@ from typing import Any, Deque, Dict, List, Optional
 from tyche.trading.models.enums import OrderType, Side
 from tyche.trading.models.order import OrderUpdate
 from tyche.trading.models.position import Position
-from tyche.trading.models.tick import Bar, Quote, Trade
+from tyche.trading.models.tick import Quote
 from tyche.trading.strategy.base import StrategyModule
 from tyche.types import Endpoint
 

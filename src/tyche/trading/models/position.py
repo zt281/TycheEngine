@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from tyche.trading.models.enums import PositionSide, Side
 

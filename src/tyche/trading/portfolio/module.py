@@ -5,13 +5,11 @@ updates to the rest of the system.
 """
 
 import logging
-import time
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from tyche.module import TycheModule
 from tyche.trading import events
-from tyche.trading.models.enums import Side
 from tyche.trading.models.order import Fill
 from tyche.trading.models.position import Position
 from tyche.types import DurabilityLevel, Endpoint, InterfacePattern

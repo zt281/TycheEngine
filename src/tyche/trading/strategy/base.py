@@ -14,7 +14,7 @@ from tyche.trading.models.order import Fill, OrderUpdate
 from tyche.trading.models.position import Position
 from tyche.trading.models.tick import Bar, Quote, Trade
 from tyche.trading.strategy.context import StrategyContext
-from tyche.types import DurabilityLevel, Endpoint, InterfacePattern
+from tyche.types import Endpoint, InterfacePattern
 
 logger = logging.getLogger(__name__)
 

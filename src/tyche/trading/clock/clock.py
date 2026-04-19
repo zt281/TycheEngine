@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from tyche.module import TycheModule
 from tyche.trading import events
-from tyche.types import Endpoint, InterfacePattern
+from tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 

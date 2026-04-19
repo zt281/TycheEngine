@@ -3,10 +3,10 @@
 import logging
 import time
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from tyche.trading import events
-from tyche.trading.models.enums import OrderStatus, OrderType, Side, TimeInForce
+from tyche.trading.models.enums import OrderType, Side, TimeInForce
 from tyche.trading.models.order import Order
 from tyche.trading.models.position import Position
 from tyche.trading.models.tick import Bar, Quote

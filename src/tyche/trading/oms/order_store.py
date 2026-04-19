@@ -2,11 +2,10 @@
 
 import logging
 import threading
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from tyche.trading.models.enums import OrderStatus, Side
-from tyche.trading.models.order import Fill, Order, OrderUpdate
+from tyche.trading.models.enums import OrderStatus
+from tyche.trading.models.order import Fill, Order
 
 logger = logging.getLogger(__name__)
 

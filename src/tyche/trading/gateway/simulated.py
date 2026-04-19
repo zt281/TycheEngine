@@ -11,7 +11,6 @@ import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from tyche.trading import events
 from tyche.trading.gateway.base import GatewayModule
 from tyche.trading.models.enums import OrderStatus, Side
 from tyche.trading.models.order import Fill, Order, OrderUpdate

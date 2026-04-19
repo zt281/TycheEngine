@@ -7,12 +7,11 @@ event system. Each venue should have its own Gateway process for fault isolation
 import logging
 import time
 from abc import abstractmethod
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from tyche.module import TycheModule
 from tyche.trading import events
-from tyche.trading.models.enums import OrderStatus, Side
+from tyche.trading.models.enums import OrderStatus
 from tyche.trading.models.order import Fill, Order, OrderUpdate
 from tyche.trading.models.tick import Bar, Quote, Trade
 from tyche.types import DurabilityLevel, Endpoint, InterfacePattern
