@@ -9,7 +9,7 @@ export function createFooter(renderer: CliRenderer): BoxRenderable {
   });
 
   const helpText = new TextRenderable(renderer, {
-    content: "[q] Quit  [p] Pause  [c] Clear Log  [m] Module Detail",
+    content: "[q] Quit  [p] Pause  [c] Clear  [Tab] Next  [s] Start  [x] Stop  [r] Restart  [a] All  [k] Kill Sel",
     fg: "#808080",
   });
 

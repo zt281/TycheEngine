@@ -32,11 +32,12 @@ export interface ModuleInfo {
 
 // Event log entry
 export interface EventEntry {
-  timestamp: number;
+  timestamp: number; // microseconds since epoch
   event: string;
   sender: string;
   recipient?: string;
   type: string; // on, ack, whisper, on_common, broadcast
+  payload: Record<string, unknown>;
 }
 
 // Engine status from admin endpoint
@@ -70,4 +71,40 @@ export interface AppState {
     heartbeatExpired: number;
   };
   paused: boolean;
+  processes: ProcessInfo[];
+  selectedProcess: number;  // -1 = none
+  selectedModuleId: string | null; // null = no filter
+}
+
+// Process management types
+export enum ProcessState {
+  STOPPED = "STOPPED",
+  STARTING = "STARTING",
+  RUNNING = "RUNNING",
+  STOPPING = "STOPPING",
+  CRASHED = "CRASHED",
+}
+
+export interface ProcessConfig {
+  name: string;
+  command: string;
+  args: string[];
+  cwd?: string;          // Override workdir for this process
+  env?: Record<string, string>;
+  autoStart?: boolean;
+  dependsOn?: string[];
+}
+
+export interface ProcessesConfig {
+  workdir?: string;       // Working directory for all processes (relative to config file)
+  processes: ProcessConfig[];
+}
+
+export interface ProcessInfo {
+  name: string;
+  state: ProcessState;
+  pid?: number;
+  exitCode?: number | null;
+  startedAt?: number;     // timestamp ms
+  stoppedAt?: number;     // timestamp ms
 }

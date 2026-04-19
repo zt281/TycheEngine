@@ -6,6 +6,7 @@
 - [pyproject.toml](file://pyproject.toml)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 - [tests/conftest.py](file://tests/conftest.py)
+- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
@@ -13,8 +14,13 @@
 - [src/tyche/message.py](file://src/tyche/message.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
 - [examples/run_engine.py](file://examples/run_engine.py)
 - [examples/run_module.py](file://examples/run_module.py)
+- [examples/run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
 - [tests/unit/test_engine_main.py](file://tests/unit/test_engine_main.py)
 - [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
@@ -34,12 +40,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced GitHub Actions CI workflow with comprehensive test coverage reporting functionality
-- Added pytest coverage collection with --cov=src/tyche flag and XML/terminal report generation
-- Integrated Codecov for coverage analysis and reporting
-- Improved error handling for coverage analysis with fail_ci_if_error: false
-- Updated coverage configuration in pyproject.toml with source filtering and exclusion rules
-- Added coverage requirements and policies for maintaining code quality
+- Added comprehensive unit tests for CTP gateway implementation with over 449 lines of test coverage
+- Expanded testing strategy to include exchange mapping, instrument parsing, and gateway configuration validation
+- Enhanced gateway testing infrastructure with specialized fixtures for CtpSimGateway and CtpLiveGateway
+- Integrated CTP-specific helper function testing including safe string and float conversions
+- Updated test structure to support both simulated and live CTP gateway configurations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -47,19 +52,23 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Coverage Reporting and Analysis](#coverage-reporting-and-analysis)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+6. [CTP Gateway Testing Strategy](#ctp-gateway-testing-strategy)
+7. [Coverage Reporting and Analysis](#coverage-reporting-and-analysis)
+8. [Dependency Analysis](#dependency-analysis)
+9. [Performance Considerations](#performance-considerations)
+10. [Troubleshooting Guide](#troubleshooting-guide)
+11. [Conclusion](#conclusion)
+12. [Appendices](#appendices)
 
 ## Introduction
 This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. The testing infrastructure has been significantly enhanced with defensive programming approaches to prevent test instability, particularly around broadcast messaging patterns that could cause infinite loops in automated environments. The CI pipeline now includes comprehensive coverage reporting through Codecov integration.
 
+**Updated** The addition of comprehensive CTP gateway unit tests (over 449 lines) provides extensive coverage of exchange mapping, instrument parsing, and gateway configuration validation, significantly expanding the testing framework for trading gateway components.
+
 ## Project Structure
 Tyche Engine follows a layered architecture with clear separation between core components and tests:
 - Core library under src/tyche implementing the engine, modules, message handling, heartbeat, and types.
+- Trading gateway components under src/modules/trading/gateway supporting multiple venues including CTP.
 - Tests organized into unit, integration, and property test areas with comprehensive coverage.
 - Examples demonstrating standalone engine and module usage.
 - CI configured via GitHub Actions with enhanced coverage reporting.
@@ -75,12 +84,19 @@ E["types.py"]
 F["example_module.py"]
 G["__init__.py"]
 end
+subgraph "Trading Gateways (src/modules/trading/gateway)"
+BG["base.py"]
+CTPG["ctp/gateway.py"]
+CTPL["ctp/live.py"]
+CTPS["ctp/sim.py"]
+end
 subgraph "Tests (tests)"
 U1["unit/test_engine.py"]
 U2["unit/test_module.py"]
 U3["unit/test_engine_threading.py"]
 U4["unit/test_signal_handling.py"]
 U5["unit/test_heartbeat_protocol.py"]
+U6["unit/test_ctp_gateway.py"]
 I1["integration/test_engine_module.py"]
 I2["integration/test_multiprocess.py"]
 CF["conftest.py"]
@@ -88,6 +104,7 @@ end
 subgraph "Examples"
 X1["examples/run_engine.py"]
 X2["examples/run_module.py"]
+X3["examples/run_ctp_gateway.py"]
 end
 subgraph "Tooling"
 P["pyproject.toml"]
@@ -100,6 +117,9 @@ U2 --> B
 U3 --> A
 U4 --> A
 U5 --> D
+U6 --> CTPG
+U6 --> CTPL
+U6 --> CTPS
 I1 --> A
 I1 --> B
 I2 --> A
@@ -107,11 +127,13 @@ I2 --> B
 CF --> G
 X1 --> A
 X2 --> B
+X3 --> CTPG
 P --> U1
 P --> U2
 P --> U3
 P --> U4
 P --> U5
+P --> U6
 P --> I1
 P --> I2
 W --> P
@@ -127,16 +149,22 @@ C --> P
 - [src/tyche/types.py](file://src/tyche/types.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
 - [tests/unit/test_module.py](file://tests/unit/test_module.py)
 - [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
 - [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
 - [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
+- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 - [tests/conftest.py](file://tests/conftest.py)
 - [examples/run_engine.py](file://examples/run_engine.py)
 - [examples/run_module.py](file://examples/run_module.py)
+- [examples/run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
 - [pyproject.toml](file://pyproject.toml)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 
@@ -153,6 +181,7 @@ This section outlines the core building blocks relevant to testing and developme
 - Heartbeat: Implements Paranoid Pirate pattern for liveness monitoring with defensive programming.
 - Types: Defines enums, dataclasses, and constants used across the system.
 - Example Module: Demonstrates all interface patterns including ping-pong broadcast handling.
+- GatewayModule: Abstract base class for exchange/venue gateway modules with standardized event publishing.
 
 Key testing-relevant aspects:
 - Engine exposes non-blocking start methods suitable for tests.
@@ -160,6 +189,7 @@ Key testing-relevant aspects:
 - MessagePack serialization enables deterministic payload handling in tests.
 - Heartbeat constants and manager provide predictable timing for tests.
 - Example Module implements defensive ping-pong patterns to prevent infinite loops.
+- GatewayModule provides standardized interfaces for order handling and event publishing.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -168,6 +198,7 @@ Key testing-relevant aspects:
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/types.py](file://src/tyche/types.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
 
 ## Architecture Overview
 Tyche Engine uses ZeroMQ for distributed messaging. The architecture supports:
@@ -190,6 +221,7 @@ subgraph "Modules"
 M1["TycheModule<br/>PUB/SUB/DEALER"]
 M2["TycheModule<br/>PUB/SUB/DEALER"]
 EM["ExampleModule<br/>Ping-Pong Broadcast"]
+GW["GatewayModule<br/>CTP Gateway"]
 end
 M1 -- "REQ (REGISTER)" --> R
 R -- "ACK" --> M1
@@ -202,6 +234,7 @@ HBR -- "HEARTBEAT" <-- M1
 HBR -- "HEARTBEAT" <-- M2
 MON -- "Expire Modules" --> R
 EM -. "Defensive Ping-Pong<br/>Prevents Infinite Loops" .-> EP
+GW -. "CTP Market Data & Orders<br/>Bridge External APIs" .-> EP
 ```
 
 **Diagram sources**
@@ -209,6 +242,7 @@ EM -. "Defensive Ping-Pong<br/>Prevents Infinite Loops" .-> EP
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
 
 **Section sources**
 - [README.md](file://README.md)
@@ -419,6 +453,132 @@ Recommendations:
 - [pyproject.toml](file://pyproject.toml)
 - [tests/conftest.py](file://tests/conftest.py)
 
+## CTP Gateway Testing Strategy
+
+### Comprehensive CTP Gateway Test Suite
+The newly added test_ctp_gateway.py provides extensive unit testing for CTP gateway implementation with over 449 lines of comprehensive coverage:
+
+**Test Categories:**
+1. **Exchange Mapping Tests**: Validates `_infer_exchange` function for all major Chinese commodity exchanges
+2. **Instrument ID Parsing Tests**: Tests `_extract_symbol` and `_to_instrument_id` functions
+3. **CTP Status Mapping Tests**: Verifies order status conversion between CTP and TycheEngine formats
+4. **Direction Mapping Tests**: Confirms bid/ask direction mapping in trade callbacks
+5. **Configuration Validation Tests**: Tests both CtpSimGateway and CtpLiveGateway configurations
+6. **Helper Function Edge Cases**: Validates `_safe_str` and `_safe_float` with various input types
+7. **Exchange Map Coverage**: Ensures comprehensive exchange symbol mapping
+
+### Exchange Mapping Testing
+The test suite comprehensively validates exchange inference across all major Chinese commodity exchanges:
+
+**Supported Exchanges:**
+- CFFEX (China Financial Futures Exchange): IF, IC, IH, IM, T, TF, TS, TL indices
+- SHFE (Shanghai Futures Exchange): Cu, Al, Zn, Pb, Ni, Sn, Au, Ag, RB, HC, FU, BU, RU and others
+- DCE (Dalian Commodity Exchange): C, CS, A, B, M, Y, P, JD, L, V, PP, J, JM, I, EG and others
+- CZCE (Zhengzhou Commodity Exchange): CF, SR, TA, OI, MA, FG, AP, SA, PF and others
+- INE (Shanghai International Energy Center): SC, LU, NR, BC, EC
+- GFEX (Guangzhou Futures Exchange): SI, LC
+
+**Testing Approach:**
+- Individual exchange prefix validation with dedicated test methods
+- Unknown instrument handling with fallback to "UNKNOWN" exchange
+- Empty string and numeric-only input validation
+- Multi-character prefix handling (e.g., "jm", "pp")
+
+### Instrument ID Processing Tests
+Comprehensive testing of instrument ID conversion functions:
+
+**Symbol Extraction:**
+- Validates extraction of raw CTP symbols from TycheEngine instrument IDs
+- Handles dot-separated format (symbol.venue.asset_class)
+- Supports bare symbols without venue specification
+
+**Instrument ID Building:**
+- Converts CTP symbols to TycheEngine format with venue naming
+- Validates round-trip conversion integrity
+- Tests various venue types (ctp, openctp)
+
+### CTP Status Mapping Validation
+Extensive order status mapping validation ensuring compatibility between CTP and TycheEngine:
+
+**Status Codes:**
+- "0": AllTraded → OrderStatus.FILLED
+- "1", "2": PartTraded → OrderStatus.PARTIALLY_FILLED
+- "3", "4": NoTrade → OrderStatus.SUBMITTED
+- "5": Canceled → OrderStatus.CANCELLED
+- "a": Unknown → OrderStatus.PENDING_SUBMIT
+- "b": NotTouched → OrderStatus.NEW
+- "c": Touched → OrderStatus.SUBMITTED
+
+**Completeness Testing:**
+- Validates complete coverage of all expected CTP status characters
+- Ensures no missing or duplicate status mappings
+
+### Gateway Configuration Testing
+Dual gateway testing approach validating both simulated and live trading configurations:
+
+**CtpSimGateway Tests:**
+- Default 7x24 environment configuration
+- Simulated trading hours environment
+- Default broker ID ("9999") and venue naming
+- Invalid environment handling with ValueError
+- Custom venue name support
+
+**CtpLiveGateway Tests:**
+- Parameter pass-through validation
+- Authentication logic based on auth_code and app_id presence
+- Default "ctp" venue naming when unspecified
+- Custom venue name support
+- Missing authentication parameter handling
+
+### Helper Function Edge Case Testing
+Robust testing of utility functions handling CTP-specific data formats:
+
+**String Processing (`_safe_str`):**
+- Bytes decoding with UTF-8 handling
+- Null-padded string stripping
+- None value handling with empty string fallback
+- Plain string preservation
+
+**Float Processing (`_safe_float`):**
+- Normal float value preservation
+- DBL_MAX (±1.7e308) handling with zero fallback
+- None value handling with configurable default
+- String number conversion
+- Invalid string handling with zero fallback
+
+### Specialized Test Fixtures
+The test suite includes sophisticated fixtures for gateway testing:
+
+**Endpoint Fixture:**
+- Standardized 127.0.0.1:15555 endpoint for all gateway tests
+- Consistent engine endpoint configuration across tests
+
+**Gateway Fixtures:**
+- CtpSimGateway fixture with default credentials
+- CtpLiveGateway fixture with comprehensive parameter set
+- Automatic cleanup and isolation between test cases
+
+### Mocking Strategy for CTP Dependencies
+Sophisticated mocking approach for external CTP dependencies:
+
+**Module-Level Mocking:**
+- sys.modules patching for openctp_ctp, openctp_ctp.mdapi, openctp_ctp.tdapi
+- MagicMock objects for all CTP API components
+- Pre-import mocking to ensure proper module resolution
+- Isolated mock environment for each test execution
+
+**Test Isolation:**
+- Mock cleanup between test methods
+- Independent mock configuration per test scenario
+- Prevention of mock leakage between test suites
+
+**Section sources**
+- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
+- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+
 ## Coverage Reporting and Analysis
 
 ### Enhanced CI Coverage Workflow
@@ -519,6 +679,10 @@ U2["tests/unit/test_module.py"] --> M["src/tyche/module.py"]
 U3["tests/unit/test_engine_threading.py"] --> E
 U4["tests/unit/test_signal_handling.py"] --> E
 U5["tests/unit/test_heartbeat_protocol.py"] --> HB["src/tyche/heartbeat.py"]
+U6["tests/unit/test_ctp_gateway.py"] --> CTPG["src/modules/trading/gateway/ctp/gateway.py"]
+U6 --> CTPL["src/modules/trading/gateway/ctp/live.py"]
+U6 --> CTPS["src/modules/trading/gateway/ctp/sim.py"]
+U6 --> BG["src/modules/trading/gateway/base.py"]
 I1["tests/integration/test_engine_module.py"] --> E
 I1 --> M
 I2["tests/integration/test_multiprocess.py"] --> E
@@ -544,6 +708,7 @@ CE["Codecov"] --> W["ci.yml"]
 - [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
 - [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
 - [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
+- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -552,6 +717,10 @@ CE["Codecov"] --> W["ci.yml"]
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/types.py](file://src/tyche/types.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
+- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
 - [pyproject.toml](file://pyproject.toml)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 
@@ -571,6 +740,7 @@ CE["Codecov"] --> W["ci.yml"]
 - Threading performance: Minimize lock contention and optimize thread synchronization.
 - **Updated**: Implement defensive programming patterns to prevent performance degradation from broadcast loops.
 - **Updated**: Monitor coverage to ensure performance-critical code paths are adequately tested.
+- **Updated**: CTP gateway tests utilize efficient mocking to minimize external dependency overhead.
 
 **Section sources**
 - [README.md](file://README.md)
@@ -587,19 +757,25 @@ Common issues and resolutions:
 - **Updated**: Defensive programming validation: Ensure all broadcast tests include timeout and loop prevention mechanisms.
 - **Updated**: Coverage analysis issues: Use local coverage reports to debug coverage collection problems.
 - **Updated**: CI coverage failures: Check Codecov integration and ensure proper token configuration.
+- **Updated**: CTP gateway test failures: Verify mock setup and ensure proper sys.modules patching for external dependencies.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
+- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
 
 ## Conclusion
-Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests with enhanced defensive programming approaches. The expanded test infrastructure with over 4000 lines of new test code provides comprehensive coverage of threading scenarios, signal handling, heartbeat protocols, and broadcast stability. Recent improvements focus on preventing test instability through careful handling of ping-pong broadcast patterns that could cause infinite loops in automated environments. 
+Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests with enhanced defensive programming approaches. The expanded test infrastructure with over 449 lines of comprehensive CTP gateway tests provides extensive coverage of exchange mapping, instrument parsing, and gateway configuration validation. 
 
 **Updated enhancements** include comprehensive coverage reporting through pytest-cov and Codecov integration, establishing quantitative metrics for code quality assurance. The CI pipeline now automatically generates XML and terminal coverage reports, with Codecov providing detailed analysis and trend monitoring. Strict coverage requirements (80% minimum line coverage, 90% for new code) ensure maintainable and well-tested code.
 
+The addition of specialized CTP gateway testing infrastructure demonstrates the project's commitment to comprehensive testing of trading components. The test suite validates critical functionality including exchange mapping across all major Chinese commodity exchanges, instrument ID processing, order status conversion, and gateway configuration management. Sophisticated mocking strategies ensure reliable testing without external dependencies.
+
 By leveraging deterministic fixtures, controlled timing, defensive programming patterns, structured CI pipelines with coverage reporting, and comprehensive quality metrics, contributors can maintain high-quality, reliable distributed components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization. The enhanced coverage reporting infrastructure provides continuous visibility into code quality and test effectiveness.
+
+The comprehensive CTP gateway testing strategy serves as a model for testing complex trading integrations, demonstrating best practices for mocking external dependencies, validating data transformations, and ensuring configuration correctness across different trading environments.
 
 ## Appendices
 
@@ -647,6 +823,29 @@ Eng->>Eng : "unregister expired modules"
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
+
+### CTP Gateway Testing Infrastructure
+**Updated** Comprehensive CTP gateway testing setup:
+
+#### Test Categories and Coverage:
+- **Exchange Mapping**: 18+ test methods covering all major exchanges
+- **Instrument Processing**: Symbol extraction and ID building validation
+- **Status Mapping**: Complete order status conversion testing
+- **Configuration**: Both simulated and live gateway parameter validation
+- **Helper Functions**: Edge case testing for string and float processing
+- **Mock Strategy**: Sophisticated external dependency mocking
+
+#### Testing Best Practices:
+- **Isolated Mocking**: sys.modules patching for external CTP dependencies
+- **Parameterized Fixtures**: Reusable gateway configuration across test scenarios
+- **Edge Case Coverage**: Comprehensive validation of boundary conditions
+- **Round-trip Testing**: Verification of data transformation integrity
+
+**Section sources**
+- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
+- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
 
 ### Coverage Reporting Configuration
 **Updated** Comprehensive coverage reporting setup:

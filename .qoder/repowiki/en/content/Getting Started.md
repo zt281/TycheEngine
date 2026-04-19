@@ -13,6 +13,16 @@
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [examples/run_engine.py](file://examples/run_engine.py)
 - [examples/run_module.py](file://examples/run_module.py)
+- [examples/run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
+- [examples/run_strategy.py](file://examples/run_strategy.py)
+- [examples/run_trading_system.py](file://examples/run_trading_system.py)
+- [examples/run_trading_services.py](file://examples/run_trading_services.py)
+- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+- [src/modules/trading/models/tick.py](file://src/modules/trading/models/tick.py)
+- [src/modules/trading/models/order.py](file://src/modules/trading/models/order.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 </cite>
 
@@ -26,9 +36,10 @@
 7. [Essential Concepts](#essential-concepts)
 8. [Practical Examples Using Provided Scripts](#practical-examples-using-provided-scripts)
 9. [Command-Line Arguments and Configuration Options](#command-line-arguments-and-configuration-options)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Verification Steps](#verification-steps)
-12. [Conclusion](#conclusion)
+10. [Trading System Architecture](#trading-system-architecture)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Verification Steps](#verification-steps)
+13. [Conclusion](#conclusion)
 
 ## Introduction
 Tyche Engine is a high-performance, distributed, event-driven framework written in Python and built on ZeroMQ. It orchestrates multi-process applications through:
@@ -45,6 +56,7 @@ Tyche enables modules to communicate asynchronously, reliably, and at scale usin
 - Dependencies:
   - pyzmq (ZeroMQ bindings)
   - msgpack (serialization)
+  - openctp-ctp (for CTP gateway functionality)
 - Optional development dependencies for contributors:
   - pytest, mypy, ruff
 
@@ -67,12 +79,13 @@ Notes:
 **Section sources**
 - [examples/run_engine.py:14-15](file://examples/run_engine.py#L14-L15)
 - [examples/run_module.py:15-16](file://examples/run_module.py#L15-L16)
+- [examples/run_ctp_gateway.py:46-47](file://examples/run_ctp_gateway.py#L46-L47)
 - [pyproject.toml:61-63](file://pyproject.toml#L61-L63)
 
 ## Environment Setup
 - Ensure Python 3.9+ is installed.
 - Install dependencies:
-  - pip install pyzmq msgpack
+  - pip install pyzmq msgpack openctp-ctp
 - Optional dev tools:
   - pip install pytest pytest-asyncio mypy ruff
 
@@ -84,6 +97,7 @@ Networking:
 - [pyproject.toml:10-23](file://pyproject.toml#L10-L23)
 - [examples/run_engine.py:27-32](file://examples/run_engine.py#L27-L32)
 - [examples/run_module.py:28-31](file://examples/run_module.py#L28-L31)
+- [examples/run_ctp_gateway.py:49-51](file://examples/run_ctp_gateway.py#L49-L51)
 
 ## First Run: Engine and Module
 Follow these steps to run your first engine and module processes.
@@ -175,34 +189,131 @@ Key stages:
 The repository includes runnable examples that demonstrate:
 - Starting the engine as a standalone process
 - Starting a module that registers with the engine and subscribes to events
+- Running a CTP gateway for Chinese futures trading (simulated and live modes)
+- Building a complete trading system with multiple modules
 
 How to use:
 - Run the engine script first, then run the module script in another terminal.
 - The scripts print configuration and status messages to help you confirm connectivity.
+- The CTP gateway example supports both OpenCTP simulation and live broker connections.
 
 **Section sources**
 - [examples/run_engine.py:1-9](file://examples/run_engine.py#L1-L9)
 - [examples/run_module.py:1-10](file://examples/run_module.py#L1-L10)
-- [examples/run_engine.py:21-54](file://examples/run_engine.py#L21-L54)
-- [examples/run_module.py:22-51](file://examples/run_module.py#L22-L51)
+- [examples/run_ctp_gateway.py:1-37](file://examples/run_ctp_gateway.py#L1-L37)
+- [examples/run_strategy.py:1-18](file://examples/run_strategy.py#L1-L18)
+- [examples/run_trading_system.py:1-14](file://examples/run_trading_system.py#L1-L14)
+- [examples/run_trading_services.py:1-19](file://examples/run_trading_services.py#L1-L19)
 
 ## Command-Line Arguments and Configuration Options
-The examples do not accept command-line arguments. Instead, they define endpoints directly in code.
+The examples support extensive command-line configuration for flexible deployment.
 
-Endpoints configured by the examples:
-- Registration endpoint (REQ/REP for registration)
-- Event endpoints (XPUB/XSUB proxy for event distribution)
-- Heartbeat endpoints (PUB/SUB for liveness, DEALER for module heartbeats)
+### Engine and Module Examples
+- Engine: Configures registration, event, and heartbeat endpoints
+- Module: Connects to engine and subscribes to event topics
 
-To customize:
-- Edit the Endpoint definitions in the example scripts to change host/port.
-- The engine and module classes accept Endpoint objects for flexible configuration.
+### CTP Gateway Example (New)
+The CTP gateway supports comprehensive command-line configuration:
+
+**Common Options:**
+- `--mode`: Gateway mode (`sim` for OpenCTP simulation, `live` for real broker)
+- `--instruments`: Instrument symbols to subscribe (default: `rb2510 au2512`)
+- `--engine-host`: TycheEngine host (default: `127.0.0.1`)
+- `--engine-port`: TycheEngine registration port (default: `5555`)
+
+**Simulated Mode Options:**
+- `--env`: OpenCTP environment (`7x24` or `sim`, default: `7x24`)
+
+**Live Mode Options:**
+- `--td-front`: Trading front address (required for live mode)
+- `--md-front`: Market-data front address (required for live mode)
+- `--auth-code`: Broker-issued authentication code
+- `--app-id`: Application ID registered with the broker
+
+**Shared Credentials:**
+- `--broker-id`: CTP broker ID (default: `9999`)
+- `--user-id`: Trading account user ID (required)
+- `--password`: Trading account password (required)
 
 **Section sources**
-- [examples/run_engine.py:27-32](file://examples/run_engine.py#L27-L32)
-- [examples/run_module.py:28-31](file://examples/run_module.py#L28-L31)
-- [src/tyche/engine.py:34-54](file://src/tyche/engine.py#L34-L54)
-- [src/tyche/module.py:41-54](file://src/tyche/module.py#L41-L54)
+- [examples/run_ctp_gateway.py:59-109](file://examples/run_ctp_gateway.py#L59-L109)
+- [examples/run_ctp_gateway.py:112-198](file://examples/run_ctp_gateway.py#L112-L198)
+
+## Trading System Architecture
+Tyche Engine provides a complete trading infrastructure with specialized modules for different functions.
+
+### Gateway Modules
+Gateway modules bridge external exchange APIs with the internal event system. The CTP gateway supports both simulated and live trading:
+
+**Gateway Base Class:**
+- Abstract base for exchange gateway modules
+- Standardized event publishing and order handling
+- Venue-specific connectivity implementations
+
+**CTP Gateway Implementations:**
+- **CtpSimGateway**: OpenCTP simulation with 7×24 and regular-hours environments
+- **CtpLiveGateway**: Real broker connections with authentication requirements
+
+**Market Data Models:**
+- Quote: Level-1 bid/ask quotes with bid/ask sizes
+- Trade: Individual trade events with price and size
+- Bar: OHLCV candlestick data
+- OrderBook: Level-2 order book snapshots
+
+**Order Management:**
+- Order lifecycle tracking (NEW, SUBMITTED, FILLED, etc.)
+- Fill reporting and order updates
+- Time-in-force support (GTC, IOC, FOK)
+
+**Section sources**
+- [src/modules/trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
+- [src/modules/trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
+- [src/modules/trading/gateway/ctp/sim.py:13-68](file://src/modules/trading/gateway/ctp/sim.py#L13-L68)
+- [src/modules/trading/gateway/ctp/live.py:13-60](file://src/modules/trading/gateway/ctp/live.py#L13-L60)
+- [src/modules/trading/models/tick.py:10-184](file://src/modules/trading/models/tick.py#L10-L184)
+- [src/modules/trading/models/order.py:16-183](file://src/modules/trading/models/order.py#L16-L183)
+
+### Complete Trading Pipeline
+The framework supports a full trading system architecture:
+
+```mermaid
+graph TB
+subgraph "External Systems"
+CTP[CTP Broker]
+OpenCTP[OpenCTP Simulation]
+end
+subgraph "Tyche Engine"
+Engine[TycheEngine]
+EventProxy[Event Proxy]
+Heartbeat[Heartbeat System]
+end
+subgraph "Trading Modules"
+Gateway[Gateway Module]
+Risk[Risk Module]
+OMS[Order Management System]
+Portfolio[Portfolio Module]
+Strategy[Strategy Module]
+Recorder[Data Recorder]
+end
+CTP --> Gateway
+OpenCTP --> Gateway
+Gateway --> EventProxy
+Risk --> EventProxy
+OMS --> EventProxy
+Portfolio --> EventProxy
+Strategy --> EventProxy
+Recorder --> EventProxy
+EventProxy --> Engine
+Heartbeat --> Engine
+```
+
+**Diagram sources**
+- [examples/run_trading_system.py:45-146](file://examples/run_trading_system.py#L45-L146)
+- [examples/run_trading_services.py:63-109](file://examples/run_trading_services.py#L63-L109)
+
+**Section sources**
+- [examples/run_trading_system.py:45-146](file://examples/run_trading_system.py#L45-L146)
+- [examples/run_trading_services.py:63-109](file://examples/run_trading_services.py#L63-L109)
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -210,7 +321,7 @@ Common issues and resolutions:
   - Change the port numbers in the example scripts if the default ports are in use.
 - Engine not reachable:
   - Ensure the engine is started before the module.
-  - Confirm the module’s registration endpoint matches the engine’s registration endpoint.
+  - Confirm the module's registration endpoint matches the engine's registration endpoint.
 - No events received:
   - Verify the module subscribed to the correct event topics.
   - Confirm the event names match the handler method names (e.g., on_data).
@@ -219,6 +330,10 @@ Common issues and resolutions:
   - Ensure the module is sending heartbeats to the correct endpoint.
 - Serialization errors:
   - Ensure payloads are serializable by the MessagePack encoder used by the framework.
+- CTP Connection Issues:
+  - Verify OpenCTP credentials for simulation mode
+  - Check broker front addresses and authentication codes for live mode
+  - Ensure instrument IDs are properly formatted (symbol.venue.asset_class)
 
 Verification steps:
 - Check engine logs for registration ACK and heartbeat PUB messages.
@@ -235,17 +350,24 @@ Verification steps:
 After running the engine and module:
 - Confirm the engine prints its endpoints and waits for interrupts.
 - Confirm the module prints its module ID and connection endpoints.
-- Verify that the module is registered in the engine’s module registry.
-- Verify that the module’s discovered interfaces appear in the engine’s registry.
+- Verify that the module is registered in the engine's module registry.
+- Verify that the module's discovered interfaces appear in the engine's registry.
 - Verify that events published by the module are delivered to subscribers.
+
+For CTP gateway specifically:
+- Confirm successful connection to CTP front servers
+- Verify market data subscription and streaming
+- Test order execution and cancellation workflows
+- Validate account and position queries
 
 **Section sources**
 - [examples/run_engine.py:34-49](file://examples/run_engine.py#L34-L49)
 - [examples/run_module.py:33-46](file://examples/run_module.py#L33-L46)
+- [examples/run_ctp_gateway.py:169-197](file://examples/run_ctp_gateway.py#L169-L197)
 - [tests/integration/test_engine_module.py:35-38](file://tests/integration/test_engine_module.py#L35-L38)
 - [tests/integration/test_engine_module.py:140-158](file://tests/integration/test_engine_module.py#L140-L158)
 
 ## Conclusion
-You now have the essentials to install Tyche Engine, configure your environment, and run your first engine and module. Use the provided examples to verify the setup, explore the interface patterns, and build upon the foundation of event-driven, distributed processing with ZeroMQ.
+You now have the essentials to install Tyche Engine, configure your environment, and run your first engine and module. The framework now includes comprehensive CTP gateway support for Chinese futures trading, enabling both simulated and live trading modes. Use the provided examples to verify the setup, explore the interface patterns, and build upon the foundation of event-driven, distributed processing with ZeroMQ. The complete trading system architecture provides a robust foundation for building sophisticated trading applications with gateway connectivity, risk management, order routing, and portfolio management capabilities.
 
 [No sources needed since this section summarizes without analyzing specific files]

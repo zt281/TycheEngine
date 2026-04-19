@@ -11,6 +11,16 @@
 - [example_module.py](file://src/tyche/example_module.py)
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
+- [run_trading_system.py](file://examples/run_trading_system.py)
+- [run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
+- [trading/__init__.py](file://src/modules/trading/__init__.py)
+- [trading/events.py](file://src/modules/trading/events.py)
+- [trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+- [trading/gateway/ctp/__init__.py](file://src/modules/trading/gateway/ctp/__init__.py)
+- [trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
+- [trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
+- [trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [trading/models/enums.py](file://src/modules/trading/models/enums.py)
 - [test_engine.py](file://tests/unit/test_engine.py)
 - [test_module.py](file://tests/unit/test_module.py)
 - [test_message.py](file://tests/unit/test_message.py)
@@ -20,12 +30,12 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for the new administrative capabilities and admin endpoint functionality
-- Enhanced XPUB/XSUB event proxy documentation with separate event endpoints
-- Updated thread-safe operations documentation including registry locks and heartbeat queues
-- Expanded heartbeat management documentation with queue-based forwarding and improved monitoring
-- Added detailed API reference for new administrative features
-- Updated architectural diagrams to reflect enhanced engine architecture
+- Added comprehensive documentation for the new Enhanced Multi-Asset Trading System
+- Integrated CTP gateway module with live and simulated trading capabilities
+- Updated module structure to reflect move from tyche.trading.* to modules.trading.*
+- Added trading domain components: gateway base classes, event definitions, and trading models
+- Enhanced examples demonstrating complete trading system integration
+- Updated import paths and module references throughout documentation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -33,24 +43,26 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Trading System Integration](#trading-system-integration)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
 This document explains the core components of Tyche Engine: TycheEngine as the central broker, TycheModule as the base class for distributed modules, the Message system for serialization, HeartbeatManager for peer monitoring, and the type definitions. It covers component responsibilities, relationships, lifecycle management, APIs, parameters, return values, practical usage patterns, configuration options, and error handling strategies.
 
-**Updated** Enhanced with new administrative capabilities, XPUB/XSUB event proxy functionality, thread-safe operations, and improved heartbeat management.
+**Updated** Enhanced with new administrative capabilities, XPUB/XSUB event proxy functionality, thread-safe operations, improved heartbeat management, and comprehensive multi-asset trading system integration including CTP gateway support.
 
 ## Project Structure
-Tyche Engine organizes its core logic under src/tyche with clear separation of concerns:
+Tyche Engine organizes its core logic under src/tyche with clear separation of concerns, plus a new modules.trading package for enhanced multi-asset trading capabilities:
 - Broker engine: TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative queries.
 - Module base: ModuleBase defines the interface for modules; TycheModule provides a concrete implementation.
 - Messaging: Message and Envelope define the serialized message format and ZeroMQ framing.
 - Heartbeat: HeartbeatManager tracks peer liveness using a Paranoid Pirate pattern.
 - Types: Shared enums, dataclasses, and constants for endpoints, interfaces, and durability.
+- Trading domain: New modules.trading package provides comprehensive trading infrastructure including CTP gateway integration.
 
 ```mermaid
 graph TB
@@ -67,6 +79,14 @@ ModBase["ModuleBase<br/>Abstract"]
 TycheMod["TycheModule<br/>Concrete Module"]
 ExMod["ExampleModule<br/>Demo"]
 end
+subgraph "Trading Domain"
+GatewayBase["GatewayModule<br/>Abstract Base"]
+CTPGateway["CtpGateway<br/>CTP Bridge"]
+CTPSim["CtpSimGateway<br/>Simulated Trading"]
+CTPLive["CtpLiveGateway<br/>Live Trading"]
+Events["Trading Events<br/>Event Definitions"]
+Models["Trading Models<br/>Enums/Classes"]
+end
 Engine --> HBMgr
 Engine --> Msg
 Engine --> Types
@@ -76,6 +96,12 @@ TycheMod --> ModBase
 TycheMod --> Msg
 TycheMod --> Types
 ExMod --> TycheMod
+GatewayBase --> TycheMod
+CTPGateway --> GatewayBase
+CTPSim --> CtpGateway
+CTPLive --> CtpGateway
+Events --> GatewayBase
+Models --> GatewayBase
 ```
 
 **Diagram sources**
@@ -86,6 +112,10 @@ ExMod --> TycheMod
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
 - [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
+- [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
+- [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
+- [trading/events.py:1-79](file://src/modules/trading/events.py#L1-L79)
+- [trading/models/enums.py:1-73](file://src/modules/trading/models/enums.py#L1-L73)
 
 **Section sources**
 - [engine.py:1-456](file://src/tyche/engine.py#L1-L456)
@@ -95,6 +125,7 @@ ExMod --> TycheMod
 - [heartbeat.py:1-153](file://src/tyche/heartbeat.py#L1-L153)
 - [types.py:1-105](file://src/tyche/types.py#L1-L105)
 - [example_module.py:1-183](file://src/tyche/example_module.py#L1-L183)
+- [trading/__init__.py:1-14](file://src/modules/trading/__init__.py#L1-L14)
 
 ## Core Components
 This section documents the primary building blocks and their responsibilities.
@@ -129,6 +160,14 @@ This section documents the primary building blocks and their responsibilities.
   - Exposes constants for heartbeat timing and administrative endpoint defaults.
   - **Updated**: Added ADMIN_PORT_DEFAULT constant for administrative endpoint configuration.
 
+- **Updated** Trading Domain Components
+  - GatewayModule: Abstract base class for exchange/venue gateway modules extending TycheModule with standardized event publishing and order handling.
+  - CtpGateway: Base CTP gateway bridging CTP async SPI callbacks with TycheEngine events, supporting both simulated and live trading.
+  - CtpSimGateway: OpenCTP simulated trading gateway with pre-configured public server addresses for testing and development.
+  - CtpLiveGateway: Real CTP broker gateway requiring authentication with live broker front addresses.
+  - Trading Events: Comprehensive event name constants and helpers for market data, order flow, fills, portfolio, risk, and system events.
+  - Trading Models: Enumerations for order types, sides, statuses, time-in-force, venue types, asset classes, and position sides.
+
 **Section sources**
 - [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
@@ -136,9 +175,15 @@ This section documents the primary building blocks and their responsibilities.
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
+- [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
+- [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
+- [trading/gateway/ctp/sim.py:13-68](file://src/modules/trading/gateway/ctp/sim.py#L13-L68)
+- [trading/gateway/ctp/live.py:13-60](file://src/modules/trading/gateway/ctp/live.py#L13-L60)
+- [trading/events.py:1-79](file://src/modules/trading/events.py#L1-L79)
+- [trading/models/enums.py:1-73](file://src/modules/trading/models/enums.py#L1-L73)
 
 ## Architecture Overview
-Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, and administrative state queries.
+Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, administrative state queries, and comprehensive multi-asset trading integration.
 
 ```mermaid
 sequenceDiagram
@@ -150,6 +195,7 @@ participant ZXSUB as "ZMQ XSUB"
 participant HBOUT as "ZMQ PUB"
 participant HBIN as "ZMQ ROUTER"
 participant Admin as "ZMQ ROUTER (Admin)"
+participant Trading as "Trading Domain"
 Note over Mod,Eng : Registration Handshake
 Mod->>Eng : REQ REGISTER
 Eng->>Eng : Deserialize and validate
@@ -168,6 +214,11 @@ Note over Eng,Admin : Administrative Queries
 Admin->>Eng : ROUTER admin query
 Eng->>Eng : Process STATUS/MODULES/STATS
 Eng-->>Admin : JSON response
+Note over Trading,Eng : Trading Integration
+Trading->>Eng : Market data events (quotes/trades)
+Trading->>Eng : Order events (execute/cancel)
+Trading->>Eng : Fill events
+Trading->>Eng : Portfolio/account updates
 ```
 
 **Diagram sources**
@@ -178,6 +229,7 @@ Eng-->>Admin : JSON response
 - [module.py:200-254](file://src/tyche/module.py#L200-L254)
 - [module.py:301-330](file://src/tyche/module.py#L301-L330)
 - [module.py:376-401](file://src/tyche/module.py#L376-L401)
+- [trading/gateway/base.py:118-192](file://src/modules/trading/gateway/base.py#L118-L192)
 
 ## Detailed Component Analysis
 
@@ -390,8 +442,143 @@ Practical usage:
 **Section sources**
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
 
+### **Updated** Trading Domain Components
+
+#### GatewayModule
+Responsibilities:
+- Abstract base class for exchange/venue gateway modules extending TycheModule.
+- Standardized event publishing for market data (quotes, trades, bars) and order flow.
+- Unified order handling interface for execution and cancellation requests.
+- Venue-specific connectivity implementation while maintaining consistent event format.
+
+Key APIs and behaviors:
+- Constructor parameters:
+  - engine_endpoint: Endpoint for registration REQ/REP.
+  - venue_name: Unique identifier for the trading venue.
+  - module_id: Optional explicit module ID.
+- Abstract methods (venue-specific):
+  - connect(): Establish connection to exchange API.
+  - disconnect(): Disconnect from exchange API.
+  - subscribe_market_data(instrument_ids): Subscribe to market data feeds.
+  - submit_order(order): Submit order to exchange and return OrderUpdate.
+  - cancel_order(order_id, instrument_id): Cancel order on exchange.
+  - query_account(): Query account balance and positions.
+- Event publishing helpers:
+  - publish_quote(quote): Publish normalized quote events.
+  - publish_trade(trade): Publish trade events.
+  - publish_bar(bar): Publish OHLCV bar events.
+  - publish_fill(fill): Publish execution fill events.
+  - publish_order_update(update): Publish order status updates.
+- Built-in interfaces:
+  - ack_order_execute_{venue}: Handles order execution requests.
+  - ack_order_cancel_{venue}: Handles order cancellation requests.
+
+Practical usage:
+- Extend GatewayModule for specific exchanges or venues.
+- Implement venue-specific connectivity in abstract methods.
+- Use built-in event publishing helpers for consistent event formats.
+
+Integration patterns:
+- Gateway modules integrate seamlessly with TycheEngine's event system.
+- Standardized event formats enable decoupled trading components.
+
+Error handling:
+- Order execution/cancellation failures return OrderUpdate with REJECTED status.
+- Venue-specific errors are logged with context information.
+
+**Section sources**
+- [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
+
+#### CtpGateway
+Responsibilities:
+- Base CTP gateway bridging CTP async SPI callbacks with TycheEngine events.
+- Supports both OpenCTP simulated trading and real broker live trading.
+- Handles CTP API initialization, login, market data subscription, and order routing.
+- Manages thread synchronization between CTP SPI callbacks and event dispatcher.
+
+Key APIs and behaviors:
+- Constructor parameters:
+  - engine_endpoint: TycheEngine broker endpoint.
+  - venue_name: Venue identifier (e.g., "ctp", "openctp").
+  - broker_id: CTP broker ID.
+  - user_id: Trading account user ID.
+  - password: Trading account password.
+  - td_front: Trading front address.
+  - md_front: Market data front address.
+  - auth_code: Broker authentication code (for live trading).
+  - app_id: Application ID (for live trading).
+  - require_auth: Whether authentication is required.
+  - flow_path: Directory for CTP flow files.
+- CTP API integration:
+  - Market data API (MdApi) for quote and trade streaming.
+  - Trading API (TdApi) for order execution and account queries.
+  - SPI callback handling with thread-safe event queuing.
+- Order management:
+  - Order reference tracking and mapping between CTP and TycheEngine IDs.
+  - Order status mapping from CTP codes to TycheEngine enums.
+  - Automatic order system ID caching for efficient cancellation.
+- Event processing:
+  - Dedicated event dispatcher thread for SPI callback bridging.
+  - Thread-safe queue for CTP -> module communication.
+  - Automatic conversion between CTP data formats and TycheEngine models.
+
+Practical usage:
+- Use CtpSimGateway or CtpLiveGateway subclasses for specific deployment modes.
+- Configure appropriate front addresses and authentication credentials.
+- Subscribe to market data and handle order lifecycle events.
+
+Integration patterns:
+- Seamlessly integrates with TycheEngine's event system.
+- Maintains consistent event formats with other trading components.
+
+Error handling:
+- Comprehensive error logging for CTP API operations.
+- Graceful handling of connection failures and authentication issues.
+- Thread-safe operations prevent race conditions in multi-threaded environment.
+
+**Section sources**
+- [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
+
+#### Trading Events and Models
+Responsibilities:
+- Define standardized event naming conventions and helper functions.
+- Provide comprehensive enumeration sets for trading domain objects.
+- Enable consistent event-driven communication across trading components.
+
+Key definitions:
+- Event constants:
+  - Market data: QUOTE, TRADE, BAR, ORDER_BOOK
+  - Order flow: ORDER_SUBMIT, ORDER_APPROVED, ORDER_REJECTED, ORDER_EXECUTE, ORDER_CANCEL, ORDER_UPDATE
+  - Fills: FILL
+  - Portfolio: POSITION_UPDATE, ACCOUNT_UPDATE
+  - Risk: RISK_ALERT
+  - System: SYSTEM_CLOCK, SYSTEM_SHUTDOWN
+- Event helpers:
+  - quote_event(instrument_id): Build quote topic.
+  - trade_event(instrument_id): Build trade topic.
+  - bar_event(instrument_id, timeframe): Build bar topic.
+  - orderbook_event(instrument_id): Build order book topic.
+  - fill_event(instrument_id): Build fill topic.
+- Trading enumerations:
+  - Side: BUY, SELL
+  - OrderType: MARKET, LIMIT, STOP, STOP_LIMIT
+  - OrderStatus: NEW, PENDING_SUBMIT, SUBMITTED, PARTIALLY_FILLED, FILLED, PENDING_CANCEL, CANCELLED, REJECTED, EXPIRED
+  - TimeInForce: GTC, IOC, FOK, GTD, DAY
+  - VenueType: CRYPTO, FUTURES, STOCK, FOREX, OPTIONS
+  - AssetClass: CRYPTO, EQUITY, FUTURES, FOREX, OPTIONS, BOND
+  - PositionSide: LONG, SHORT, FLAT
+
+Practical usage:
+- Use event constants for consistent event topic naming.
+- Leverage helper functions for dynamic topic construction.
+- Utilize enumerations for type-safe trading operations.
+
+**Section sources**
+- [trading/events.py:1-79](file://src/modules/trading/events.py#L1-L79)
+- [trading/models/enums.py:1-73](file://src/modules/trading/models/enums.py#L1-L73)
+
 ## Architecture Overview
-The following diagram maps the actual code relationships among core components.
+The following diagram maps the actual code relationships among core components, including the new trading domain integration.
 
 ```mermaid
 classDiagram
@@ -432,6 +619,32 @@ class ModuleBase {
 +discover_interfaces() Interface[]
 +handle_event(event, payload) Any
 }
+class GatewayModule {
++str venue_name
++connect() void
++disconnect() void
++subscribe_market_data(instrument_ids) void
++submit_order(order) OrderUpdate
++cancel_order(order_id, instrument_id) OrderUpdate
++query_account() Dict
++publish_quote(quote) void
++publish_trade(trade) void
++publish_bar(bar) void
++publish_fill(fill) void
++publish_order_update(update) void
+}
+class CtpGateway {
++str broker_id
++str user_id
++str password
++str td_front
++str md_front
++connect() void
++disconnect() void
++subscribe_market_data(instrument_ids) void
++submit_order(order) OrderUpdate
++cancel_order(order_id, instrument_id) OrderUpdate
+}
 class Message {
 +MessageType msg_type
 +str sender
@@ -451,15 +664,21 @@ class HeartbeatManager {
 +get_liveness(peer_id) int
 }
 TycheModule --|> ModuleBase
+GatewayModule --|> TycheModule
+CtpGateway --|> GatewayModule
 TycheEngine --> HeartbeatManager : "uses"
 TycheEngine --> Message : "serializes/deserializes"
 TycheModule --> Message : "serializes/deserializes"
+GatewayModule --> Message : "publishes"
+CtpGateway --> GatewayModule : "extends"
 ```
 
 **Diagram sources**
 - [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
+- [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
+- [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 
@@ -553,14 +772,58 @@ AdminWorker-->>AdminClient : Response
 **Section sources**
 - [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
 
+### **Updated** CTP Gateway Integration Flow
+```mermaid
+sequenceDiagram
+participant Gateway as "CtpGateway"
+participant MdApi as "CTP Market Data API"
+participant TdApi as "CTP Trading API"
+participant Dispatcher as "Event Dispatcher Thread"
+participant Engine as "TycheEngine"
+Note over Gateway,MdApi : CTP Connection Setup
+Gateway->>MdApi : CreateFtdcMdApi()
+Gateway->>TdApi : CreateFtdcTraderApi()
+Gateway->>MdApi : RegisterSpi(MdSpi)
+Gateway->>TdApi : RegisterSpi(TdSpi)
+Gateway->>MdApi : RegisterFront(md_front)
+Gateway->>TdApi : RegisterFront(td_front)
+Gateway->>MdApi : Init()
+Gateway->>TdApi : SubscribePrivateTopic()
+Gateway->>TdApi : SubscribePublicTopic()
+Gateway->>TdApi : Init()
+Note over Gateway,Dispatcher : Event Processing Loop
+Gateway->>Dispatcher : Start event dispatcher thread
+loop CTP SPI Callbacks
+MdApi-->>Gateway : OnRtnDepthMarketData()
+Gateway->>Dispatcher : Put quote/trade event
+TdApi-->>Gateway : OnRtnOrder()/OnRtnTrade()
+Gateway->>Dispatcher : Put order_update/fill event
+end
+Note over Dispatcher,Engine : Event Forwarding
+Dispatcher->>Engine : publish_quote()/publish_trade()
+Dispatcher->>Engine : publish_order_update()/publish_fill()
+```
+
+**Diagram sources**
+- [trading/gateway/ctp/gateway.py:600-644](file://src/modules/trading/gateway/ctp/gateway.py#L600-L644)
+- [trading/gateway/ctp/gateway.py:554-595](file://src/modules/trading/gateway/ctp/gateway.py#L554-L595)
+
+**Section sources**
+- [trading/gateway/ctp/gateway.py:600-644](file://src/modules/trading/gateway/ctp/gateway.py#L600-L644)
+- [trading/gateway/ctp/gateway.py:554-595](file://src/modules/trading/gateway/ctp/gateway.py#L554-L595)
+
 ## Dependency Analysis
-The core components have minimal coupling and clear boundaries:
+The core components have minimal coupling and clear boundaries, with enhanced trading domain integration:
 - TycheEngine depends on HeartbeatManager, Message, and types.
 - TycheModule depends on Message, types, and ModuleBase.
+- GatewayModule extends TycheModule and adds trading-specific functionality.
+- CtpGateway extends GatewayModule with CTP API integration.
+- Trading domain components depend on TycheEngine types and module base classes.
 - HeartbeatManager is used by TycheEngine and can be used by modules independently.
 - Message depends on types for enums and durability levels.
 - Types are foundational and used across modules and engine.
 - **Updated**: Administrative endpoint constants are used by TycheEngine for configuration.
+- **Updated**: Trading domain components integrate with both TycheEngine and CTP APIs.
 
 ```mermaid
 graph LR
@@ -570,6 +833,10 @@ Engine --> Types["Types"]
 TycheMod["TycheModule"] --> Msg
 TycheMod --> Types
 ModBase["ModuleBase"] --> Types
+GatewayMod["GatewayModule"] --> TycheMod
+CtpGateway["CtpGateway"] --> GatewayMod
+TradingEvents["Trading Events"] --> GatewayMod
+TradingModels["Trading Models"] --> GatewayMod
 Msg --> Types
 AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 ```
@@ -579,12 +846,18 @@ AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
 - [message.py:10-10](file://src/tyche/message.py#L10-L10)
 - [types.py:12-23](file://src/tyche/types.py#L12-L23)
+- [trading/gateway/base.py:16-17](file://src/modules/trading/gateway/base.py#L16-L17)
+- [trading/events.py:12-18](file://src/modules/trading/events.py#L12-L18)
+- [trading/models/enums.py:3-4](file://src/modules/trading/models/enums.py#L3-L4)
 
 **Section sources**
 - [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
 - [message.py:10-10](file://src/tyche/message.py#L10-L10)
 - [types.py:12-23](file://src/tyche/types.py#L12-L23)
+- [trading/gateway/base.py:16-17](file://src/modules/trading/gateway/base.py#L16-L17)
+- [trading/events.py:12-18](file://src/modules/trading/events.py#L12-L18)
+- [trading/models/enums.py:3-4](file://src/modules/trading/models/enums.py#L3-L4)
 
 ## Performance Considerations
 - ZeroMQ polling and multipart frames are efficient for high-throughput event distribution.
@@ -594,6 +867,8 @@ AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 - XPUB/XSUB proxy minimizes fan-out costs by forwarding at the socket level.
 - **Updated**: Thread-safe operations use locks to prevent race conditions during concurrent access.
 - **Updated**: Administrative queries are handled asynchronously to minimize performance impact.
+- **Updated**: CTP gateway implements dedicated event dispatcher thread to handle SPI callback bridging efficiently.
+- **Updated**: CTP API flow directories and thread synchronization prevent resource leaks and improve reliability.
 
 ## Troubleshooting Guide
 Common issues and strategies:
@@ -612,6 +887,12 @@ Common issues and strategies:
 - **Updated**: Administrative query failures:
   - Symptoms: Admin client cannot connect to engine or query timeouts.
   - Actions: Verify admin endpoint configuration, check network connectivity, and ensure engine admin worker is running.
+- **Updated**: CTP gateway connection issues:
+  - Symptoms: CTP login failures, timeout errors, or authentication problems.
+  - Actions: Verify CTP front addresses, authentication credentials, and network connectivity; check CTP API initialization logs.
+- **Updated**: Market data subscription failures:
+  - Symptoms: No quotes or trades received despite successful connection.
+  - Actions: Confirm instrument ID format (<symbol>.<venue>.<asset_class>), verify subscription completion, and check CTP API response codes.
 
 Validation via tests:
 - Engine registration/unregistration verified in unit tests.
@@ -619,6 +900,7 @@ Validation via tests:
 - Message serialization round-trip and envelope handling verified in unit tests.
 - Heartbeat protocol behavior validated in heartbeat protocol tests.
 - **Updated**: Administrative endpoint functionality tested in heartbeat protocol tests.
+- **Updated**: CTP gateway connectivity and event processing tested in trading system examples.
 
 **Section sources**
 - [test_engine.py:8-51](file://tests/unit/test_engine.py#L8-L51)
@@ -627,15 +909,18 @@ Validation via tests:
 - [test_heartbeat_protocol.py:16-119](file://tests/unit/test_heartbeat_protocol.py#L16-L119)
 
 ## Conclusion
-Tyche Engine's core components form a cohesive, modular system:
+Tyche Engine's core components form a cohesive, modular system with enhanced multi-asset trading capabilities:
 - TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative state queries.
 - TycheModule provides a flexible, interface-driven development model with built-in helpers.
 - Message and Envelope ensure robust, typed serialization across the wire.
 - HeartbeatManager enforces reliability using a proven pattern with thread-safe operations.
 - Types unify configuration and behavior across the system, including administrative endpoint defaults.
 - **Updated**: Enhanced administrative capabilities provide real-time monitoring and state inspection.
+- **Updated**: Comprehensive trading domain integration enables multi-asset, multi-venue trading with standardized event formats.
+- **Updated**: CTP gateway support provides seamless integration with China's futures trading ecosystem.
+- **Updated**: GatewayModule abstract base class enables extensible venue connectivity with consistent event handling.
 
-Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, and straightforward integration patterns.
+Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, comprehensive trading infrastructure, and straightforward integration patterns.
 
 ## Appendices
 
@@ -734,6 +1019,79 @@ Together, these components enable scalable, resilient distributed systems with c
 **Section sources**
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
 
+### **Updated** API Reference: Trading Domain Components
+
+#### GatewayModule
+- Constructor
+  - Parameters:
+    - engine_endpoint: Endpoint
+    - venue_name: str
+    - module_id: Optional[str]
+  - Behavior: Initializes gateway with standardized order handling interfaces.
+- Methods:
+  - connect(): Abstract method for venue-specific connection.
+  - disconnect(): Abstract method for venue-specific disconnection.
+  - subscribe_market_data(instrument_ids): Abstract method for market data subscription.
+  - submit_order(order): Abstract method for order submission.
+  - cancel_order(order_id, instrument_id): Abstract method for order cancellation.
+  - query_account(): Abstract method for account query.
+  - publish_quote(quote): Publish normalized quote event.
+  - publish_trade(trade): Publish trade event.
+  - publish_bar(bar): Publish OHLCV bar event.
+  - publish_fill(fill): Publish fill event.
+  - publish_order_update(update): Publish order update event.
+
+**Section sources**
+- [trading/gateway/base.py:35-192](file://src/modules/trading/gateway/base.py#L35-L192)
+
+#### CtpGateway
+- Constructor
+  - Parameters:
+    - engine_endpoint: Endpoint
+    - venue_name: str
+    - broker_id: str
+    - user_id: str
+    - password: str
+    - td_front: str
+    - md_front: str
+    - auth_code: Optional[str]
+    - app_id: Optional[str]
+    - require_auth: bool
+    - flow_path: str
+    - module_id: Optional[str]
+  - Behavior: Initializes CTP API handles, thread synchronization, and order reference management.
+- Methods:
+  - connect(): Initialize CTP APIs, register SPIs, connect to fronts, and start event dispatcher.
+  - disconnect(): Release CTP APIs and stop event dispatcher.
+  - subscribe_market_data(instrument_ids): Subscribe to CTP market data for instrument IDs.
+  - submit_order(order): Map TycheEngine Order to CTP InputOrderField and submit.
+  - cancel_order(order_id, instrument_id): Cancel order using cached exchange-level information.
+  - query_account(): Query trading account and position state from CTP API.
+
+**Section sources**
+- [trading/gateway/ctp/gateway.py:134-840](file://src/modules/trading/gateway/ctp/gateway.py#L134-L840)
+
+#### Trading Events and Models
+- Event constants and helpers:
+  - Market data events: QUOTE, TRADE, BAR, ORDER_BOOK with corresponding helper functions.
+  - Order flow events: ORDER_SUBMIT, ORDER_APPROVED, ORDER_REJECTED, ORDER_EXECUTE, ORDER_CANCEL, ORDER_UPDATE.
+  - Fill events: FILL with helper function.
+  - Portfolio events: POSITION_UPDATE, ACCOUNT_UPDATE.
+  - Risk events: RISK_ALERT.
+  - System events: SYSTEM_CLOCK, SYSTEM_SHUTDOWN.
+- Trading enumerations:
+  - Side: BUY, SELL
+  - OrderType: MARKET, LIMIT, STOP, STOP_LIMIT
+  - OrderStatus: NEW, PENDING_SUBMIT, SUBMITTED, PARTIALLY_FILLED, FILLED, PENDING_CANCEL, CANCELLED, REJECTED, EXPIRED
+  - TimeInForce: GTC, IOC, FOK, GTD, DAY
+  - VenueType: CRYPTO, FUTURES, STOCK, FOREX, OPTIONS
+  - AssetClass: CRYPTO, EQUITY, FUTURES, FOREX, OPTIONS, BOND
+  - PositionSide: LONG, SHORT, FLAT
+
+**Section sources**
+- [trading/events.py:13-79](file://src/modules/trading/events.py#L13-L79)
+- [trading/models/enums.py:6-73](file://src/modules/trading/models/enums.py#L6-L73)
+
 ### Practical Examples
 - Running the engine:
   - Configure endpoints and call run(); see examples/run_engine.py.
@@ -742,10 +1100,17 @@ Together, these components enable scalable, resilient distributed systems with c
   - Instantiate ExampleModule with engine endpoint and heartbeat receive endpoint; call run(); see examples/run_module.py.
 - Implementing a custom module:
   - Extend TycheModule, implement handlers following naming conventions, and call add_interface() or rely on discover_interfaces().
+- **Updated**: Running a complete trading system:
+  - Use examples/run_trading_system.py to demonstrate multi-asset trading pipeline with simulated gateway, strategy, risk, OMS, and portfolio modules.
+- **Updated**: Running CTP gateway:
+  - Use examples/run_ctp_gateway.py to connect CTP gateway (simulated via OpenCTP or live broker) as standalone process.
+  - Supports both sim mode (OpenCTP 7x24 or regular-hours) and live mode (real broker) with proper authentication.
 - **Updated**: Administrative queries:
   - Use admin endpoint to query engine status, modules, and statistics.
 
 **Section sources**
 - [run_engine.py:21-59](file://examples/run_engine.py#L21-L59)
 - [run_module.py:22-67](file://examples/run_module.py#L22-L67)
+- [run_trading_system.py:1-194](file://examples/run_trading_system.py#L1-L194)
+- [run_ctp_gateway.py:1-202](file://examples/run_ctp_gateway.py#L1-L202)
 - [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
