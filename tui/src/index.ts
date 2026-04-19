@@ -1,51 +1,71 @@
 import { createCliRenderer } from "@opentui/core";
 import { ConnectionManager } from "./connection.js";
+import { ProcessManager } from "./process-manager.js";
 import { AppStateManager } from "./state.js";
 import { createLayout, updateLayout } from "./layout.js";
 import { ConnectionConfig, DEFAULT_CONFIG } from "./types.js";
 
-function parseArgs(): ConnectionConfig {
+interface ParsedArgs {
+  connectionConfig: ConnectionConfig;
+  configPath: string;
+}
+
+function parseArgs(): ParsedArgs {
   const args = process.argv.slice(2);
-  const config: ConnectionConfig = { ...DEFAULT_CONFIG };
+  const connectionConfig: ConnectionConfig = { ...DEFAULT_CONFIG };
+  let configPath = "tyche-processes.json";
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     switch (arg) {
       case "--host":
         if (i + 1 < args.length) {
-          config.host = args[++i];
+          connectionConfig.host = args[++i];
         }
         break;
       case "--event-port":
         if (i + 1 < args.length) {
-          config.eventPort = parseInt(args[++i], 10);
+          connectionConfig.eventPort = parseInt(args[++i], 10);
         }
         break;
       case "--heartbeat-port":
         if (i + 1 < args.length) {
-          config.heartbeatPort = parseInt(args[++i], 10);
+          connectionConfig.heartbeatPort = parseInt(args[++i], 10);
         }
         break;
       case "--admin-port":
         if (i + 1 < args.length) {
-          config.adminPort = parseInt(args[++i], 10);
+          connectionConfig.adminPort = parseInt(args[++i], 10);
+        }
+        break;
+      case "--config":
+        if (i + 1 < args.length) {
+          configPath = args[++i];
         }
         break;
     }
   }
 
-  return config;
+  return { connectionConfig, configPath };
 }
 
 async function main(): Promise<void> {
-  // 1. Parse CLI args into ConnectionConfig
-  const config = parseArgs();
+  // 1. Parse CLI args
+  const { connectionConfig, configPath } = parseArgs();
 
-  // 2. Create ConnectionManager with config
-  const connectionManager = new ConnectionManager(config);
+  // 2. Create ProcessManager and load config
+  const processManager = new ProcessManager();
+  try {
+    await processManager.loadConfig(configPath);
+  } catch (error) {
+    // Config file not found is non-fatal - just no processes to manage
+  }
 
-  // 3. Create AppStateManager with connection manager
-  const stateManager = new AppStateManager(connectionManager);
+  // 3. Create ConnectionManager with config
+  const connectionManager = new ConnectionManager(connectionConfig);
+
+  // 4. Create AppStateManager with connection manager and process manager
+  const stateManager = new AppStateManager(connectionManager, processManager);
 
   // 4. Initialize OpenTUI renderer
   const renderer = await createCliRenderer({
@@ -65,6 +85,9 @@ async function main(): Promise<void> {
   // 7. Set up keyboard handlers
   renderer.keyInput.on("keypress", (event) => {
     switch (event.name) {
+      case "tab":
+        stateManager.selectNext();
+        break;
       case "q":
       case "Q":
         shutdown();
@@ -76,6 +99,26 @@ async function main(): Promise<void> {
       case "c":
       case "C":
         stateManager.clearEvents();
+        break;
+      case "s":
+      case "S":
+        stateManager.startSelectedProcess();
+        break;
+      case "x":
+      case "X":
+        stateManager.stopSelectedProcess();
+        break;
+      case "r":
+      case "R":
+        stateManager.restartSelectedProcess();
+        break;
+      case "a":
+      case "A":
+        stateManager.startAllProcesses();
+        break;
+      case "k":
+      case "K":
+        stateManager.killSelectedProcess();
         break;
     }
     // Ctrl+C also triggers shutdown
@@ -90,7 +133,7 @@ async function main(): Promise<void> {
     updateLayout(refs, state);
   }, 500);
 
-  // 10. Shutdown handler
+  // 9. Shutdown handler
   let isShuttingDown = false;
   async function shutdown() {
     if (isShuttingDown) return;
@@ -100,14 +143,19 @@ async function main(): Promise<void> {
     await stateManager.stop();
     renderer.dropLive();
     renderer.destroy();
+    // Allow ZeroMQ to flush pending socket closures before hard exit
+    await new Promise((r) => setTimeout(r, 500));
     process.exit(0);
   }
 
-  // 11. Handle process signals
+  // 10. Handle process signals
   process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  // SIGTERM works on Unix; on Windows, use 'exit' event as fallback
+  if (process.platform !== "win32") {
+    process.on("SIGTERM", shutdown);
+  }
 
-  // 9. Start the state manager (connects to engine, starts polling)
+  // 11. Start the state manager (connects to engine, starts polling)
   try {
     await stateManager.start();
   } catch (error) {

@@ -55,8 +55,17 @@ class ExampleModule(TycheModule):
         self._pending_timers: List[threading.Timer] = []
         self._timer_lock = threading.Lock()
 
-        # Auto-discover interfaces from methods
-        self._interfaces = self.discover_interfaces()
+        # Auto-discover interfaces from methods and register handlers
+        for iface in self.discover_interfaces():
+            handler = getattr(self, iface.name, None)
+            if handler is not None:
+                self.add_interface(iface.name, handler, iface.pattern, iface.durability)
+
+    def _start_workers(self) -> None:
+        """Start workers and kick off the ping-pong cycle."""
+        super()._start_workers()
+        if self._running and self._registered:
+            self.start_ping_pong()
 
     def stop(self) -> None:
         """Stop the module and cancel all pending timers."""
@@ -126,7 +135,12 @@ class ExampleModule(TycheModule):
 
         Pattern: on_common_{event}
         Echoes back the same value from the ping payload in the pong reply.
+        Skips responding if the ping came from this module itself.
         """
+        sender = payload.get("sender")
+        if sender == self.module_id:
+            return
+
         self.ping_count += 1
         value = payload.get("value")
         delay = random.uniform(0.1, 0.9)

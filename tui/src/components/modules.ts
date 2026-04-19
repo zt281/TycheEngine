@@ -4,8 +4,8 @@ import { ModuleInfo, HealthStatus } from "../types.js";
 
 export function createModulePanel(renderer: CliRenderer): BoxRenderable {
   const panelBox = new BoxRenderable(renderer, {
-    width: "35%",
-    flexGrow: 0,
+    width: "100%",
+    flexGrow: 1,
     border: true,
     flexDirection: "column",
   });
@@ -30,7 +30,8 @@ export function updateModulePanel(
   renderer: CliRenderer,
   titleText: TextRenderable,
   contentBox: BoxRenderable,
-  modules: ModuleInfo[]
+  modules: ModuleInfo[],
+  selectedModuleId: string | null
 ): void {
   // Update title
   titleText.content = `Modules (${modules.length})`;
@@ -51,11 +52,13 @@ export function updateModulePanel(
 
   // Build rows for each module
   for (const module of modules) {
+    const isSelected = module.moduleId === selectedModuleId;
     const truncatedId = module.moduleId.slice(0, 12).padEnd(12, " ");
     const healthStr = module.health.padEnd(6, " ");
+    const prefix = isSelected ? "> " : "  ";
     const rowText = new TextRenderable(renderer, {
-      content: `  ${truncatedId}  ${healthStr}`,
-      fg: healthColors[module.health] || "#808080",
+      content: `${prefix}${truncatedId}  ${healthStr}`,
+      fg: isSelected ? "#FFFFFF" : (healthColors[module.health] || "#808080"),
     });
     contentBox.add(rowText);
   }

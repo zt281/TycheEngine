@@ -23,6 +23,16 @@ Tyche Engine is a high-performance distributed event-driven framework written in
 
 ## Architecture Overview
 
+Tyche Engine is designed as a **multi-process distributed system**. The Engine and each Module run as separate operating system processes, communicating exclusively via ZeroMQ. This provides true process isolation, CPU scaling across cores, and the ability to distribute across machines.
+
+```
+Process A                    Process B                    Process C
++------------------+         +------------------+         +------------------+
+|   TycheEngine    |<──ZMQ──>|  ExampleModule   |<──ZMQ──>|  ExampleModule   |
+|    (engine.py)   |         |  (module.py)     |         |  (module.py)     |
++------------------+         +------------------+         +------------------+
+```
+
 Tyche Engine uses ZeroMQ as its messaging backbone, leveraging specific socket patterns for different communication needs:
 
 | Communication Pattern | ZeroMQ Pattern | Socket Types | Purpose |
@@ -340,18 +350,34 @@ ZeroMQ provides the right balance of performance and reliability patterns for Ty
 
 ## Terminal UI Dashboard
 
-Tyche Engine includes a real-time terminal dashboard for monitoring engine state, active modules, and event flow. Built with OpenTUI and Bun, it provides an intuitive interface for observing system health without leaving the terminal.
+Tyche Engine includes a real-time terminal dashboard that is both a **monitor** and a **process supervisor**. Built with OpenTUI and Bun, it displays live events, module health, and engine stats while also managing the lifecycle of engine and module processes directly from the terminal.
+
+### Features
+
+- **Live monitoring**: Real-time event stream, module health, heartbeat status, and engine statistics
+- **Process management**: Start, stop, restart, and force-kill engine and module processes
+- **Dependency resolution**: Auto-starts processes in topological order based on `dependsOn`
+- **Module filtering**: Select a module to filter the event log to that sender only
+- **Microsecond timestamps**: Event log shows `HH:MM:SS.mmmuuu` with inline payload preview
+- **Keyboard navigation**: `Tab` cycles through processes and modules; all controls are keyboard-driven
 
 See [tui/README.md](tui/README.md) for full documentation.
 
-**Quick Start:**
+**Quick Start — TUI as Supervisor:**
+
+```bash
+# Terminal 1: Start the TUI (auto-launches engine and modules)
+cd tui && bun install && bun run start --config tyche-processes.json
+```
+
+**Quick Start — Connect to Existing Engine:**
 
 ```bash
 # Terminal 1: Start the engine
 python examples/run_engine.py
 
 # Terminal 2: Start the TUI dashboard
-cd tui && bun install && bun run start
+cd tui && bun run start
 ```
 
 ## References

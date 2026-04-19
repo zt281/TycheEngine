@@ -1,0 +1,28 @@
+{
+  "workdir": "..",
+  "processes": [
+    {
+      "name": "engine",
+      "command": "python",
+      "args": ["src/tyche/engine_main.py", "--admin-port", "5560"],
+      "env": {"PYTHONPATH": "src"},
+      "autoStart": true
+    },
+    {
+      "name": "example-module1",
+      "command": "python",
+      "args": ["src/tyche/module_main.py"],
+      "env": {"PYTHONPATH": "src"},
+      "dependsOn": ["engine"],
+      "autoStart": true
+    },
+     {
+      "name": "example-module2",
+      "command": "python",
+      "args": ["src/tyche/module_main.py"],
+      "env": {"PYTHONPATH": "src"},
+      "dependsOn": ["engine"],
+      "autoStart": true
+    }
+  ]
+}

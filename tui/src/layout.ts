@@ -3,6 +3,7 @@ import type { CliRenderer, BoxRenderable as BoxRenderableType, TextRenderable } 
 import { AppState } from "./types.js";
 import { createHeader, updateHeader } from "./components/header.js";
 import { createModulePanel, updateModulePanel } from "./components/modules.js";
+import { createProcessPanel, updateProcessPanel } from "./components/processes.js";
 import { createEventLog, updateEventLog } from "./components/event-log.js";
 import { createStatsBar, updateStatsBar } from "./components/stats.js";
 import { createFooter } from "./components/footer.js";
@@ -13,6 +14,8 @@ export interface LayoutRefs {
   headerStatusText: TextRenderable;
   moduleTitleText: TextRenderable;
   moduleContentBox: BoxRenderableType;
+  processTitleText: TextRenderable;
+  processContentBox: BoxRenderableType;
   eventLogContent: BoxRenderableType;
   statsLeftText: TextRenderable;
   statsRightText: TextRenderable;
@@ -37,16 +40,31 @@ export function createLayout(renderer: CliRenderer): LayoutRefs {
     flexGrow: 1,
   });
 
-  // Module panel
+  // Left column container for process panel + module panel
+  const leftColumn = new BoxRenderable(renderer, {
+    width: "35%",
+    flexGrow: 0,
+    flexDirection: "column",
+  });
+
+  // Process panel (top of left column)
+  const processPanel = createProcessPanel(renderer);
+  const processTitleText = processPanel.getChildren()[0] as TextRenderable;
+  const processContentBox = processPanel.getChildren()[1] as BoxRenderable;
+
+  // Module panel (bottom of left column, takes remaining space)
   const modulePanel = createModulePanel(renderer);
   const moduleTitleText = modulePanel.getChildren()[0] as TextRenderable;
   const moduleContentBox = modulePanel.getChildren()[1] as BoxRenderable;
+
+  leftColumn.add(processPanel);
+  leftColumn.add(modulePanel);
 
   // Event log
   const eventLogPanel = createEventLog(renderer);
   const eventLogContent = eventLogPanel.getChildren()[1] as BoxRenderable;
 
-  middleRow.add(modulePanel);
+  middleRow.add(leftColumn);
   middleRow.add(eventLogPanel);
 
   // 3. Stats bar
@@ -69,6 +87,8 @@ export function createLayout(renderer: CliRenderer): LayoutRefs {
     headerStatusText,
     moduleTitleText,
     moduleContentBox,
+    processTitleText,
+    processContentBox,
     eventLogContent,
     statsLeftText,
     statsRightText,
@@ -91,11 +111,21 @@ export function updateLayout(refs: LayoutRefs, state: AppState): void {
     refs.renderer,
     refs.moduleTitleText,
     refs.moduleContentBox,
-    modulesArray
+    modulesArray,
+    state.selectedModuleId
+  );
+
+  // Update process panel
+  updateProcessPanel(
+    refs.renderer,
+    refs.processTitleText,
+    refs.processContentBox,
+    state.processes,
+    state.selectedProcess
   );
 
   // Update event log
-  updateEventLog(refs.renderer, refs.eventLogContent, state.events);
+  updateEventLog(refs.renderer, refs.eventLogContent, state.events, state.selectedModuleId);
 
   // Update stats bar
   updateStatsBar(refs.statsLeftText, refs.statsRightText, state.stats);

@@ -214,11 +214,12 @@ export class ConnectionManager {
             }
 
             const entry: EventEntry = {
-              timestamp: Number(decoded.timestamp ?? Date.now() / 1000),
+              timestamp: Date.now() * 1000,
               event: eventName,
               sender: String(decoded.sender ?? ""),
               recipient: decoded.recipient ? String(decoded.recipient) : undefined,
               type,
+              payload: (decoded.payload ?? {}) as Record<string, unknown>,
             };
 
             this.onEvent?.(entry);

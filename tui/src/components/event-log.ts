@@ -29,7 +29,8 @@ export function createEventLog(renderer: CliRenderer): BoxRenderable {
 export function updateEventLog(
   renderer: CliRenderer,
   contentBox: BoxRenderable,
-  events: EventEntry[]
+  events: EventEntry[],
+  selectedModuleId: string | null
 ): void {
   // Clear content
   const children = contentBox.getChildren();
@@ -55,31 +56,56 @@ export function updateEventLog(
     }
   };
 
-  // Format timestamp as HH:MM:SS
-  const formatTime = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toTimeString().slice(0, 8);
+  // Format timestamp as HH:MM:SS.mmmuuu (microseconds)
+  const formatTime = (timestampMicros: number): string => {
+    const ms = Math.floor(timestampMicros / 1000);
+    const micros = timestampMicros % 1000;
+    const date = new Date(ms);
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mm = String(date.getMinutes()).padStart(2, "0");
+    const ss = String(date.getSeconds()).padStart(2, "0");
+    const mmm = String(date.getMilliseconds()).padStart(3, "0");
+    const uuu = String(micros).padStart(3, "0");
+    return `${hh}:${mm}:${ss}.${mmm}${uuu}`;
   };
 
-  // Show last 30 events (most recent last)
-  const recentEvents = events.slice(-30);
+  // Format payload preview
+  const formatPayload = (payload: Record<string, unknown>): string => {
+    try {
+      const str = JSON.stringify(payload);
+      return str.length > 25 ? str.slice(0, 25) + "..." : str;
+    } catch {
+      return "{...}";
+    }
+  };
+
+  // Filter events by selected module, then show last 30
+  const eventsToShow = selectedModuleId
+    ? events.filter((e) => e.sender === selectedModuleId)
+    : events;
+  const recentEvents = eventsToShow.slice(-30);
 
   for (const entry of recentEvents) {
     const timeStr = formatTime(entry.timestamp);
-    const eventName = entry.event.padEnd(16, " ");
+    const eventName = entry.event.slice(0, 14).padEnd(14, " ");
     const senderTruncated = entry.sender.slice(0, 8);
+    const payloadStr = formatPayload(entry.payload);
+    const payloadPart = payloadStr ? `  ${payloadStr}` : "";
 
     const rowText = new TextRenderable(renderer, {
-      content: `${timeStr} ${eventName} ${senderTruncated}`,
+      content: `${timeStr} ${eventName} ${senderTruncated}${payloadPart}`,
       fg: getEventColor(entry.type),
     });
     contentBox.add(rowText);
   }
 
-  // Show placeholder if no events
-  if (events.length === 0) {
+  // Show placeholder if no events (or no matching filtered events)
+  if (recentEvents.length === 0) {
+    const msg = selectedModuleId
+      ? `  No events from ${selectedModuleId.slice(0, 16)}`
+      : "  No events received";
     const emptyText = new TextRenderable(renderer, {
-      content: "  No events received",
+      content: msg,
       fg: "#808080",
     });
     contentBox.add(emptyText);
