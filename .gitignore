@@ -186,6 +186,8 @@ Temporary Items
 .nfs*
 
 # Tyche Engine specific
+.claude/
+.ruff_cache/
 *.log
 *.wal
 *.snapshot
