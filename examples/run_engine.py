@@ -8,9 +8,9 @@ Then in another terminal:
     python examples/run_module.py
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 
 # Add src to path for examples
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -36,11 +36,11 @@ def main():
     )
 
     print("Engine configuration:")
-    print(f"  Registration: tcp://127.0.0.1:5555")
-    print(f"  Events: tcp://127.0.0.1:5556")
-    print(f"  Heartbeat (out): tcp://127.0.0.1:5558")
-    print(f"  Heartbeat (in): tcp://127.0.0.1:5559")
-    print(f"  Admin: tcp://127.0.0.1:5560")
+    print("  Registration: tcp://127.0.0.1:5555")
+    print("  Events: tcp://127.0.0.1:5556")
+    print("  Heartbeat (out): tcp://127.0.0.1:5558")
+    print("  Heartbeat (in): tcp://127.0.0.1:5559")
+    print("  Admin: tcp://127.0.0.1:5560")
     print()
     print("Press Ctrl+C to stop")
     print()

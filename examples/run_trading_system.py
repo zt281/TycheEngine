@@ -13,24 +13,24 @@ Usage:
 Press Ctrl+C to stop.
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 import time
 from decimal import Decimal
 
 # Add src to path for examples
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+from modules.trading.gateway.simulated import SimulatedGateway
+from modules.trading.oms.module import OMSModule
+from modules.trading.portfolio.module import PortfolioModule
+from modules.trading.risk.module import RiskModule
+from modules.trading.risk.rules import MaxDailyLossRule, MaxOrderValueRule, MaxPositionSizeRule
+from modules.trading.store.recorder import DataRecorderModule
+from modules.trading.strategy.example_ma_cross import MovingAverageCrossStrategy
 from tyche.engine import TycheEngine
 from tyche.types import Endpoint
-from tyche.trading.gateway.simulated import SimulatedGateway
-from tyche.trading.strategy.example_ma_cross import MovingAverageCrossStrategy
-from tyche.trading.oms.module import OMSModule
-from tyche.trading.risk.module import RiskModule
-from tyche.trading.risk.rules import MaxPositionSizeRule, MaxOrderValueRule, MaxDailyLossRule
-from tyche.trading.portfolio.module import PortfolioModule
-from tyche.trading.data.recorder import DataRecorderModule
 
 logging.basicConfig(
     level=logging.INFO,

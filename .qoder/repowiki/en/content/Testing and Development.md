@@ -29,15 +29,17 @@
 - [tests/unit/test_types.py](file://tests/unit/test_types.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
+- [CLAUDE.md](file://CLAUDE.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated heartbeat protocol testing to reflect defensive programming improvements
-- Enhanced test stability documentation by removing problematic on_common_pong assertion
-- Added comprehensive guidance on preventing infinite loops in automated testing environments
-- Updated integration testing strategy to address ping-pong broadcast stability concerns
-- Expanded defensive programming approaches for distributed component testing
+- Enhanced GitHub Actions CI workflow with comprehensive test coverage reporting functionality
+- Added pytest coverage collection with --cov=src/tyche flag and XML/terminal report generation
+- Integrated Codecov for coverage analysis and reporting
+- Improved error handling for coverage analysis with fail_ci_if_error: false
+- Updated coverage configuration in pyproject.toml with source filtering and exclusion rules
+- Added coverage requirements and policies for maintaining code quality
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -45,21 +47,22 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Coverage Reporting and Analysis](#coverage-reporting-and-analysis)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. The testing infrastructure has been significantly enhanced with defensive programming approaches to prevent test instability, particularly around broadcast messaging patterns that could cause infinite loops in automated environments.
+This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. The testing infrastructure has been significantly enhanced with defensive programming approaches to prevent test instability, particularly around broadcast messaging patterns that could cause infinite loops in automated environments. The CI pipeline now includes comprehensive coverage reporting through Codecov integration.
 
 ## Project Structure
 Tyche Engine follows a layered architecture with clear separation between core components and tests:
 - Core library under src/tyche implementing the engine, modules, message handling, heartbeat, and types.
 - Tests organized into unit, integration, and property test areas with comprehensive coverage.
 - Examples demonstrating standalone engine and module usage.
-- CI configured via GitHub Actions.
+- CI configured via GitHub Actions with enhanced coverage reporting.
 
 ```mermaid
 graph TB
@@ -89,6 +92,8 @@ end
 subgraph "Tooling"
 P["pyproject.toml"]
 W["ci.yml"]
+C["Coverage Config"]
+CE["Codecov Integration"]
 end
 U1 --> A
 U2 --> B
@@ -110,6 +115,8 @@ P --> U5
 P --> I1
 P --> I2
 W --> P
+W --> CE
+C --> P
 ```
 
 **Diagram sources**
@@ -327,7 +334,9 @@ Best practices:
 
 ### Continuous Integration Setup and Automated Pipelines
 - CI runs linting (Ruff) and type checking (mypy) on pushes and pull requests.
-- Tests run on multiple OS and Python versions with coverage upload on Ubuntu + Python 3.11.
+- Tests run on multiple OS and Python versions with comprehensive coverage reporting.
+- **Updated**: Coverage collection enabled with pytest-cov (--cov=src/tyche) generating XML and terminal reports.
+- **Updated**: Codecov integration for coverage analysis and reporting with fail_ci_if_error: false.
 - Slow tests are marked and can be deselected locally.
 - CI configuration optimized for expanded test suite with defensive programming.
 
@@ -336,6 +345,7 @@ Recommendations:
 - Integrate coverage reporting consistently across platforms.
 - Optimize CI matrix for faster feedback loops.
 - **Updated**: Ensure CI tests handle defensive programming patterns and broadcast stability.
+- **Updated**: Monitor coverage thresholds and maintain minimum 80% line coverage requirement.
 
 **Section sources**
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
@@ -343,6 +353,7 @@ Recommendations:
 
 ### Release Procedures
 - Ensure all tests pass in CI with defensive programming validation.
+- **Updated**: Verify coverage meets minimum requirements (80% line coverage).
 - Update version in project metadata.
 - Build wheel using hatchling and publish artifacts.
 
@@ -356,6 +367,7 @@ Recommendations:
 - Thread debugging: Use threading.ident to track concurrent operations.
 - Signal handling debugging: Monitor signal delivery and cleanup sequences.
 - **Updated**: Broadcast debugging: Monitor ping-pong cycles and implement defensive timeouts.
+- **Updated**: Coverage debugging: Use coverage reports to identify untested code paths.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -378,6 +390,7 @@ Recommendations:
 - Use descriptive test names and clear assertions.
 - Maintain comprehensive test coverage for all public APIs.
 - **Updated**: Implement defensive programming patterns in all test scenarios.
+- **Updated**: Monitor and maintain coverage thresholds to ensure code quality.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -388,6 +401,7 @@ Recommendations:
 - Keep PRs small and focused; include rationale and test coverage.
 - Ensure new tests cover threading, signal handling, and heartbeat scenarios.
 - **Updated**: Require defensive programming validation for broadcast and loop prevention.
+- **Updated**: Ensure coverage requirements are met before merging contributions.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -399,10 +413,100 @@ Recommendations:
 - Execute unit tests and integration tests with proper PYTHONPATH.
 - Configure IDE for pytest integration and test discovery.
 - **Updated**: Set up defensive programming testing patterns and broadcast stability validation.
+- **Updated**: Monitor local coverage reports to maintain quality standards.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
 - [tests/conftest.py](file://tests/conftest.py)
+
+## Coverage Reporting and Analysis
+
+### Enhanced CI Coverage Workflow
+The GitHub Actions CI workflow has been enhanced with comprehensive coverage reporting functionality:
+
+**Coverage Collection Configuration:**
+- **pytest-cov integration**: Enabled with `--cov=src/tyche` flag for targeted coverage analysis
+- **Multi-format reporting**: Generates both XML and terminal coverage reports for comprehensive analysis
+- **Selective platform coverage**: Codecov integration only runs on Ubuntu with Python 3.11 for optimal coverage analysis
+- **Error tolerance**: `fail_ci_if_error: false` prevents coverage analysis failures from blocking CI completion
+
+**CI Pipeline Enhancements:**
+```yaml
+- name: Run tests
+  run: pytest tests/unit/ -v --timeout=30 --cov=src/tyche --cov-report=xml --cov-report=term
+- name: Upload coverage
+  if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+  uses: codecov/codecov-action@v4
+  with:
+    fail_ci_if_error: false
+    verbose: true
+    token: ${{ secrets.CODECOV_TOKEN }}
+```
+
+**Section sources**
+- [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
+
+### Local Coverage Configuration
+The project includes comprehensive coverage configuration in pyproject.toml:
+
+**Coverage Settings:**
+- **Source filtering**: Targets only `src/tyche` directory for coverage analysis
+- **Exclusion patterns**: Automatically omits test files (`*/tests/*`) from coverage calculations
+- **Line exclusions**: Excludes `if __name__ == "__main__":` blocks and pragma directives from coverage
+- **Integration with pytest**: Seamless coverage reporting through pytest-cov plugin
+
+**Local Coverage Commands:**
+```bash
+# Generate coverage report
+pytest --cov=src/tyche --cov-report=xml --cov-report=term
+
+# Generate HTML coverage report
+pytest --cov=src/tyche --cov-report=html
+
+# Generate coverage report with branch coverage
+pytest --cov=src/tyche --cov-branch
+```
+
+**Section sources**
+- [pyproject.toml](file://pyproject.toml)
+
+### Coverage Requirements and Policies
+The project enforces strict coverage requirements to maintain code quality:
+
+**Minimum Coverage Standards:**
+- **Line coverage**: Minimum 80% line coverage required for unit tests
+- **New code threshold**: New code must achieve ≥90% coverage
+- **Regression control**: Coverage regression greater than 2% blocks commits
+- **Exclusion policy**: `if __name__ == "__main__":` blocks and type-checking imports are excluded from coverage
+
+**Coverage Analysis Benefits:**
+- **Quality assurance**: Ensures comprehensive test coverage for critical components
+- **Code health monitoring**: Provides quantitative metrics for code quality assessment
+- **Regression detection**: Early identification of coverage regressions in CI
+- **Development guidance**: Highlights untested code paths for improvement
+
+**Section sources**
+- [CLAUDE.md](file://CLAUDE.md)
+- [pyproject.toml](file://pyproject.toml)
+
+### Coverage Analysis Best Practices
+To maximize the effectiveness of coverage reporting:
+
+**Test Coverage Strategies:**
+- **Target critical paths**: Focus on high-risk and complex code sections
+- **Edge case testing**: Include boundary conditions and error scenarios
+- **Integration coverage**: Ensure distributed component interactions are tested
+- **Threading coverage**: Validate concurrent access patterns and race conditions
+
+**Coverage Optimization:**
+- **Avoid over-mocking**: Balance test isolation with realistic behavior
+- **Use parameterized tests**: Increase coverage with minimal test duplication
+- **Monitor coverage trends**: Track coverage improvements over time
+- **Address low-coverage areas**: Prioritize refactoring of poorly covered code
+
+**Section sources**
+- [pyproject.toml](file://pyproject.toml)
+- [CLAUDE.md](file://CLAUDE.md)
 
 ## Dependency Analysis
 This diagram shows key internal dependencies among core components used in tests.
@@ -428,6 +532,8 @@ EM["tests/unit/test_example_module.py"] --> EMOD["src/tyche/example_module.py"]
 EMOD --> MSG
 EMOD --> TP
 HB --> TP
+C["Coverage Config"] --> P["pyproject.toml"]
+CE["Codecov"] --> W["ci.yml"]
 ```
 
 **Diagram sources**
@@ -446,6 +552,8 @@ HB --> TP
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/types.py](file://src/tyche/types.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
+- [pyproject.toml](file://pyproject.toml)
+- [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -462,6 +570,7 @@ HB --> TP
 - Prefer ephemeral ports and short sleeps for integration tests to minimize flakiness.
 - Threading performance: Minimize lock contention and optimize thread synchronization.
 - **Updated**: Implement defensive programming patterns to prevent performance degradation from broadcast loops.
+- **Updated**: Monitor coverage to ensure performance-critical code paths are adequately tested.
 
 **Section sources**
 - [README.md](file://README.md)
@@ -476,6 +585,8 @@ Common issues and resolutions:
 - Signal handling issues: Verify signal masks and cleanup handlers are properly installed.
 - **Updated**: Broadcast loop issues: Monitor ping-pong cycles and implement defensive timeouts to prevent infinite loops.
 - **Updated**: Defensive programming validation: Ensure all broadcast tests include timeout and loop prevention mechanisms.
+- **Updated**: Coverage analysis issues: Use local coverage reports to debug coverage collection problems.
+- **Updated**: CI coverage failures: Check Codecov integration and ensure proper token configuration.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -484,7 +595,11 @@ Common issues and resolutions:
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 
 ## Conclusion
-Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests with enhanced defensive programming approaches. The expanded test infrastructure with over 4000 lines of new test code provides comprehensive coverage of threading scenarios, signal handling, heartbeat protocols, and broadcast stability. Recent improvements focus on preventing test instability through careful handling of ping-pong broadcast patterns that could cause infinite loops in automated environments. By leveraging deterministic fixtures, controlled timing, defensive programming patterns, and structured CI pipelines, contributors can maintain high-quality, reliable distributed components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization.
+Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests with enhanced defensive programming approaches. The expanded test infrastructure with over 4000 lines of new test code provides comprehensive coverage of threading scenarios, signal handling, heartbeat protocols, and broadcast stability. Recent improvements focus on preventing test instability through careful handling of ping-pong broadcast patterns that could cause infinite loops in automated environments. 
+
+**Updated enhancements** include comprehensive coverage reporting through pytest-cov and Codecov integration, establishing quantitative metrics for code quality assurance. The CI pipeline now automatically generates XML and terminal coverage reports, with Codecov providing detailed analysis and trend monitoring. Strict coverage requirements (80% minimum line coverage, 90% for new code) ensure maintainable and well-tested code.
+
+By leveraging deterministic fixtures, controlled timing, defensive programming patterns, structured CI pipelines with coverage reporting, and comprehensive quality metrics, contributors can maintain high-quality, reliable distributed components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization. The enhanced coverage reporting infrastructure provides continuous visibility into code quality and test effectiveness.
 
 ## Appendices
 
@@ -532,3 +647,22 @@ Eng->>Eng : "unregister expired modules"
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
+
+### Coverage Reporting Configuration
+**Updated** Comprehensive coverage reporting setup:
+
+#### CI Coverage Configuration:
+- **Targeted coverage**: `--cov=src/tyche` focuses analysis on core library
+- **Multi-format reports**: XML for Codecov integration, terminal for developer feedback
+- **Platform-specific execution**: Runs on Ubuntu with Python 3.11 for optimal coverage analysis
+- **Error tolerance**: `fail_ci_if_error: false` prevents coverage failures from blocking CI
+
+#### Local Coverage Setup:
+- **Source filtering**: `source = ["src/tyche"]` in pyproject.toml
+- **Exclusion patterns**: `omit = ["*/tests/*"]` prevents test files from coverage
+- **Line exclusions**: Automatic exclusion of `if __name__ == "__main__":` blocks
+- **Integration**: Seamless pytest-cov plugin integration
+
+**Section sources**
+- [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
+- [pyproject.toml](file://pyproject.toml)

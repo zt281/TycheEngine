@@ -18,26 +18,26 @@ Usage:
     python examples/run_strategy.py
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 import time
 from decimal import Decimal
 
 # Add src to path for examples
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from tyche.types import Endpoint
-from tyche.trading.oms.module import OMSModule
-from tyche.trading.risk.module import RiskModule
-from tyche.trading.risk.rules import (
+from modules.trading.oms.module import OMSModule
+from modules.trading.portfolio.module import PortfolioModule
+from modules.trading.risk.module import RiskModule
+from modules.trading.risk.rules import (
     MaxDailyLossRule,
     MaxOrderValueRule,
     MaxPositionSizeRule,
     RateLimitRule,
 )
-from tyche.trading.portfolio.module import PortfolioModule
-from tyche.trading.data.recorder import DataRecorderModule
+from modules.trading.store.recorder import DataRecorderModule
+from tyche.types import Endpoint
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,7 +116,7 @@ def main() -> None:
     try:
         while True:
             time.sleep(10)
-            print(f"\n--- Service Stats ---")
+            print("\n--- Service Stats ---")
             print(f"  OMS: {oms.order_store.active_count} active / {oms.order_store.total_count} total")
             print(f"  Portfolio PnL: realized={portfolio.total_realized_pnl:.4f}, unrealized={portfolio.total_unrealized_pnl:.4f}")
             print(f"  Recorder: {recorder.event_count} events")
