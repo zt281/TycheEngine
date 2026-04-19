@@ -1,5 +1,6 @@
 # API Reference
 
+<cite>
 **Referenced Files in This Document**
 - [__init__.py](file://src/tyche/__init__.py)
 - [engine.py](file://src/tyche/engine.py)
@@ -13,6 +14,7 @@
 - [run_module.py](file://examples/run_module.py)
 - [README.md](file://README.md)
 - [pyproject.toml](file://pyproject.toml)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

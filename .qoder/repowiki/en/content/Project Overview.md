@@ -1,5 +1,6 @@
 # Project Overview
 
+<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [__init__.py](file://src/tyche/__init__.py)
@@ -14,6 +15,7 @@
 - [run_module.py](file://examples/run_module.py)
 - [tyche_engine_design_v1.md](file://docs/design/tyche_engine_design_v1.md)
 - [pyproject.toml](file://pyproject.toml)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

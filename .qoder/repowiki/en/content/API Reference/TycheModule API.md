@@ -1,5 +1,6 @@
 # TycheModule API
 
+<cite>
 **Referenced Files in This Document**
 - [module_base.py](file://src/tyche/module_base.py)
 - [module.py](file://src/tyche/module.py)
@@ -13,6 +14,7 @@
 - [test_module.py](file://tests/unit/test_module.py)
 - [test_module_base.py](file://tests/unit/test_module_base.py)
 - [test_example_module.py](file://tests/unit/test_example_module.py)
+</cite>
 
 ## Update Summary
 **Changes Made**

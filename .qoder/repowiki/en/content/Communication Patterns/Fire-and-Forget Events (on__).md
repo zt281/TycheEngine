@@ -1,5 +1,6 @@
 # Fire-and-Forget Events (on_*) 
 
+<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -10,6 +11,7 @@
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [test_engine_module.py](file://tests/integration/test_engine_module.py)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

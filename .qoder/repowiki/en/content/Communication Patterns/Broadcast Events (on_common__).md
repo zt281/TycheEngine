@@ -1,5 +1,6 @@
 # Broadcast Events (on_common_*) 
 
+<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -11,6 +12,7 @@
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [test_example_module.py](file://tests/unit/test_example_module.py)
+</cite>
 
 ## Update Summary
 **Changes Made**

@@ -1,5 +1,6 @@
 # Advanced Features
 
+<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -13,13 +14,16 @@
 - [test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [test_module.py](file://tests/unit/test_module.py)
 - [README.md](file://README.md)
+- [ci.yml](file://.github/workflows/ci.yml)
+- [wiki-sync.yml](file://.github/workflows/wiki-sync.yml)
+</cite>
 
 ## Update Summary
 **Changes Made**
-- Updated introduction to clarify this document represents consolidated advanced features content
-- Enhanced documentation organization to reflect the consolidation from separate Advanced Features.md to Features.md
-- Maintained comprehensive coverage of all advanced features while improving content organization
-- Updated references to reflect the consolidated documentation structure
+- Added new section on CI/CD Automation and GitHub Actions workflows
+- Integrated automated wiki synchronization capabilities into the Advanced Features documentation
+- Enhanced documentation with modern development practices and continuous integration patterns
+- Updated architecture overview to include automated documentation workflows
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -27,21 +31,22 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [CI/CD Automation and Wiki Synchronization](#cicd-automation-and-wiki-synchronization)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
-This document represents the consolidated advanced features documentation for Tyche Engine, encompassing the automatic interface discovery system, method naming conventions, interface registration, dynamic capability negotiation, custom event handler implementation, plugin-style extensions, module lifecycle hooks, advanced communication patterns, custom message types, integration with external systems, complex module implementations, custom protocol extensions, performance optimization techniques, advanced debugging strategies, profiling tools, and production monitoring approaches. 
+This document represents the consolidated advanced features documentation for Tyche Engine, encompassing the automatic interface discovery system, method naming conventions, interface registration, dynamic capability negotiation, custom event handler implementation, plugin-style extensions, module lifecycle hooks, advanced communication patterns, custom message types, integration with external systems, complex module implementations, custom protocol extensions, performance optimization techniques, advanced debugging strategies, profiling tools, and production monitoring approaches.
 
-**Updated** This document consolidates previously separate advanced features content into a comprehensive guide that maintains all technical details while improving organizational structure and accessibility.
+**Updated** This document now includes comprehensive coverage of CI/CD automation capabilities, featuring automated GitHub Actions workflows for continuous integration and wiki synchronization. The documentation provides guidance on extending the framework, creating custom modules, implementing specialized communication patterns, and leveraging modern development practices for sustainable project maintenance.
 
-The documentation provides guidance on extending the framework, creating custom modules, and implementing specialized communication patterns, serving as both a reference for existing users and a guide for new contributors to the Tyche Engine ecosystem.
+The documentation consolidates previously separate advanced features content into a comprehensive guide that maintains all technical details while improving organizational structure and accessibility, now enhanced with modern automation practices.
 
 ## Project Structure
-Tyche Engine is organized around a central engine and pluggable modules. The engine manages registration, event routing, and health monitoring. Modules implement handlers using standardized naming conventions and communicate via ZeroMQ sockets. Supporting components include message serialization, type definitions, heartbeat management, and example modules demonstrating advanced patterns.
+Tyche Engine is organized around a central engine and pluggable modules. The engine manages registration, event routing, and health monitoring. Modules implement handlers using standardized naming conventions and communicate via ZeroMQ sockets. Supporting components include message serialization, type definitions, heartbeat management, and example modules demonstrating advanced patterns. The project now includes automated CI/CD workflows for continuous integration and documentation synchronization.
 
 ```mermaid
 graph TB
@@ -58,6 +63,10 @@ MSG["Message<br/>serialization/deserialization"]
 T["Types<br/>enums, dataclasses, endpoints"]
 HB["Heartbeat<br/>monitoring, manager"]
 end
+subgraph "CI/CD Automation"
+CI["CI Workflow<br/>linting, testing, coverage"]
+WS["Wiki Sync<br/>automated documentation"]
+end
 MB --> M
 M --> E
 EM --> M
@@ -67,6 +76,7 @@ T --> E
 T --> M
 HB --> E
 HB --> M
+CI --> WS
 ```
 
 **Diagram sources**
@@ -77,6 +87,8 @@ HB --> M
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [types.py:14-102](file://src/tyche/types.py#L14-L102)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 **Section sources**
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
@@ -86,6 +98,8 @@ HB --> M
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [types.py:14-102](file://src/tyche/types.py#L14-L102)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 ## Core Components
 - TycheEngine: Central broker handling registration, event proxy (XPUB/XSUB), heartbeat monitoring, and module lifecycle.
@@ -94,6 +108,7 @@ HB --> M
 - Message: Structured message with serialization/deserialization and envelope support.
 - Types: Enumerations and dataclasses for endpoints, interface patterns, durability levels, message types, and module info.
 - Heartbeat: Monitoring and manager for peer liveness using Paranoid Pirate pattern.
+- CI/CD Workflows: Automated testing, linting, and documentation synchronization through GitHub Actions.
 
 **Section sources**
 - [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
@@ -102,6 +117,8 @@ HB --> M
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [types.py:14-102](file://src/tyche/types.py#L14-L102)
 - [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 ## Architecture Overview
 Tyche Engine uses ZeroMQ socket patterns for robust, scalable communication:
@@ -329,12 +346,91 @@ Unpack --> Message["Message(...)"]
 - [module_base.py:100-120](file://src/tyche/module_base.py#L100-L120)
 - [module.py:283-298](file://src/tyche/module.py#L283-L298)
 
+## CI/CD Automation and Wiki Synchronization
+
+### Continuous Integration Workflow
+The project utilizes GitHub Actions for comprehensive continuous integration, ensuring code quality and test coverage across multiple environments and Python versions.
+
+**Workflow Features:**
+- **Multi-environment Testing**: Runs tests on Ubuntu and Windows runners
+- **Multi-version Compatibility**: Tests across Python 3.9, 3.10, 3.11, and 3.12
+- **Automated Linting**: Ruff for code quality and MyPy for type checking
+- **Coverage Reporting**: Codecov integration for test coverage metrics
+- **Parallel Execution**: Optimized matrix strategy for efficient resource utilization
+
+```mermaid
+flowchart TD
+A["Push/Pull Request"] --> B["GitHub Actions Trigger"]
+B --> C["Install Dependencies"]
+C --> D["Run Linting (Ruff)"]
+D --> E["Run Type Checking (MyPy)"]
+E --> F["Execute Unit Tests"]
+F --> G{"Matrix Strategy"}
+G --> H["Ubuntu + Python 3.11"]
+G --> I["Windows + Python 3.11"]
+H --> J["Upload Coverage"]
+I --> K["Test Complete"]
+J --> L["Code Coverage Report"]
+K --> M["Workflow Complete"]
+L --> M
+```
+
+**Diagram sources**
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+
+**Section sources**
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+
+### Automated Wiki Synchronization
+The project implements an automated wiki synchronization system that keeps documentation in sync with the repository content, ensuring consistency across all project documentation.
+
+**Wiki Sync Features:**
+- **Trigger Conditions**: Automatically triggered on pushes to main branch and wiki-sync.yml changes
+- **Content Mapping**: Synchronizes markdown files from `.qoder/repowiki/en/content/**` to GitHub Wiki
+- **Home Page Management**: Automatically sets Project Overview as Home.md when available
+- **Git Operations**: Handles cloning, cleaning, and pushing changes with proper authentication
+- **Permission Management**: Uses GitHub Actions permissions with write access to wiki
+
+```mermaid
+flowchart TD
+A["Repository Push"] --> B["Trigger Wiki Sync Workflow"]
+B --> C["Checkout Repository"]
+C --> D["Clone Wiki Repository"]
+D --> E["Remove Existing Content"]
+E --> F["Copy Markdown Files"]
+F --> G["Set Home.md from Project Overview"]
+G --> H["Commit Changes"]
+H --> I["Push to Wiki"]
+I --> J["Sync Complete"]
+```
+
+**Diagram sources**
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
+
+**Section sources**
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
+
+### Development Workflow Integration
+The CI/CD system integrates seamlessly with the development workflow, providing immediate feedback on code quality and test coverage while maintaining documentation consistency.
+
+**Integration Benefits:**
+- **Automated Quality Gates**: Linting and type checking prevent problematic code from merging
+- **Cross-platform Validation**: Ensures compatibility across different operating systems
+- **Documentation Maintenance**: Automated wiki sync reduces manual documentation overhead
+- **Coverage Tracking**: Continuous monitoring of test coverage helps identify gaps
+- **Release Readiness**: Comprehensive testing ensures stable releases
+
+**Section sources**
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
+
 ## Dependency Analysis
 Tyche Engine components exhibit low coupling and high cohesion:
 - Engine depends on types, message, and heartbeat modules.
 - Module depends on engine endpoints, types, message, and heartbeat.
 - ModuleBase provides reusable discovery and routing logic.
 - ExampleModule demonstrates practical usage of the base classes.
+- CI/CD workflows depend on GitHub Actions infrastructure and repository permissions.
 
 ```mermaid
 graph TB
@@ -347,6 +443,13 @@ M --> HB
 MB --> T["Types"]
 M --> T
 E --> T
+CI["CI Workflow"] --> MB
+CI --> M
+CI --> E
+WS["Wiki Sync"] --> CI
+WS --> MB
+WS --> M
+WS --> E
 ```
 
 **Diagram sources**
@@ -356,6 +459,8 @@ E --> T
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [types.py:14-102](file://src/tyche/types.py#L14-L102)
 - [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 **Section sources**
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
@@ -364,6 +469,8 @@ E --> T
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [types.py:14-102](file://src/tyche/types.py#L14-L102)
 - [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 ## Performance Considerations
 - Async persistence with lock-free ring buffer amortizes disk I/O costs.
@@ -379,6 +486,10 @@ E --> T
   - Adjust ZeroMQ high-water marks for your workload.
   - Use broadcast sparingly for high-throughput scenarios.
   - Implement idempotency for ACK handlers.
+- CI/CD performance optimization:
+  - Matrix strategy reduces total execution time across Python versions.
+  - Parallel job execution maximizes resource utilization.
+  - Cached dependencies improve build performance.
 
 ## Troubleshooting Guide
 - Registration failures:
@@ -390,10 +501,19 @@ E --> T
 - Heartbeat problems:
   - Ensure heartbeat sockets are configured and connected.
   - Monitor liveness thresholds and module expiration.
+- CI/CD issues:
+  - Verify GitHub Actions permissions and secrets.
+  - Check workflow triggers and branch protection rules.
+  - Review linting and type checking error reports.
+- Wiki sync problems:
+  - Confirm GitHub token permissions for wiki access.
+  - Verify markdown file paths and content structure.
+  - Check repository visibility and wiki settings.
 - Debugging strategies:
   - Enable logging for engine and module threads.
   - Use test harnesses to simulate multi-node interactions.
   - Inspect module registry and interface maps.
+  - Monitor CI/CD workflow execution and logs.
 
 **Section sources**
 - [engine.py:121-142](file://src/tyche/engine.py#L121-L142)
@@ -401,11 +521,13 @@ E --> T
 - [heartbeat.py:125-133](file://src/tyche/heartbeat.py#L125-L133)
 - [test_engine_module.py:14-41](file://tests/integration/test_engine_module.py#L14-L41)
 - [test_engine_module.py:43-88](file://tests/integration/test_engine_module.py#L43-L88)
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 ## Conclusion
-Tyche Engine's advanced features center on a flexible, ZeroMQ-backed architecture supporting automatic interface discovery, dynamic capability negotiation, robust communication patterns, and scalable persistence. By adhering to naming conventions, leveraging the provided base classes, and following the outlined patterns, developers can build extensible, high-performance modules and integrate seamlessly with external systems.
+Tyche Engine's advanced features center on a flexible, ZeroMQ-backed architecture supporting automatic interface discovery, dynamic capability negotiation, robust communication patterns, and scalable persistence. The addition of comprehensive CI/CD automation through GitHub Actions enhances the development workflow with continuous integration, automated testing, and synchronized documentation. By adhering to naming conventions, leveraging the provided base classes, following the outlined patterns, and utilizing modern automation practices, developers can build extensible, high-performance modules and integrate seamlessly with external systems while maintaining code quality and documentation consistency.
 
-**Updated** This consolidated documentation provides comprehensive coverage of all advanced features while maintaining the depth and technical accuracy required for both experienced users and newcomers to the Tyche Engine ecosystem.
+**Updated** This consolidated documentation provides comprehensive coverage of all advanced features while maintaining the depth and technical accuracy required for both experienced users and newcomers to the Tyche Engine ecosystem. The integration of CI/CD automation capabilities ensures sustainable development practices and improved project maintainability.
 
 ## Appendices
 
@@ -426,6 +548,26 @@ Tyche Engine's advanced features center on a flexible, ZeroMQ-backed architectur
 
 **Section sources**
 - [types.py:60-65](file://src/tyche/types.py#L60-L65)
+
+### CI/CD Workflow Configuration
+- **Linting**: Ruff for code quality enforcement
+- **Type Checking**: MyPy for static type analysis
+- **Testing**: PyTest with coverage reporting
+- **Coverage**: Codecov integration for metrics
+- **Matrix Strategy**: Parallel execution across Python versions
+
+**Section sources**
+- [ci.yml:1-55](file://.github/workflows/ci.yml#L1-L55)
+
+### Wiki Synchronization Configuration
+- **Trigger Paths**: `.qoder/repowiki/en/content/**` and `wiki-sync.yml`
+- **Permissions**: Write access to wiki repository
+- **Authentication**: GitHub Actions token with proper scopes
+- **Content Mapping**: Recursive copy from content directory
+- **Home Page**: Automatic Project Overview to Home.md conversion
+
+**Section sources**
+- [wiki-sync.yml:1-66](file://.github/workflows/wiki-sync.yml#L1-L66)
 
 ### Example Scripts
 - Start engine: [run_engine.py:27-32](file://examples/run_engine.py#L27-L32)

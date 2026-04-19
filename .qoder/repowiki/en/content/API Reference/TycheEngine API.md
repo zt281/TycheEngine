@@ -1,5 +1,6 @@
 # TycheEngine API
 
+<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [types.py](file://src/tyche/types.py)
@@ -11,6 +12,7 @@
 - [run_module.py](file://examples/run_module.py)
 - [test_engine.py](file://tests/unit/test_engine.py)
 - [test_engine_threading.py](file://tests/unit/test_engine_threading.py)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

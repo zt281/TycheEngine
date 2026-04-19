@@ -1,5 +1,6 @@
 # TycheEngine - Central Broker
 
+<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [engine_main.py](file://src/tyche/engine_main.py)
@@ -12,6 +13,7 @@
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [README.md](file://README.md)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

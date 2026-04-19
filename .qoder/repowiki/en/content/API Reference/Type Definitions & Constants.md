@@ -1,5 +1,6 @@
 # Type Definitions & Constants
 
+<cite>
 **Referenced Files in This Document**
 - [types.py](file://src/tyche/types.py)
 - [message.py](file://src/tyche/message.py)
@@ -9,6 +10,7 @@
 - [module_base.py](file://src/tyche/module_base.py)
 - [example_module.py](file://src/tyche/example_module.py)
 - [test_types.py](file://tests/unit/test_types.py)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

@@ -1,5 +1,6 @@
 # Testing and Development
 
+<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [pyproject.toml](file://pyproject.toml)
@@ -35,6 +36,7 @@
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
 - [CLAUDE.md](file://CLAUDE.md)
+</cite>
 
 ## Update Summary
 **Changes Made**

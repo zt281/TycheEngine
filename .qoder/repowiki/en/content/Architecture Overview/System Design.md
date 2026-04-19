@@ -1,5 +1,6 @@
 # System Design
 
+<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [engine.py](file://src/tyche/engine.py)
@@ -14,6 +15,7 @@
 - [run_engine.py](file://examples/run_engine.py)
 - [test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [pyproject.toml](file://pyproject.toml)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

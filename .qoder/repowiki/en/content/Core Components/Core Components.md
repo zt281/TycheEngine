@@ -1,5 +1,6 @@
 # Core Components
 
+<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -7,33 +8,39 @@
 - [message.py](file://src/tyche/message.py)
 - [heartbeat.py](file://src/tyche/heartbeat.py)
 - [types.py](file://src/tyche/types.py)
-- [example_module.py](file://src/tyche/example_module.py)
+- [engine_main.py](file://src/tyche/engine_main.py)
+- [module_main.py](file://src/tyche/module_main.py)
+- [process-manager.ts](file://tui/src/process-manager.ts)
+- [state.ts](file://tui/src/state.ts)
+- [event-log.ts](file://tui/src/components/event-log.ts)
+- [tyche-processes.json](file://tui/tyche-processes.json)
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [run_trading_system.py](file://examples/run_trading_system.py)
-- [run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
+- [run_strategy.py](file://examples/run_strategy.py)
+- [run_trading_services.py](file://examples/run_trading_services.py)
 - [trading/__init__.py](file://src/modules/trading/__init__.py)
 - [trading/events.py](file://src/modules/trading/events.py)
 - [trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
-- [trading/gateway/ctp/__init__.py](file://src/modules/trading/gateway/ctp/__init__.py)
 - [trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
-- [trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
 - [trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
 - [trading/models/enums.py](file://src/modules/trading/models/enums.py)
+- [trading/strategy/example_ma_cross.py](file://src/modules/trading/strategy/example_ma_cross.py)
 - [test_engine.py](file://tests/unit/test_engine.py)
 - [test_module.py](file://tests/unit/test_module.py)
 - [test_message.py](file://tests/unit/test_message.py)
 - [test_heartbeat.py](file://tests/unit/test_heartbeat.py)
 - [test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
+</cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for the new Enhanced Multi-Asset Trading System
-- Integrated CTP gateway module with live and simulated trading capabilities
-- Updated module structure to reflect move from tyche.trading.* to modules.trading.*
-- Added trading domain components: gateway base classes, event definitions, and trading models
-- Enhanced examples demonstrating complete trading system integration
-- Updated import paths and module references throughout documentation
+- Enhanced core components documentation with new process management system integration
+- Improved event logging with microsecond precision display in TUI
+- Expanded module management capabilities with automated process orchestration
+- Added comprehensive TUI process management and monitoring features
+- Updated administrative endpoint documentation with new configuration options
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,25 +49,29 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Trading System Integration](#trading-system-integration)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+7. [Process Management System](#process-management-system)
+8. [Enhanced Event Logging](#enhanced-event-logging)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
+13. [Appendices](#appendices)
 
 ## Introduction
 This document explains the core components of Tyche Engine: TycheEngine as the central broker, TycheModule as the base class for distributed modules, the Message system for serialization, HeartbeatManager for peer monitoring, and the type definitions. It covers component responsibilities, relationships, lifecycle management, APIs, parameters, return values, practical usage patterns, configuration options, and error handling strategies.
 
-**Updated** Enhanced with new administrative capabilities, XPUB/XSUB event proxy functionality, thread-safe operations, improved heartbeat management, and comprehensive multi-asset trading system integration including CTP gateway support.
+**Updated** Enhanced with new administrative capabilities, XPUB/XSUB event proxy functionality, thread-safe operations, improved heartbeat management, comprehensive multi-asset trading system integration including CTP gateway support, integrated process management system for multi-process orchestration, and enhanced event logging with microsecond precision.
 
 ## Project Structure
-Tyche Engine organizes its core logic under src/tyche with clear separation of concerns, plus a new modules.trading package for enhanced multi-asset trading capabilities:
+Tyche Engine organizes its core logic under src/tyche with clear separation of concerns, plus a new modules.trading package for enhanced multi-asset trading capabilities, and a TUI (Terminal User Interface) for process management and monitoring:
 - Broker engine: TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative queries.
 - Module base: ModuleBase defines the interface for modules; TycheModule provides a concrete implementation.
 - Messaging: Message and Envelope define the serialized message format and ZeroMQ framing.
 - Heartbeat: HeartbeatManager tracks peer liveness using a Paranoid Pirate pattern.
 - Types: Shared enums, dataclasses, and constants for endpoints, interfaces, and durability.
 - Trading domain: New modules.trading package provides comprehensive trading infrastructure including CTP gateway integration.
+- Process management: TUI-based process manager for multi-process orchestration and monitoring.
+- Event logging: Enhanced logging system with microsecond precision timestamp formatting.
 
 ```mermaid
 graph TB
@@ -71,11 +82,13 @@ Msg["Message<br/>Serialization"]
 Types["Types<br/>Enums/Dataclasses"]
 Admin["Admin Worker<br/>State Queries"]
 EventProxy["Event Proxy<br/>XPUB/XSUB"]
+MainProc["Process Manager<br/>CLI Entry Points"]
 end
 subgraph "Tyche Module"
 ModBase["ModuleBase<br/>Abstract"]
 TycheMod["TycheModule<br/>Concrete Module"]
 ExMod["ExampleModule<br/>Demo"]
+EndPoints["Endpoints<br/>Engine/Heartbeat/Admin"]
 end
 subgraph "Trading Domain"
 GatewayBase["GatewayModule<br/>Abstract Base"]
@@ -84,15 +97,24 @@ CTPSim["CtpSimGateway<br/>Simulated Trading"]
 CTPLive["CtpLiveGateway<br/>Live Trading"]
 Events["Trading Events<br/>Event Definitions"]
 Models["Trading Models<br/>Enums/Classes"]
+Strategies["Trading Strategies<br/>EMA Crossover"]
+end
+subgraph "Process Management"
+ProcMgr["ProcessManager<br/>Bun Runtime"]
+StateMgr["StateManager<br/>TUI State"]
+EventLog["EventLogger<br/>Microsecond Precision"]
+ProcConfig["Process Config<br/>JSON Definition"]
 end
 Engine --> HBMgr
 Engine --> Msg
 Engine --> Types
 Engine --> Admin
 Engine --> EventProxy
+Engine --> MainProc
 TycheMod --> ModBase
 TycheMod --> Msg
 TycheMod --> Types
+TycheMod --> EndPoints
 ExMod --> TycheMod
 GatewayBase --> TycheMod
 CTPGateway --> GatewayBase
@@ -100,6 +122,10 @@ CTPSim --> CtpGateway
 CTPLive --> CtpGateway
 Events --> GatewayBase
 Models --> GatewayBase
+Strategies --> GatewayBase
+ProcMgr --> StateMgr
+StateMgr --> EventLog
+ProcMgr --> ProcConfig
 ```
 
 **Diagram sources**
@@ -109,11 +135,12 @@ Models --> GatewayBase
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
-- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
-- [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
-- [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
-- [trading/events.py:1-79](file://src/modules/trading/events.py#L1-L79)
-- [trading/models/enums.py:1-73](file://src/modules/trading/models/enums.py#L1-L73)
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+- [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+- [event-log.ts:59-87](file://tui/src/components/event-log.ts#L59-L87)
+- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 **Section sources**
 - [engine.py:1-456](file://src/tyche/engine.py#L1-L456)
@@ -122,8 +149,12 @@ Models --> GatewayBase
 - [message.py:1-168](file://src/tyche/message.py#L1-L168)
 - [heartbeat.py:1-153](file://src/tyche/heartbeat.py#L1-L153)
 - [types.py:1-105](file://src/tyche/types.py#L1-L105)
-- [example_module.py:1-183](file://src/tyche/example_module.py#L1-L183)
-- [trading/__init__.py:1-14](file://src/modules/trading/__init__.py#L1-L14)
+- [engine_main.py:1-57](file://src/tyche/engine_main.py#L1-L57)
+- [module_main.py:1-47](file://src/tyche/module_main.py#L1-L47)
+- [process-manager.ts:1-296](file://tui/src/process-manager.ts#L1-L296)
+- [state.ts:1-326](file://tui/src/state.ts#L1-L326)
+- [event-log.ts:1-87](file://tui/src/components/event-log.ts#L1-L87)
+- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 ## Core Components
 This section documents the primary building blocks and their responsibilities.
@@ -158,6 +189,17 @@ This section documents the primary building blocks and their responsibilities.
   - Exposes constants for heartbeat timing and administrative endpoint defaults.
   - **Updated**: Added ADMIN_PORT_DEFAULT constant for administrative endpoint configuration.
 
+- **Updated** Process Management System
+  - ProcessManager: Manages multi-process lifecycle with dependency resolution, platform-aware termination, and state tracking.
+  - StateManager: Integrates with TUI for real-time process monitoring, event logging, and interactive controls.
+  - Process Configuration: JSON-based configuration defining process dependencies, working directories, and startup parameters.
+  - Enhanced CLI Entrypoints: Separate main scripts for engine and module processes with argument parsing and signal handling.
+
+- **Updated** Enhanced Administrative Capabilities
+  - Administrative endpoint with configurable port binding.
+  - Real-time state queries for engine status, module inventory, and statistical metrics.
+  - Thread-safe administrative worker supporting STATUS, MODULES, and STATS queries.
+
 - **Updated** Trading Domain Components
   - GatewayModule: Abstract base class for exchange/venue gateway modules extending TycheModule with standardized event publishing and order handling.
   - CtpGateway: Base CTP gateway bridging CTP async SPI callbacks with TycheEngine events, supporting both simulated and live trading.
@@ -165,6 +207,7 @@ This section documents the primary building blocks and their responsibilities.
   - CtpLiveGateway: Real CTP broker gateway requiring authentication with live broker front addresses.
   - Trading Events: Comprehensive event name constants and helpers for market data, order flow, fills, portfolio, risk, and system events.
   - Trading Models: Enumerations for order types, sides, statuses, time-in-force, venue types, asset classes, and position sides.
+  - Trading Strategies: Example strategy implementations demonstrating EMA crossover logic and position management.
 
 **Section sources**
 - [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
@@ -173,18 +216,25 @@ This section documents the primary building blocks and their responsibilities.
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
+- [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 - [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
 - [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
 - [trading/gateway/ctp/sim.py:13-68](file://src/modules/trading/gateway/ctp/sim.py#L13-L68)
 - [trading/gateway/ctp/live.py:13-60](file://src/modules/trading/gateway/ctp/live.py#L13-L60)
 - [trading/events.py:1-79](file://src/modules/trading/events.py#L1-L79)
 - [trading/models/enums.py:1-73](file://src/modules/trading/models/enums.py#L1-L73)
+- [trading/strategy/example_ma_cross.py:22-72](file://src/modules/trading/strategy/example_ma_cross.py#L22-L72)
 
 ## Architecture Overview
-Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, administrative state queries, and comprehensive multi-asset trading integration.
+Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, administrative state queries, comprehensive multi-asset trading integration, and integrated process management for multi-process orchestration.
 
 ```mermaid
 sequenceDiagram
+participant ProcMgr as "ProcessManager"
+participant StateMgr as "StateManager"
 participant Mod as "TycheModule"
 participant Eng as "TycheEngine"
 participant ZREG as "ZMQ ROUTER"
@@ -194,6 +244,10 @@ participant HBOUT as "ZMQ PUB"
 participant HBIN as "ZMQ ROUTER"
 participant Admin as "ZMQ ROUTER (Admin)"
 participant Trading as "Trading Domain"
+Note over ProcMgr,StateMgr : Process Orchestration
+ProcMgr->>Eng : Start engine process
+ProcMgr->>Mod : Start module processes
+StateMgr->>ProcMgr : Monitor process states
 Note over Mod,Eng : Registration Handshake
 Mod->>Eng : REQ REGISTER
 Eng->>Eng : Deserialize and validate
@@ -227,6 +281,8 @@ Trading->>Eng : Portfolio/account updates
 - [module.py:200-254](file://src/tyche/module.py#L200-L254)
 - [module.py:301-330](file://src/tyche/module.py#L301-L330)
 - [module.py:376-401](file://src/tyche/module.py#L376-L401)
+- [process-manager.ts:45-105](file://tui/src/process-manager.ts#L45-L105)
+- [state.ts:76-87](file://tui/src/state.ts#L76-L87)
 - [trading/gateway/base.py:118-192](file://src/modules/trading/gateway/base.py#L118-L192)
 
 ## Detailed Component Analysis
@@ -334,8 +390,7 @@ Error handling:
 **Section sources**
 - [module.py:28-401](file://src/tyche/module.py#L28-L401)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
-- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
-- [run_module.py:22-67](file://examples/run_module.py#L22-L67)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 
 ### Message System
 Responsibilities:
@@ -439,6 +494,110 @@ Practical usage:
 
 **Section sources**
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
+
+### **Updated** Process Management System
+
+#### ProcessManager
+Responsibilities:
+- Manage multi-process lifecycle with dependency resolution and platform-aware termination.
+- Handle process startup, shutdown, restart, and state tracking.
+- Support complex dependency graphs with topological sorting for safe startup/shutdown ordering.
+- Provide cross-platform process control with Windows taskkill and Unix signal handling.
+
+Key APIs and behaviors:
+- Configuration loading:
+  - loadConfig(configPath): Loads JSON configuration with workdir resolution and process definitions.
+- Process control:
+  - startProcess(name): Starts single process with dependency validation and state tracking.
+  - stopProcess(name): Graceful shutdown with platform-specific termination strategies.
+  - restartProcess(name): Combined stop/start with state management.
+  - killProcess(name): Force termination for crashed or stuck processes.
+- Batch operations:
+  - startAll(): Topologically sorted startup respecting dependencies.
+  - stopAll(): Reverse dependency order shutdown with platform awareness.
+- State management:
+  - getProcesses(): Returns current state of all managed processes.
+  - getProcessCount(): Total number of managed processes.
+  - getProcessNameByIndex(): Keyboard navigation support for TUI.
+
+Practical usage:
+- Define process configurations in JSON format with dependencies and environment variables.
+- Use ProcessManager for automated multi-process orchestration in development and production.
+- Integrate with TUI for interactive process monitoring and control.
+
+Integration patterns:
+- ProcessManager works independently but integrates with TUI StateManager for real-time monitoring.
+- Supports both development (Python subprocess) and production (external process) scenarios.
+
+Error handling:
+- Robust error handling for process spawning, dependency validation, and platform-specific operations.
+- Graceful degradation when processes fail to start or crash unexpectedly.
+
+**Section sources**
+- [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
+
+#### StateManager (TUI Integration)
+Responsibilities:
+- Coordinate TUI state with engine and process management systems.
+- Provide real-time monitoring of engine status, module health, and process states.
+- Handle user interactions for process control and event filtering.
+
+Key APIs and behaviors:
+- Lifecycle management:
+  - start(): Establish connections, start polling, and initialize process management.
+  - stop(): Clean shutdown with process termination and resource cleanup.
+- Data synchronization:
+  - updateProcesses(processes): Update process state from ProcessManager.
+  - getRecentEvents(count): Filter and limit event display with microsecond precision.
+- User interaction:
+  - startSelectedProcess()/stopSelectedProcess(): Delegate to ProcessManager.
+  - selectProcess()/setSelectedProcess(): Navigation and selection management.
+  - togglePause(): Control event logging and display.
+
+Practical usage:
+- Use StateManager as the central coordination layer for TUI applications.
+- Integrate with ConnectionManager for engine state monitoring.
+- Combine with ProcessManager for comprehensive system monitoring.
+
+**Section sources**
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+
+#### CLI Entrypoints
+Responsibilities:
+- Provide standalone entry points for engine and module processes.
+- Handle argument parsing, signal handling, and graceful shutdown.
+
+Key features:
+- Engine main: Configurable ports, host binding, and administrative endpoint configuration.
+- Module main: Flexible engine connection parameters and module identification.
+
+**Section sources**
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+
+### **Updated** Enhanced Administrative Capabilities
+
+#### Administrative Endpoint
+Responsibilities:
+- Provide real-time administrative queries for engine monitoring and debugging.
+- Support multiple query types with thread-safe response handling.
+
+Key APIs and behaviors:
+- Query types:
+  - STATUS: Engine uptime, module count, event counts, and register counts.
+  - MODULES: Complete module inventory with liveness information.
+  - STATS: Aggregate statistics for monitoring and alerting.
+- Thread safety:
+  - All administrative queries use thread-safe locking for consistent state access.
+  - Response serialization uses MessagePack for efficient binary transport.
+
+Practical usage:
+- Use administrative queries for system monitoring and health checks.
+- Integrate with external monitoring systems for automated alerts.
+- Support debugging and troubleshooting workflows.
+
+**Section sources**
+- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
 
 ### **Updated** Trading Domain Components
 
@@ -575,8 +734,21 @@ Practical usage:
 - [trading/events.py:1-79](file://src/modules/trading/events.py#L1-L79)
 - [trading/models/enums.py:1-73](file://src/modules/trading/models/enums.py#L1-L73)
 
+#### Trading Strategies
+Responsibilities:
+- Demonstrate advanced trading logic using TycheEngine's event-driven architecture.
+- Implement sophisticated trading algorithms with position management and risk controls.
+
+Key features:
+- StrategyModule base class provides framework for algorithmic trading.
+- Example EMA crossover strategy demonstrates moving average logic and signal generation.
+- Integration with portfolio and risk management modules for complete trading pipeline.
+
+**Section sources**
+- [trading/strategy/example_ma_cross.py:22-72](file://src/modules/trading/strategy/example_ma_cross.py#L22-L72)
+
 ## Architecture Overview
-The following diagram maps the actual code relationships among core components, including the new trading domain integration.
+The following diagram maps the actual code relationships among core components, including the new trading domain integration and process management system.
 
 ```mermaid
 classDiagram
@@ -661,6 +833,21 @@ class HeartbeatManager {
 +get_expired() str[]
 +get_liveness(peer_id) int
 }
+class ProcessManager {
++loadConfig(configPath) void
++startProcess(name) boolean
++stopProcess(name) boolean
++restartProcess(name) boolean
++startAll() void
++stopAll() void
++getProcesses() ProcessInfo[]
+}
+class StateManager {
++start() void
++stop() void
++updateProcesses(processes) void
++getRecentEvents(count) EventEntry[]
+}
 TycheModule --|> ModuleBase
 GatewayModule --|> TycheModule
 CtpGateway --|> GatewayModule
@@ -669,6 +856,7 @@ TycheEngine --> Message : "serializes/deserializes"
 TycheModule --> Message : "serializes/deserializes"
 GatewayModule --> Message : "publishes"
 CtpGateway --> GatewayModule : "extends"
+ProcessManager --> StateManager : "coordinates"
 ```
 
 **Diagram sources**
@@ -679,6 +867,8 @@ CtpGateway --> GatewayModule : "extends"
 - [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+- [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
 
 ## Detailed Component Analysis
 
@@ -770,6 +960,39 @@ AdminWorker-->>AdminClient : Response
 **Section sources**
 - [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
 
+### **Updated** Process Management Flow
+```mermaid
+sequenceDiagram
+participant ProcMgr as "ProcessManager"
+participant StateMgr as "StateManager"
+participant Config as "Process Config"
+participant Engine as "Engine Process"
+participant Module as "Module Process"
+Note over ProcMgr,Config : Configuration Loading
+ProcMgr->>Config : loadConfig()
+Config-->>ProcMgr : Process definitions
+Note over ProcMgr,StateMgr : Process Orchestration
+ProcMgr->>Engine : startProcess("engine")
+ProcMgr->>Module : startProcess("example-module1")
+ProcMgr->>Module : startProcess("example-module2")
+StateMgr->>ProcMgr : getProcesses()
+ProcMgr-->>StateMgr : Process states
+StateMgr->>ProcMgr : startSelectedProcess()
+ProcMgr->>Module : stopProcess("example-module1")
+```
+
+**Diagram sources**
+- [process-manager.ts:24-43](file://tui/src/process-manager.ts#L24-L43)
+- [process-manager.ts:45-105](file://tui/src/process-manager.ts#L45-L105)
+- [state.ts:76-87](file://tui/src/state.ts#L76-L87)
+- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
+
+**Section sources**
+- [process-manager.ts:24-43](file://tui/src/process-manager.ts#L24-L43)
+- [process-manager.ts:45-105](file://tui/src/process-manager.ts#L45-L105)
+- [state.ts:76-87](file://tui/src/state.ts#L76-L87)
+- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
+
 ### **Updated** CTP Gateway Integration Flow
 ```mermaid
 sequenceDiagram
@@ -811,7 +1034,7 @@ Dispatcher->>Engine : publish_order_update()/publish_fill()
 - [trading/gateway/ctp/gateway.py:554-595](file://src/modules/trading/gateway/ctp/gateway.py#L554-L595)
 
 ## Dependency Analysis
-The core components have minimal coupling and clear boundaries, with enhanced trading domain integration:
+The core components have minimal coupling and clear boundaries, with enhanced trading domain integration and process management:
 - TycheEngine depends on HeartbeatManager, Message, and types.
 - TycheModule depends on Message, types, and ModuleBase.
 - GatewayModule extends TycheModule and adds trading-specific functionality.
@@ -822,6 +1045,8 @@ The core components have minimal coupling and clear boundaries, with enhanced tr
 - Types are foundational and used across modules and engine.
 - **Updated**: Administrative endpoint constants are used by TycheEngine for configuration.
 - **Updated**: Trading domain components integrate with both TycheEngine and CTP APIs.
+- **Updated**: ProcessManager coordinates with StateManager for TUI integration.
+- **Updated**: CLI entry points provide standalone process execution capabilities.
 
 ```mermaid
 graph LR
@@ -835,8 +1060,13 @@ GatewayMod["GatewayModule"] --> TycheMod
 CtpGateway["CtpGateway"] --> GatewayMod
 TradingEvents["Trading Events"] --> GatewayMod
 TradingModels["Trading Models"] --> GatewayMod
+TradingStrategies["Trading Strategies"] --> GatewayMod
 Msg --> Types
 AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
+ProcMgr["ProcessManager"] --> StateMgr["StateManager"]
+Engine --> ProcMgr
+CLIEngine["Engine Main"] --> Engine
+CLIModule["Module Main"] --> TycheMod
 ```
 
 **Diagram sources**
@@ -847,6 +1077,10 @@ AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 - [trading/gateway/base.py:16-17](file://src/modules/trading/gateway/base.py#L16-L17)
 - [trading/events.py:12-18](file://src/modules/trading/events.py#L12-L18)
 - [trading/models/enums.py:3-4](file://src/modules/trading/models/enums.py#L3-L4)
+- [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 
 **Section sources**
 - [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
@@ -856,6 +1090,10 @@ AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 - [trading/gateway/base.py:16-17](file://src/modules/trading/gateway/base.py#L16-L17)
 - [trading/events.py:12-18](file://src/modules/trading/events.py#L12-L18)
 - [trading/models/enums.py:3-4](file://src/modules/trading/models/enums.py#L3-L4)
+- [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 
 ## Performance Considerations
 - ZeroMQ polling and multipart frames are efficient for high-throughput event distribution.
@@ -867,6 +1105,9 @@ AdminConst["ADMIN_PORT_DEFAULT"] --> Engine
 - **Updated**: Administrative queries are handled asynchronously to minimize performance impact.
 - **Updated**: CTP gateway implements dedicated event dispatcher thread to handle SPI callback bridging efficiently.
 - **Updated**: CTP API flow directories and thread synchronization prevent resource leaks and improve reliability.
+- **Updated**: ProcessManager uses topological sorting for dependency-aware process orchestration.
+- **Updated**: Platform-specific process termination strategies optimize shutdown performance.
+- **Updated**: Microsecond precision event logging reduces timestamp resolution overhead.
 
 ## Troubleshooting Guide
 Common issues and strategies:
@@ -885,12 +1126,18 @@ Common issues and strategies:
 - **Updated**: Administrative query failures:
   - Symptoms: Admin client cannot connect to engine or query timeouts.
   - Actions: Verify admin endpoint configuration, check network connectivity, and ensure engine admin worker is running.
+- **Updated**: Process management failures:
+  - Symptoms: Processes fail to start, crash frequently, or cannot be controlled.
+  - Actions: Check process configuration JSON, verify dependencies are met, review platform-specific termination behavior, and examine ProcessManager logs.
 - **Updated**: CTP gateway connection issues:
   - Symptoms: CTP login failures, timeout errors, or authentication problems.
   - Actions: Verify CTP front addresses, authentication credentials, and network connectivity; check CTP API initialization logs.
 - **Updated**: Market data subscription failures:
   - Symptoms: No quotes or trades received despite successful connection.
   - Actions: Confirm instrument ID format (<symbol>.<venue>.<asset_class>), verify subscription completion, and check CTP API response codes.
+- **Updated**: TUI state synchronization issues:
+  - Symptoms: Process states not updating or event logs not displaying correctly.
+  - Actions: Verify StateManager polling intervals, check connection to engine admin endpoint, and ensure event filtering settings are appropriate.
 
 Validation via tests:
 - Engine registration/unregistration verified in unit tests.
@@ -898,6 +1145,7 @@ Validation via tests:
 - Message serialization round-trip and envelope handling verified in unit tests.
 - Heartbeat protocol behavior validated in heartbeat protocol tests.
 - **Updated**: Administrative endpoint functionality tested in heartbeat protocol tests.
+- **Updated**: ProcessManager dependency resolution and state management tested in TUI integration tests.
 - **Updated**: CTP gateway connectivity and event processing tested in trading system examples.
 
 **Section sources**
@@ -907,7 +1155,7 @@ Validation via tests:
 - [test_heartbeat_protocol.py:16-119](file://tests/unit/test_heartbeat_protocol.py#L16-L119)
 
 ## Conclusion
-Tyche Engine's core components form a cohesive, modular system with enhanced multi-asset trading capabilities:
+Tyche Engine's core components form a cohesive, modular system with enhanced multi-asset trading capabilities and comprehensive process management:
 - TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative state queries.
 - TycheModule provides a flexible, interface-driven development model with built-in helpers.
 - Message and Envelope ensure robust, typed serialization across the wire.
@@ -917,8 +1165,11 @@ Tyche Engine's core components form a cohesive, modular system with enhanced mul
 - **Updated**: Comprehensive trading domain integration enables multi-asset, multi-venue trading with standardized event formats.
 - **Updated**: CTP gateway support provides seamless integration with China's futures trading ecosystem.
 - **Updated**: GatewayModule abstract base class enables extensible venue connectivity with consistent event handling.
+- **Updated**: Integrated ProcessManager provides robust multi-process orchestration with dependency resolution and platform-aware termination.
+- **Updated**: TUI StateManager offers real-time monitoring and interactive control of the entire system.
+- **Updated**: Enhanced CLI entry points simplify standalone process execution and configuration.
 
-Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, comprehensive trading infrastructure, and straightforward integration patterns.
+Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, comprehensive trading infrastructure, robust process management, real-time monitoring capabilities, and straightforward integration patterns.
 
 ## Appendices
 
@@ -1017,6 +1268,53 @@ Together, these components enable scalable, resilient distributed systems with c
 **Section sources**
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
 
+### **Updated** API Reference: Process Management System
+
+#### ProcessManager
+- Constructor
+  - Parameters: None (initializes with default working directory).
+  - Behavior: Sets up internal process tracking and platform detection.
+- Methods:
+  - loadConfig(configPath): Load JSON configuration with workdir resolution.
+  - startProcess(name): Start single process with dependency validation.
+  - stopProcess(name): Graceful shutdown with platform-specific termination.
+  - restartProcess(name): Combined stop/start operation.
+  - killProcess(name): Force termination for crashed processes.
+  - startAll(): Topologically sorted startup respecting dependencies.
+  - stopAll(): Reverse dependency order shutdown.
+  - getProcesses(): Return current state of all managed processes.
+  - getProcessCount(): Total number of managed processes.
+  - getProcessNameByIndex(index): Keyboard navigation support.
+
+**Section sources**
+- [process-manager.ts:20-296](file://tui/src/process-manager.ts#L20-L296)
+
+#### StateManager
+- Constructor
+  - Parameters: ConnectionManager, optional ProcessManager.
+  - Behavior: Initializes state tracking and UI coordination.
+- Methods:
+  - start(): Establish connections, start polling, initialize process management.
+  - stop(): Clean shutdown with process termination and resource cleanup.
+  - updateProcesses(processes): Update process state from ProcessManager.
+  - getRecentEvents(count): Filter and limit event display.
+  - Various delegation methods for process control and selection.
+
+**Section sources**
+- [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+
+#### CLI Entrypoints
+- Engine Main
+  - Parameters: Host, registration port, event port, heartbeat ports, admin port.
+  - Behavior: Creates and runs TycheEngine with signal handling.
+- Module Main
+  - Parameters: Engine host, engine port, heartbeat port, optional module ID.
+  - Behavior: Creates and runs ExampleModule with signal handling.
+
+**Section sources**
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+
 ### **Updated** API Reference: Trading Domain Components
 
 #### GatewayModule
@@ -1090,6 +1388,22 @@ Together, these components enable scalable, resilient distributed systems with c
 - [trading/events.py:13-79](file://src/modules/trading/events.py#L13-L79)
 - [trading/models/enums.py:6-73](file://src/modules/trading/models/enums.py#L6-L73)
 
+### **Updated** API Reference: Enhanced Event Logging
+
+#### Event Logger (TUI)
+- Features:
+  - Microsecond precision timestamp formatting (HH:MM:SS.mmmuuu).
+  - Color-coded event types for better visual distinction.
+  - Dynamic payload preview with truncation for readability.
+  - Module filtering and recent event display.
+- Methods:
+  - formatTime(timestampMicros): Convert microseconds to formatted string.
+  - formatPayload(payload): JSON stringify with length limits.
+  - Event filtering and display optimization.
+
+**Section sources**
+- [event-log.ts:59-87](file://tui/src/components/event-log.ts#L59-L87)
+
 ### Practical Examples
 - Running the engine:
   - Configure endpoints and call run(); see examples/run_engine.py.
@@ -1105,10 +1419,21 @@ Together, these components enable scalable, resilient distributed systems with c
   - Supports both sim mode (OpenCTP 7x24 or regular-hours) and live mode (real broker) with proper authentication.
 - **Updated**: Administrative queries:
   - Use admin endpoint to query engine status, modules, and statistics.
+- **Updated**: Process management:
+  - Use ProcessManager with tyche-processes.json configuration for multi-process orchestration.
+  - Integrate with TUI StateManager for real-time monitoring and control.
+- **Updated**: CLI entry points:
+  - Use engine_main.py and module_main.py for standalone process execution with argument parsing.
 
 **Section sources**
 - [run_engine.py:21-59](file://examples/run_engine.py#L21-L59)
 - [run_module.py:22-67](file://examples/run_module.py#L22-L67)
-- [run_trading_system.py:1-194](file://examples/run_trading_system.py#L1-L194)
-- [run_ctp_gateway.py:1-202](file://examples/run_ctp_gateway.py#L1-L202)
+- [run_trading_system.py:1-193](file://examples/run_trading_system.py#L1-L193)
+- [run_strategy.py:1-51](file://examples/run_strategy.py#L1-L51)
+- [run_trading_services.py:45-91](file://examples/run_trading_services.py#L45-L91)
+- [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
+- [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+- [process-manager.ts:24-43](file://tui/src/process-manager.ts#L24-L43)
+- [state.ts:76-87](file://tui/src/state.ts#L76-L87)
+- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 - [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)

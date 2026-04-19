@@ -1,5 +1,6 @@
 # Implementation Logs
 
+<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [CLAUDE.md](file://CLAUDE.md)
@@ -20,6 +21,7 @@
 - [docs/impl/tyche_engine_implement_v2.md](file://docs/impl/tyche_engine_implement_v2.md)
 - [docs/plan/tyche_engine_plan_v1.md](file://docs/plan/tyche_engine_plan_v1.md)
 - [docs/plan/tyche_engine_plan_v2.md](file://docs/plan/tyche_engine_plan_v2.md)
+</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)
