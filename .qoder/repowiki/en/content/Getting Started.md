@@ -1,6 +1,5 @@
 # Getting Started
 
-<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [pyproject.toml](file://pyproject.toml)
@@ -24,7 +23,6 @@
 - [src/modules/trading/models/tick.py](file://src/modules/trading/models/tick.py)
 - [src/modules/trading/models/order.py](file://src/modules/trading/models/order.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

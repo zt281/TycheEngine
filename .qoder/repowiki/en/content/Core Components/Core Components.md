@@ -1,6 +1,5 @@
 # Core Components
 
-<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -26,7 +25,6 @@
 - [test_message.py](file://tests/unit/test_message.py)
 - [test_heartbeat.py](file://tests/unit/test_heartbeat.py)
 - [test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
-</cite>
 
 ## Update Summary
 **Changes Made**

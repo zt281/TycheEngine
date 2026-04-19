@@ -1,6 +1,5 @@
 # Terminal User Interface Dashboard
 
-<cite>
 **Referenced Files in This Document**
 - [index.ts](file://tui/src/index.ts)
 - [layout.ts](file://tui/src/layout.ts)
@@ -16,7 +15,6 @@
 - [README.md](file://tui/README.md)
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

@@ -1,6 +1,5 @@
 # Message System
 
-<cite>
 **Referenced Files in This Document**
 - [message.py](file://src/tyche/message.py)
 - [types.py](file://src/tyche/types.py)
@@ -9,7 +8,6 @@
 - [module_base.py](file://src/tyche/module_base.py)
 - [test_message.py](file://tests/unit/test_message.py)
 - [README.md](file://README.md)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

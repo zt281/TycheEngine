@@ -1,6 +1,5 @@
 # Communication Patterns
 
-<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -12,7 +11,6 @@
 - [example_module.py](file://src/tyche/example_module.py)
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

@@ -1,6 +1,5 @@
 # Request-Response (ack_*) 
 
-<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -12,7 +11,6 @@
 - [run_module.py](file://examples/run_module.py)
 - [test_engine_threading.py](file://tests/unit/test_engine_threading.py)
 - [test_example_module.py](file://tests/unit/test_example_module.py)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

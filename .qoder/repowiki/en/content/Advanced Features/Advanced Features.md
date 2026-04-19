@@ -1,6 +1,5 @@
 # Advanced Features
 
-<cite>
 **Referenced Files in This Document**
 - [engine.py](file://src/tyche/engine.py)
 - [module.py](file://src/tyche/module.py)
@@ -14,7 +13,6 @@
 - [test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [test_module.py](file://tests/unit/test_module.py)
 - [README.md](file://README.md)
-</cite>
 
 ## Update Summary
 **Changes Made**

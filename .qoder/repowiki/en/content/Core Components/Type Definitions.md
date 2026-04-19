@@ -1,6 +1,5 @@
 # Type Definitions
 
-<cite>
 **Referenced Files in This Document**
 - [types.py](file://src/tyche/types.py)
 - [message.py](file://src/tyche/message.py)
@@ -11,7 +10,6 @@
 - [test_types.py](file://tests/unit/test_types.py)
 - [example_module.py](file://src/tyche/example_module.py)
 - [__init__.py](file://src/tyche/__init__.py)
-</cite>
 
 ## Update Summary
 **Changes Made**

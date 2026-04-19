@@ -1,6 +1,5 @@
 # Deployment and Topology
 
-<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [engine.py](file://src/tyche/engine.py)
@@ -14,7 +13,6 @@
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [pyproject.toml](file://pyproject.toml)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

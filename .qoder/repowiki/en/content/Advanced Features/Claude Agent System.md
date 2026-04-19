@@ -1,6 +1,5 @@
 # Claude Agent System
 
-<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [CLAUDE.md](file://CLAUDE.md)
@@ -17,7 +16,6 @@
 - [wiki/Architecture Overview/Architecture Overview.md](file://wiki/Architecture Overview/Architecture Overview.md)
 - [wiki/Core Components/TycheEngine - Central Broker.md](file://wiki/Core Components/TycheEngine - Central Broker.md)
 - [wiki/Core Components/TycheModule System.md](file://wiki/Core Components/TycheModule System.md)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

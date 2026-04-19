@@ -1,6 +1,5 @@
 # Message System API
 
-<cite>
 **Referenced Files in This Document**
 - [message.py](file://src/tyche/message.py)
 - [types.py](file://src/tyche/types.py)
@@ -11,7 +10,6 @@
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [example_module.py](file://src/tyche/example_module.py)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

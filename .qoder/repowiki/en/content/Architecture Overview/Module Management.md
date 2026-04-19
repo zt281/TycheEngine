@@ -1,6 +1,5 @@
 # Module Management
 
-<cite>
 **Referenced Files in This Document**
 - [module.py](file://src/tyche/module.py)
 - [module_base.py](file://src/tyche/module_base.py)
@@ -15,7 +14,6 @@
 - [test_module_base.py](file://tests/unit/test_module_base.py)
 - [test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [README.md](file://README.md)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

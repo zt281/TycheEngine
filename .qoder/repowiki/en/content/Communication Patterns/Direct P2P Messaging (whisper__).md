@@ -1,6 +1,5 @@
 # Direct P2P Messaging (whisper_*) Pattern
 
-<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [types.py](file://src/tyche/types.py)
@@ -13,7 +12,6 @@
 - [run_module.py](file://examples/run_module.py)
 - [test_module_base.py](file://tests/unit/test_module_base.py)
 - [test_example_module.py](file://tests/unit/test_example_module.py)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)

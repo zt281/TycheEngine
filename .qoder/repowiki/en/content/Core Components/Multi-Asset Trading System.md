@@ -1,6 +1,5 @@
 # Multi-Asset Trading System
 
-<cite>
 **Referenced Files in This Document**
 - [README.md](file://README.md)
 - [engine.py](file://src/tyche/engine.py)
@@ -27,7 +26,6 @@
 - [module.py](file://src/modules/trading/risk/module.py)
 - [module.py](file://src/modules/trading/oms/module.py)
 - [module.py](file://src/modules/trading/portfolio/module.py)
-</cite>
 
 ## Update Summary
 **Changes Made**

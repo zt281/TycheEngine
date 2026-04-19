@@ -1,6 +1,5 @@
 # Heartbeat and Reliability
 
-<cite>
 **Referenced Files in This Document**
 - [heartbeat.py](file://src/tyche/heartbeat.py)
 - [engine.py](file://src/tyche/engine.py)
@@ -11,7 +10,6 @@
 - [test_heartbeat.py](file://tests/unit/test_heartbeat.py)
 - [test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
 - [README.md](file://README.md)
-</cite>
 
 ## Table of Contents
 1. [Introduction](#introduction)
