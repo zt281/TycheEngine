@@ -106,8 +106,6 @@ class MovingAverageCrossStrategy(StrategyModule):
             return  # No crossover
 
         # Execute trade on crossover
-        position = self.ctx.get_position(instrument_id)
-
         if signal == 1 and prev == -1:
             # Golden cross - go long
             logger.info(

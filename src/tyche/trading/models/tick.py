@@ -166,8 +166,8 @@ class OrderBook:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "instrument_id": self.instrument_id,
-            "bids": [[str(l.price), str(l.size)] for l in self.bids],
-            "asks": [[str(l.price), str(l.size)] for l in self.asks],
+            "bids": [[str(level.price), str(level.size)] for level in self.bids],
+            "asks": [[str(level.price), str(level.size)] for level in self.asks],
             "timestamp": self.timestamp,
             "sequence": self.sequence,
         }
