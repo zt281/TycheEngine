@@ -17,7 +17,7 @@ _mock_tdapi.CThostFtdcTraderSpi = object
 
 import pytest
 from modules.trading.gateway.ctp.gateway import CtpGateway
-from modules.trading.gateway.ctp.state_machine import ConnectionState
+from modules.trading.gateway.ctp.state_machine import ConnectionState, ConnectionStateMachine
 from tyche.types import Endpoint
 
 EP = Endpoint("127.0.0.1", 15555)
@@ -133,3 +133,47 @@ class TestPositionAccumulation:
         assert payload["instrument_id"] == "rb2410.openctp.futures"
         from decimal import Decimal
         assert Decimal(payload["quantity"]) == Decimal("5")
+
+
+class TestAutoReconnect:
+    def test_front_disconnected_triggers_reconnecting(self, gateway):
+        with patch.object(gateway, "_create_and_connect_apis"):
+            with patch.object(gateway._md_login_event, "wait", return_value=True):
+                with patch.object(gateway._td_login_event, "wait", return_value=True):
+                    with patch.object(gateway, "_event_dispatcher"):
+                        gateway.connect()
+        assert gateway.state_machine.state == ConnectionState.CONNECTED
+        spi = gateway._MdSpi(gateway)
+        spi.OnFrontDisconnected(0)
+        assert gateway.state_machine.state == ConnectionState.RECONNECTING
+
+    def test_reconnect_backoff_calculated(self, gateway):
+        with patch.object(gateway, "_create_and_connect_apis"):
+            with patch.object(gateway._md_login_event, "wait", return_value=True):
+                with patch.object(gateway._td_login_event, "wait", return_value=True):
+                    with patch.object(gateway, "_event_dispatcher"):
+                        gateway.connect()
+        spi = gateway._MdSpi(gateway)
+        spi.OnFrontDisconnected(0)
+        delay = gateway.state_machine.next_backoff_ms()
+        assert delay >= 1000
+        assert delay <= 30000
+
+    def test_max_retries_leads_to_disconnected(self, gateway):
+        from modules.trading.gateway.ctp.state_machine import ReconnectConfig
+        gateway.state_machine = ConnectionStateMachine(
+            venue="openctp",
+            reconnect_config=ReconnectConfig(max_retries=1),
+        )
+        with patch.object(gateway, "_create_and_connect_apis"):
+            with patch.object(gateway._md_login_event, "wait", return_value=True):
+                with patch.object(gateway._td_login_event, "wait", return_value=True):
+                    with patch.object(gateway, "_event_dispatcher"):
+                        gateway.connect()
+        spi = gateway._MdSpi(gateway)
+        spi.OnFrontDisconnected(0)
+        assert gateway.state_machine.state == ConnectionState.RECONNECTING
+        gateway.state_machine.transition(ConnectionState.CONNECTING)
+        gateway.state_machine.transition(ConnectionState.CONNECTED)
+        spi.OnFrontDisconnected(0)
+        assert gateway.state_machine.max_retries_exceeded() is True

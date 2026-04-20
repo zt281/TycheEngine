@@ -208,6 +208,10 @@ class CtpGateway(GatewayModule):
         # Position accumulator for OnRspQryInvestorPosition
         self._position_accumulator: Dict[str, Dict[str, Any]] = {}
 
+        # Auto-reconnect
+        self._reconnect_thread: Optional[threading.Thread] = None
+        self._reconnect_stop = threading.Event()
+
     # ------------------------------------------------------------------
     # Order ref helpers
     # ------------------------------------------------------------------
@@ -238,6 +242,11 @@ class CtpGateway(GatewayModule):
 
         def OnFrontDisconnected(self, nReason: int) -> None:  # noqa: N802,N803
             logger.warning("[MD] Front disconnected, reason=%d", nReason)
+            if self._gw._connected:
+                self._gw.disconnect(
+                    reason=f"MD front disconnected (reason={nReason})",
+                    should_reconnect=True,
+                )
 
         def OnRspUserLogin(  # noqa: N802
             self,
@@ -347,6 +356,11 @@ class CtpGateway(GatewayModule):
 
         def OnFrontDisconnected(self, nReason: int) -> None:  # noqa: N802,N803
             logger.warning("[TD] Front disconnected, reason=%d", nReason)
+            if self._gw._connected:
+                self._gw.disconnect(
+                    reason=f"TD front disconnected (reason={nReason})",
+                    should_reconnect=True,
+                )
 
         def OnRspAuthenticate(  # noqa: N802
             self,
@@ -687,32 +701,16 @@ class CtpGateway(GatewayModule):
             return
         self._publish_state("connect() called")
 
-        # Ensure flow directory exists
         md_flow = os.path.join(self._flow_path, "md")
         td_flow = os.path.join(self._flow_path, "td")
         os.makedirs(md_flow, exist_ok=True)
         os.makedirs(td_flow, exist_ok=True)
 
-        # --- Market data API ---
-        self._md_api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi(md_flow + os.sep)
-        md_spi = self._MdSpi(self)
-        self._md_api.RegisterSpi(md_spi)
-        self._md_api.RegisterFront(self._md_front)
-        self._md_api.Init()
-        logger.info("[CTP] MD API init, waiting for login …")
+        self._create_and_connect_apis()
 
-        # --- Trader API ---
-        self._td_api = tdapi.CThostFtdcTraderApi.CreateFtdcTraderApi(td_flow + os.sep)
-        td_spi = self._TdSpi(self)
-        self._td_api.RegisterSpi(td_spi)
-        self._td_api.RegisterFront(self._td_front)
-        # Subscribe topics BEFORE Init()
-        self._td_api.SubscribePrivateTopic(tdapi.THOST_TERT_QUICK)
-        self._td_api.SubscribePublicTopic(tdapi.THOST_TERT_QUICK)
-        self._td_api.Init()
+        logger.info("[CTP] MD API init, waiting for login …")
         logger.info("[CTP] TD API init, waiting for login …")
 
-        # Wait for both logins
         md_ok = self._md_login_event.wait(timeout=30)
         td_ok = self._td_login_event.wait(timeout=30)
         if not md_ok:
@@ -720,31 +718,40 @@ class CtpGateway(GatewayModule):
         if not td_ok:
             logger.error("[CTP] TD login timed out")
 
-        # Start dispatcher thread
         self._dispatcher_stop.clear()
         self._dispatcher_thread = threading.Thread(
             target=self._event_dispatcher, daemon=True, name="ctp-event-dispatcher",
         )
         self._dispatcher_thread.start()
 
-        self._connected = True
         self.state_machine.transition(ConnectionState.CONNECTED)
         self._publish_state("login success")
+        self._connected = True
         logger.info("[CTP] Gateway connected (venue=%s)", self.venue_name)
 
-    def disconnect(self) -> None:
-        """Release CTP APIs and stop the event dispatcher."""
-        self.state_machine.transition(ConnectionState.DISCONNECTED)
-        self._publish_state("disconnect() called")
-        self._connected = False
+    def disconnect(self, reason: str = "disconnect() called", should_reconnect: bool = False) -> None:
+        """Release CTP APIs and stop the event dispatcher.
 
-        # Stop dispatcher
+        Args:
+            reason: Reason for disconnection (used in state event).
+            should_reconnect: If True, start auto-reconnect loop.
+        """
+        if should_reconnect and self.state_machine.transition(ConnectionState.RECONNECTING):
+            self._publish_state(reason)
+            self._start_reconnect()
+            return
+
+        self.state_machine.transition(ConnectionState.DISCONNECTED)
+        self._publish_state(reason)
+
+        self._connected = False
+        self._reconnect_stop.set()
+
         self._dispatcher_stop.set()
         if self._dispatcher_thread is not None:
             self._dispatcher_thread.join(timeout=5)
             self._dispatcher_thread = None
 
-        # Release APIs
         if self._md_api is not None:
             try:
                 self._md_api.Release()
@@ -759,10 +766,8 @@ class CtpGateway(GatewayModule):
                 logger.exception("[CTP] Error releasing TD API")
             self._td_api = None
 
-        # Reset login events
         self._md_login_event.clear()
         self._td_login_event.clear()
-
         logger.info("[CTP] Gateway disconnected")
 
     def subscribe_market_data(self, instrument_ids: List[str]) -> None:
@@ -929,6 +934,111 @@ class CtpGateway(GatewayModule):
             "venue": self.venue_name,
             "error": "query timed out or no data",
         }
+
+    def _create_and_connect_apis(self) -> None:
+        """Create and connect CTP APIs (extracted from connect() for reuse)."""
+        md_flow = os.path.join(self._flow_path, "md")
+        td_flow = os.path.join(self._flow_path, "td")
+        os.makedirs(md_flow, exist_ok=True)
+        os.makedirs(td_flow, exist_ok=True)
+
+        self._md_api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi(md_flow + os.sep)
+        md_spi = self._MdSpi(self)
+        self._md_api.RegisterSpi(md_spi)
+        self._md_api.RegisterFront(self._md_front)
+        self._md_api.Init()
+
+        self._td_api = tdapi.CThostFtdcTraderApi.CreateFtdcTraderApi(td_flow + os.sep)
+        td_spi = self._TdSpi(self)
+        self._td_api.RegisterSpi(td_spi)
+        self._td_api.RegisterFront(self._td_front)
+        self._td_api.SubscribePrivateTopic(tdapi.THOST_TERT_QUICK)
+        self._td_api.SubscribePublicTopic(tdapi.THOST_TERT_QUICK)
+        self._td_api.Init()
+
+    def _start_reconnect(self) -> None:
+        """Start the auto-reconnect background thread."""
+        self._reconnect_stop.clear()
+        self._reconnect_thread = threading.Thread(
+            target=self._reconnect_loop,
+            daemon=True,
+            name="ctp-reconnect",
+        )
+        self._reconnect_thread.start()
+
+    def _reconnect_loop(self) -> None:
+        """Auto-reconnect loop with exponential backoff."""
+        logger.info("[CTP] Starting reconnect loop")
+        while not self._reconnect_stop.is_set():
+            if self.state_machine.max_retries_exceeded():
+                logger.error("[CTP] Max reconnect retries exceeded, giving up")
+                self.state_machine.transition(ConnectionState.DISCONNECTED)
+                self._publish_state("max retries exceeded")
+                break
+
+            delay_ms = self.state_machine.next_backoff_ms()
+            logger.info("[CTP] Reconnecting in %d ms (retry %d/%d)",
+                        delay_ms, self.state_machine.retry_count,
+                        self.state_machine._reconnect_config.max_retries)
+
+            waited = 0
+            while waited < delay_ms and not self._reconnect_stop.is_set():
+                time.sleep(0.1)
+                waited += 100
+
+            if self._reconnect_stop.is_set():
+                break
+
+            if not self.state_machine.transition(ConnectionState.CONNECTING):
+                break
+            self._publish_state("attempting reconnect")
+
+            try:
+                self._dispatcher_stop.set()
+                if self._dispatcher_thread is not None:
+                    self._dispatcher_thread.join(timeout=5)
+                    self._dispatcher_thread = None
+
+                if self._md_api is not None:
+                    try:
+                        self._md_api.Release()
+                    except Exception:
+                        pass
+                    self._md_api = None
+                if self._td_api is not None:
+                    try:
+                        self._td_api.Release()
+                    except Exception:
+                        pass
+                    self._td_api = None
+
+                self._md_login_event.clear()
+                self._td_login_event.clear()
+
+                self._create_and_connect_apis()
+
+                if self._md_login_event.wait(timeout=30) and self._td_login_event.wait(timeout=30):
+                    self.state_machine.transition(ConnectionState.CONNECTED)
+                    self._publish_state("reconnect success")
+                    self._connected = True
+
+                    self._dispatcher_stop.clear()
+                    self._dispatcher_thread = threading.Thread(
+                        target=self._event_dispatcher,
+                        daemon=True,
+                        name="ctp-event-dispatcher",
+                    )
+                    self._dispatcher_thread.start()
+
+                    if self._subscribed_instruments:
+                        self.subscribe_market_data(self._subscribed_instruments)
+                    break
+                else:
+                    logger.warning("[CTP] Reconnect login failed")
+            except Exception as e:
+                logger.error("[CTP] Reconnect attempt failed: %s", e)
+
+        logger.info("[CTP] Reconnect loop ended")
 
     def _publish_state(self, reason: str = "") -> None:
         """Publish gateway.state event via TycheEngine."""
