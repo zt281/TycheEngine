@@ -15,6 +15,10 @@ sys.modules["openctp_ctp"] = _mock_ctp
 sys.modules["openctp_ctp.mdapi"] = _mock_mdapi
 sys.modules["openctp_ctp.tdapi"] = _mock_tdapi
 
+# Provide real base classes for SPIs so inner classes are concrete
+_mock_mdapi.CThostFtdcMdSpi = object
+_mock_tdapi.CThostFtdcTraderSpi = object
+
 import pytest  # noqa: E402
 
 from modules.trading.gateway.ctp.gateway import (  # noqa: E402
