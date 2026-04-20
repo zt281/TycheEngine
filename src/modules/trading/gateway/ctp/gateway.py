@@ -18,9 +18,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from openctp_ctp import mdapi, tdapi
 
 from modules.trading.gateway.base import GatewayModule
+from modules.trading.gateway.ctp.state_machine import (
+    ConnectionState,
+    ConnectionStateMachine,
+    ReconnectConfig,
+)
 from modules.trading.models.account import Account, Balance
-from modules.trading.models.enums import OrderStatus, OrderType, Side, TimeInForce
+from modules.trading.models.enums import OrderStatus, OrderType, PositionSide, Side, TimeInForce
 from modules.trading.models.order import Fill, Order, OrderUpdate
+from modules.trading.models.position import Position
 from modules.trading.models.tick import Quote, Trade
 from tyche.types import Endpoint
 
@@ -192,6 +198,15 @@ class CtpGateway(GatewayModule):
 
         # Last cumulative volume cache for computing per-tick trade size
         self._last_volumes: Dict[str, float] = {}
+
+        # Connection state machine
+        self.state_machine = ConnectionStateMachine(
+            venue=venue_name,
+            reconnect_config=ReconnectConfig(),
+        )
+
+        # Position accumulator for OnRspQryInvestorPosition
+        self._position_accumulator: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Order ref helpers
@@ -527,6 +542,25 @@ class CtpGateway(GatewayModule):
             if bIsLast:
                 self._gw._account_event.set()
 
+        def OnRspError(
+            self,
+            pRspInfo: Any,
+            nRequestID: int,
+            bIsLast: bool,
+        ) -> None:
+            if pRspInfo is None:
+                return
+            error_id = getattr(pRspInfo, "ErrorID", 0)
+            error_msg = _safe_str(getattr(pRspInfo, "ErrorMsg", ""))
+            if error_id != 0:
+                logger.error("[TD] RspError: [%d] %s", error_id, error_msg)
+                self._gw._publish_error(
+                    error_id=error_id,
+                    error_msg=error_msg,
+                    source="td_api",
+                    context=f"request_id={nRequestID}",
+                )
+
         def OnRspQryInvestorPosition(  # noqa: N802
             self,
             pInvestorPosition: Any,  # noqa: N803
@@ -537,15 +571,60 @@ class CtpGateway(GatewayModule):
             if pRspInfo and pRspInfo.ErrorID != 0:
                 logger.error("[TD] QryPosition error: [%d] %s",
                              pRspInfo.ErrorID, _safe_str(pRspInfo.ErrorMsg))
+                self._gw._publish_error(
+                    error_id=pRspInfo.ErrorID,
+                    error_msg=_safe_str(pRspInfo.ErrorMsg),
+                    source="td_api",
+                    context="ReqQryInvestorPosition",
+                )
                 return
             if pInvestorPosition is None:
                 return
+
+            ctp_symbol = _safe_str(pInvestorPosition.InstrumentID)
+            instrument_id = _to_instrument_id(ctp_symbol, self._gw.venue_name)
+            direction = _safe_str(pInvestorPosition.PosiDirection)
+            position_qty = getattr(pInvestorPosition, "Position", 0)
+            open_cost = _safe_float(getattr(pInvestorPosition, "OpenCost", 0.0))
+
             logger.debug(
-                "[TD] Position: %s dir=%s vol=%s",
-                _safe_str(pInvestorPosition.InstrumentID),
-                _safe_str(pInvestorPosition.PosiDirection),
-                getattr(pInvestorPosition, "Position", 0),
+                "[TD] Position record: %s dir=%s vol=%s",
+                ctp_symbol, direction, position_qty,
             )
+
+            if instrument_id not in self._gw._position_accumulator:
+                self._gw._position_accumulator[instrument_id] = {
+                    "quantity": Decimal("0"),
+                    "cost": Decimal("0"),
+                    "direction": direction,
+                }
+
+            acc = self._gw._position_accumulator[instrument_id]
+            acc["quantity"] += Decimal(str(int(position_qty)))
+            acc["cost"] += Decimal(str(open_cost))
+
+            if bIsLast:
+                qty = acc["quantity"]
+                if qty > 0:
+                    if direction == "1":
+                        side = PositionSide.LONG
+                    elif direction == "3":
+                        side = PositionSide.SHORT
+                    else:
+                        side = PositionSide.LONG
+                    avg_price = acc["cost"] / qty if qty else Decimal("0")
+                else:
+                    side = PositionSide.FLAT
+                    avg_price = Decimal("0")
+
+                position = Position(
+                    instrument_id=instrument_id,
+                    side=side,
+                    quantity=qty,
+                    avg_entry_price=avg_price,
+                )
+                self._gw._event_queue.put(("position_update", position))
+                del self._gw._position_accumulator[instrument_id]
 
     # ------------------------------------------------------------------
     # Event dispatcher (runs on its own thread)
@@ -569,6 +648,8 @@ class CtpGateway(GatewayModule):
                     self.publish_fill(payload)
                 elif event_type == "order_update":
                     self.publish_order_update(payload)
+                elif event_type == "position_update":
+                    self.publish_position_update(payload)
                 else:
                     logger.warning("[CTP] Unknown event type: %s", event_type)
             except Exception:
@@ -586,6 +667,8 @@ class CtpGateway(GatewayModule):
                     self.publish_fill(payload)
                 elif event_type == "order_update":
                     self.publish_order_update(payload)
+                elif event_type == "position_update":
+                    self.publish_position_update(payload)
             except queue.Empty:
                 break
             except Exception:
@@ -599,6 +682,11 @@ class CtpGateway(GatewayModule):
 
     def connect(self) -> None:
         """Create CTP APIs, register SPIs, connect, and wait for login."""
+        if not self.state_machine.transition(ConnectionState.CONNECTING):
+            logger.warning("[CTP] Cannot connect from state %s", self.state_machine.state.value)
+            return
+        self._publish_state("connect() called")
+
         # Ensure flow directory exists
         md_flow = os.path.join(self._flow_path, "md")
         td_flow = os.path.join(self._flow_path, "td")
@@ -640,10 +728,14 @@ class CtpGateway(GatewayModule):
         self._dispatcher_thread.start()
 
         self._connected = True
+        self.state_machine.transition(ConnectionState.CONNECTED)
+        self._publish_state("login success")
         logger.info("[CTP] Gateway connected (venue=%s)", self.venue_name)
 
     def disconnect(self) -> None:
         """Release CTP APIs and stop the event dispatcher."""
+        self.state_machine.transition(ConnectionState.DISCONNECTED)
+        self._publish_state("disconnect() called")
         self._connected = False
 
         # Stop dispatcher
@@ -837,3 +929,28 @@ class CtpGateway(GatewayModule):
             "venue": self.venue_name,
             "error": "query timed out or no data",
         }
+
+    def _publish_state(self, reason: str = "") -> None:
+        """Publish gateway.state event via TycheEngine."""
+        payload = self.state_machine.to_payload(reason=reason)
+        self.send_event("gateway.state", payload)
+
+    def _publish_error(
+        self,
+        error_id: int,
+        error_msg: str,
+        source: str = "",
+        context: str = "",
+    ) -> None:
+        """Publish gateway.error event via TycheEngine."""
+        self.send_event("gateway.error", {
+            "venue": self.venue_name,
+            "source": source,
+            "error_id": error_id,
+            "error_msg": error_msg,
+            "context": context,
+        })
+
+    def publish_position_update(self, position: Any) -> None:
+        """Publish a position update event to the engine."""
+        self.send_event("position.update", position.to_dict())
