@@ -67,6 +67,9 @@ def parse_args() -> argparse.Namespace:
         help="Gateway mode: 'sim' for OpenCTP simulation (default), 'live' for real broker.",
     )
     parser.add_argument(
+        "--config", help="Path to JSON config file (overrides all other args).",
+    )
+    parser.add_argument(
         "--instruments", nargs="+", default=["rb2510", "au2512"],
         help="Instrument symbols to subscribe, e.g. rb2510 IF2506 (default: rb2510 au2512).",
     )
@@ -127,7 +130,11 @@ def main() -> None:
     print()
 
     # --- Create gateway ---
-    if args.mode == "sim":
+    if args.config:
+        from modules.trading.gateway.ctp.gateway_main import build_gateway
+        gateway = build_gateway(args.config, {})
+        print(f"  Config file : {args.config}")
+    elif args.mode == "sim":
         gateway: CtpSimGateway | CtpLiveGateway = CtpSimGateway(
             engine_endpoint=engine_endpoint,
             user_id=args.user_id,
