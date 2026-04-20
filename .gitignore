@@ -296,3 +296,4 @@ build/
 
 # Turbo build output
 .turbo/
+.worktrees/
