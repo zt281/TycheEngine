@@ -23,6 +23,13 @@ BACK-01, BACK-02, BACK-03, BACK-05, SCHM-01, SCHM-02, SCHM-03, SCHM-04
 6. Docker Compose file for local ClickHouse dev/CI
 7. Unit tests for both backends with mocked ClickHouse; integration tests with Docker ClickHouse
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] `01-01-PLAN.md` — Core abstractions: PersistenceBackend ABC, InsertResult/QueryResult dataclasses, SchemaManager with idempotent DDL
+- [ ] `01-02-PLAN.md` — Backend implementations: ClickHouseBackend with connection pooling, JsonlBackend refactored from DataRecorderModule, package __init__.py
+- [ ] `01-03-PLAN.md` — Dev/CI infrastructure: Docker Compose for ClickHouse, pyproject.toml dependency update, integration tests with real ClickHouse
+
 **UI hint:** no
 
 ---
@@ -89,7 +96,7 @@ BACK-04, HLTH-01, HLTH-02, HLTH-03, HLTH-04
 4. Connection health tracked and logged (connected / disconnected / retrying)
 5. Health metrics optionally published as engine events
 6. JSONL recorder deprecated with warning; migration guide documented
-7. All existing tests pass; new tests achieve ≥90% coverage for persistence module
+7. All existing tests pass; new tests achieve >=90% coverage for persistence module
 8. Full test suite passes with both JSONL and ClickHouse backends
 
 **Depends on:** Phase 2 (can run in parallel with Phase 3)
@@ -101,9 +108,9 @@ BACK-04, HLTH-01, HLTH-02, HLTH-03, HLTH-04
 ## Phase Dependencies
 
 ```
-Phase 1 ──▶ Phase 2 ──▶ Phase 3
-              │
-              └──▶ Phase 4 (parallel with Phase 3)
+Phase 1 --> Phase 2 --> Phase 3
+              |
+              --> Phase 4 (parallel with Phase 3)
 ```
 
 ## Requirement Coverage
@@ -120,3 +127,4 @@ Phase 1 ──▶ Phase 2 ──▶ Phase 3
 
 ---
 *Roadmap created: 2026-04-21*
+*Last updated: 2026-04-21 after planning Phase 1*
