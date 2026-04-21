@@ -24,7 +24,6 @@ def test_clickhouse_backend_init_defaults():
     assert backend._user == "default"
     assert backend._password == ""
     assert backend._secure is False
-    assert backend._pool_size == 4
     assert backend._client is None
     assert backend._closed is False
 
@@ -38,7 +37,6 @@ def test_clickhouse_backend_init_overrides():
         user="admin",
         password="secret",
         secure=True,
-        pool_size=8,
     )
     assert backend._host == "ch.example.com"
     assert backend._port == 9000
@@ -46,7 +44,6 @@ def test_clickhouse_backend_init_overrides():
     assert backend._user == "admin"
     assert backend._password == "secret"
     assert backend._secure is True
-    assert backend._pool_size == 8
 
 
 # --- Lazy client init ---
@@ -68,7 +65,6 @@ def test_clickhouse_backend_lazy_client():
             username="default",
             password="",
             secure=False,
-            pool_size=4,
         )
 
 
@@ -244,13 +240,19 @@ def test_clickhouse_backend_query_with_all_filters():
         )
 
         sql = mock_client.query.call_args[0][0]
-        assert "timestamp >= toDateTime64(1.0, 3)" in sql
-        assert "timestamp <= toDateTime64(2.0, 3)" in sql
-        assert "event_type = 'trade'" in sql
-        assert "instrument_id = 'BTC'" in sql
-        assert "module_id = 'm1'" in sql
+        params = mock_client.query.call_args[1]["parameters"]
+        assert "timestamp >= {start_ts:Float64}" in sql
+        assert "timestamp <= {end_ts:Float64}" in sql
+        assert "event_type = {event_type:String}" in sql
+        assert "instrument_id = {instrument_id:String}" in sql
+        assert "module_id = {module_id:String}" in sql
         assert "LIMIT 50" in sql
         assert "OFFSET 10" in sql
+        assert params["start_ts"] == 1.0
+        assert params["end_ts"] == 2.0
+        assert params["event_type"] == "trade"
+        assert params["instrument_id"] == "BTC"
+        assert params["module_id"] == "m1"
 
 
 def test_clickhouse_backend_query_no_filters():

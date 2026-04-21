@@ -6,6 +6,7 @@ Conforms to the PersistenceBackend interface.
 
 import base64
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from modules.trading.persistence.backend import InsertResult, PersistenceBackend, QueryResult
@@ -32,7 +33,6 @@ class ClickHouseBackend(PersistenceBackend):
         user: Username.
         password: Password.
         secure: Use HTTPS.
-        pool_size: Connection pool size.
     """
 
     def __init__(
@@ -43,7 +43,6 @@ class ClickHouseBackend(PersistenceBackend):
         user: str = "default",
         password: str = "",
         secure: bool = False,
-        pool_size: int = 4,
         **kwargs: Any,
     ):
         self._host = host
@@ -52,7 +51,6 @@ class ClickHouseBackend(PersistenceBackend):
         self._user = user
         self._password = password
         self._secure = secure
-        self._pool_size = pool_size
         self._client: Optional[Any] = None
         self._schema_manager = SchemaManager(database=database)
         self._closed = False
@@ -72,7 +70,6 @@ class ClickHouseBackend(PersistenceBackend):
                 username=self._user,
                 password=self._password,
                 secure=self._secure,
-                pool_size=self._pool_size,
             )
         return self._client
 
@@ -109,9 +106,12 @@ class ClickHouseBackend(PersistenceBackend):
                 payload = row["payload"]
                 if isinstance(payload, bytes):
                     payload = base64.b64encode(payload).decode("ascii")
+                ts = row["timestamp"]
+                if isinstance(ts, (int, float)):
+                    ts = datetime.fromtimestamp(ts, tz=timezone.utc)
                 data.append(
                     (
-                        row["timestamp"],
+                        ts,
                         row["event_type"],
                         row["instrument_id"],
                         row["module_id"],
@@ -155,16 +155,22 @@ class ClickHouseBackend(PersistenceBackend):
         try:
             client = self._get_client()
             conditions: List[str] = []
+            params: Dict[str, Any] = {}
             if start_ts is not None:
-                conditions.append(f"timestamp >= toDateTime64({start_ts}, 3)")
+                conditions.append("timestamp >= {start_ts:Float64}")
+                params["start_ts"] = start_ts
             if end_ts is not None:
-                conditions.append(f"timestamp <= toDateTime64({end_ts}, 3)")
+                conditions.append("timestamp <= {end_ts:Float64}")
+                params["end_ts"] = end_ts
             if event_type is not None:
-                conditions.append(f"event_type = '{event_type}'")
+                conditions.append("event_type = {event_type:String}")
+                params["event_type"] = event_type
             if instrument_id is not None:
-                conditions.append(f"instrument_id = '{instrument_id}'")
+                conditions.append("instrument_id = {instrument_id:String}")
+                params["instrument_id"] = instrument_id
             if module_id is not None:
-                conditions.append(f"module_id = '{module_id}'")
+                conditions.append("module_id = {module_id:String}")
+                params["module_id"] = module_id
 
             where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
             sql = (
@@ -172,17 +178,24 @@ class ClickHouseBackend(PersistenceBackend):
                 f"FROM events {where_clause} ORDER BY timestamp LIMIT {limit} OFFSET {offset}"
             )
 
-            result = client.query(sql)
-            rows = [
-                {
-                    "timestamp": r[0],
-                    "event_type": r[1],
-                    "instrument_id": r[2],
-                    "module_id": r[3],
-                    "payload": r[4],
-                }
-                for r in getattr(result, "result_rows", [])
-            ]
+            if params:
+                result = client.query(sql, parameters=params)
+            else:
+                result = client.query(sql)
+            rows = []
+            for r in getattr(result, "result_rows", []):
+                ts = r[0]
+                if isinstance(ts, datetime):
+                    ts = ts.replace(tzinfo=timezone.utc).timestamp()
+                rows.append(
+                    {
+                        "timestamp": ts,
+                        "event_type": r[1],
+                        "instrument_id": r[2],
+                        "module_id": r[3],
+                        "payload": r[4],
+                    }
+                )
             return QueryResult(success=True, rows=rows)
         except Exception as exc:  # noqa: BLE001
             logger.error("Query failed: %s", exc)
