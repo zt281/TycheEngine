@@ -24,7 +24,14 @@ from modules.trading.gateway.ctp.state_machine import (
     ReconnectConfig,
 )
 from modules.trading.models.account import Account, Balance
-from modules.trading.models.enums import OrderStatus, OrderType, PositionSide, Side, TimeInForce
+from modules.trading.models.enums import (
+    Offset,
+    OrderStatus,
+    OrderType,
+    PositionSide,
+    Side,
+    TimeInForce,
+)
 from modules.trading.models.order import Fill, Order, OrderUpdate
 from modules.trading.models.position import Position
 from modules.trading.models.tick import Quote, Trade
@@ -76,6 +83,14 @@ CTP_STATUS_MAP: Dict[str, OrderStatus] = {
     "a": OrderStatus.PENDING_SUBMIT,        # THOST_FTDC_OST_Unknown
     "b": OrderStatus.NEW,                   # THOST_FTDC_OST_NotTouched
     "c": OrderStatus.SUBMITTED,             # THOST_FTDC_OST_Touched
+}
+
+# CTP Offset -> TycheEngine Offset
+OFFSET_MAP: Dict[Offset, str] = {
+    Offset.OPEN: "0",            # THOST_FTDC_OF_Open
+    Offset.CLOSE: "1",           # THOST_FTDC_OF_Close
+    Offset.CLOSE_TODAY: "3",     # THOST_FTDC_OF_CloseToday
+    Offset.CLOSE_YESTERDAY: "4", # THOST_FTDC_OF_CloseYesterday
 }
 
 # Regex to extract alphabetic prefix from CTP instrument ID (e.g. "rb2410" -> "rb")
@@ -812,18 +827,31 @@ class CtpGateway(GatewayModule):
         else:
             req.Direction = tdapi.THOST_FTDC_D_Sell
 
-        # Price type
+        # Price type & conditional orders
         if order.order_type == OrderType.LIMIT:
             req.OrderPriceType = tdapi.THOST_FTDC_OPT_LimitPrice
             req.LimitPrice = float(order.price) if order.price else 0.0
-        else:
+            req.ContingentCondition = tdapi.THOST_FTDC_CC_Immediately
+        elif order.order_type == OrderType.STOP:
             req.OrderPriceType = tdapi.THOST_FTDC_OPT_AnyPrice
             req.LimitPrice = 0.0
+            req.StopPrice = float(order.stop_price) if order.stop_price else 0.0
+            req.ContingentCondition = tdapi.THOST_FTDC_CC_Touch
+        elif order.order_type == OrderType.STOP_LIMIT:
+            req.OrderPriceType = tdapi.THOST_FTDC_OPT_LimitPrice
+            req.LimitPrice = float(order.price) if order.price else 0.0
+            req.StopPrice = float(order.stop_price) if order.stop_price else 0.0
+            req.ContingentCondition = tdapi.THOST_FTDC_CC_Touch
+        else:
+            # MARKET and any unmapped types -> AnyPrice
+            req.OrderPriceType = tdapi.THOST_FTDC_OPT_AnyPrice
+            req.LimitPrice = 0.0
+            req.ContingentCondition = tdapi.THOST_FTDC_CC_Immediately
 
         req.VolumeTotalOriginal = int(order.quantity)
 
-        # Offset: default to Open (can be extended for close/close-today)
-        req.CombOffsetFlag = tdapi.THOST_FTDC_OF_Open
+        # Offset (open / close / close-today / close-yesterday)
+        req.CombOffsetFlag = OFFSET_MAP.get(order.offset, "0")
         req.CombHedgeFlag = tdapi.THOST_FTDC_HF_Speculation
 
         # Time condition
@@ -833,13 +861,16 @@ class CtpGateway(GatewayModule):
         elif order.time_in_force == TimeInForce.FOK:
             req.TimeCondition = tdapi.THOST_FTDC_TC_IOC
             req.VolumeCondition = tdapi.THOST_FTDC_VC_CV
+        elif order.time_in_force == TimeInForce.GTD:
+            # CTP has no true GTD; GFS is the closest approximation
+            req.TimeCondition = tdapi.THOST_FTDC_TC_GFS
+            req.VolumeCondition = tdapi.THOST_FTDC_VC_AV
         else:
             # GTC / DAY -> GFD (Good For Day) in CTP
             req.TimeCondition = tdapi.THOST_FTDC_TC_GFD
             req.VolumeCondition = tdapi.THOST_FTDC_VC_AV
 
         req.MinVolume = 1
-        req.ContingentCondition = tdapi.THOST_FTDC_CC_Immediately
         req.ForceCloseReason = tdapi.THOST_FTDC_FCC_NotForceClose
         req.IsAutoSuspend = 0
 
@@ -856,9 +887,18 @@ class CtpGateway(GatewayModule):
                 reason=reason,
             )
 
-        logger.info("[CTP] Order submitted ref=%s id=%s %s %s %s @ %s",
-                     order_ref, order.order_id, order.side.name,
-                     order.quantity, ctp_symbol, order.price)
+        logger.info(
+            "[CTP] Order submitted ref=%s id=%s %s %s %s %s @ %s (type=%s, tif=%s)",
+            order_ref,
+            order.order_id,
+            order.side.name,
+            order.offset.name,
+            order.quantity,
+            ctp_symbol,
+            order.price,
+            order.order_type.name,
+            order.time_in_force.name,
+        )
 
         return OrderUpdate(
             order_id=order.order_id,

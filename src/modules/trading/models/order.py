@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from modules.trading.models.enums import OrderStatus, OrderType, Side, TimeInForce
+from modules.trading.models.enums import Offset, OrderStatus, OrderType, Side, TimeInForce
 
 
 def _generate_order_id() -> str:
@@ -24,6 +24,7 @@ class Order:
     price: Optional[Decimal] = None  # Required for LIMIT/STOP_LIMIT
     stop_price: Optional[Decimal] = None  # Required for STOP/STOP_LIMIT
     time_in_force: TimeInForce = TimeInForce.GTC
+    offset: Offset = Offset.OPEN
     status: OrderStatus = OrderStatus.NEW
     order_id: str = field(default_factory=_generate_order_id)
     venue_order_id: Optional[str] = None  # Exchange-assigned ID
@@ -65,6 +66,7 @@ class Order:
             "price": str(self.price) if self.price else None,
             "stop_price": str(self.stop_price) if self.stop_price else None,
             "time_in_force": self.time_in_force.name,
+            "offset": self.offset.name,
             "status": self.status.name,
             "order_id": self.order_id,
             "venue_order_id": self.venue_order_id,
@@ -86,6 +88,7 @@ class Order:
             price=Decimal(d["price"]) if d.get("price") else None,
             stop_price=Decimal(d["stop_price"]) if d.get("stop_price") else None,
             time_in_force=TimeInForce[d["time_in_force"]],
+            offset=Offset[d.get("offset", "OPEN")],
             status=OrderStatus[d["status"]],
             order_id=d["order_id"],
             venue_order_id=d.get("venue_order_id"),

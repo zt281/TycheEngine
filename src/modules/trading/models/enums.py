@@ -64,6 +64,15 @@ class AssetClass(Enum):
     BOND = auto()
 
 
+class Offset(Enum):
+    """Order offset flag — open/close direction."""
+
+    OPEN = auto()
+    CLOSE = auto()
+    CLOSE_TODAY = auto()
+    CLOSE_YESTERDAY = auto()
+
+
 class PositionSide(Enum):
     """Position direction."""
 

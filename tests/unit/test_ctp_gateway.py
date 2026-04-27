@@ -19,6 +19,33 @@ sys.modules["openctp_ctp.tdapi"] = _mock_tdapi
 _mock_mdapi.CThostFtdcMdSpi = object
 _mock_tdapi.CThostFtdcTraderSpi = object
 
+# Assign real string values to CTP constants used in submit_order
+_mock_tdapi.THOST_FTDC_OPT_LimitPrice = "2"
+_mock_tdapi.THOST_FTDC_OPT_AnyPrice = "1"
+_mock_tdapi.THOST_FTDC_OPT_BestPrice = "3"
+_mock_tdapi.THOST_FTDC_D_Buy = "0"
+_mock_tdapi.THOST_FTDC_D_Sell = "1"
+_mock_tdapi.THOST_FTDC_OF_Open = "0"
+_mock_tdapi.THOST_FTDC_OF_Close = "1"
+_mock_tdapi.THOST_FTDC_OF_CloseToday = "3"
+_mock_tdapi.THOST_FTDC_OF_CloseYesterday = "4"
+_mock_tdapi.THOST_FTDC_TC_IOC = "1"
+_mock_tdapi.THOST_FTDC_TC_GFS = "2"
+_mock_tdapi.THOST_FTDC_TC_GFD = "3"
+_mock_tdapi.THOST_FTDC_VC_AV = "1"
+_mock_tdapi.THOST_FTDC_VC_CV = "2"
+_mock_tdapi.THOST_FTDC_CC_Immediately = "1"
+_mock_tdapi.THOST_FTDC_CC_Touch = "2"
+_mock_tdapi.THOST_FTDC_HF_Speculation = "1"
+_mock_tdapi.THOST_FTDC_FCC_NotForceClose = "0"
+_mock_tdapi.CThostFtdcInputOrderField = MagicMock
+_mock_tdapi.CThostFtdcQryTradingAccountField = MagicMock
+_mock_tdapi.CThostFtdcQryInvestorPositionField = MagicMock
+_mock_tdapi.CThostFtdcInputOrderActionField = MagicMock
+_mock_tdapi.CThostFtdcReqUserLoginField = MagicMock
+_mock_tdapi.CThostFtdcReqAuthenticateField = MagicMock
+_mock_tdapi.THOST_TERT_QUICK = 1
+
 import pytest  # noqa: E402
 
 from modules.trading.gateway.ctp.gateway import (  # noqa: E402
