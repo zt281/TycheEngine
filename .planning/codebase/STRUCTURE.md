@@ -1,147 +1,263 @@
-# Directory Structure
+# Codebase Structure
 
-*Generated: 2026-04-21*
+**Analysis Date:** 2026-04-28
+
+## Directory Layout
 
 ```
-D:\dev\TycheEngine
+TycheEngine/
 ├── src/
-│   ├── tyche/                    # Core engine framework
-│   │   ├── __init__.py           # Package exports
+│   ├── tyche/                    # Core engine framework (ZMQ broker + module base)
 │   │   ├── engine.py             # TycheEngine central broker
-│   │   ├── engine_main.py        # Engine standalone entry point
+│   │   ├── engine_main.py        # CLI entry point for engine process
 │   │   ├── module.py             # TycheModule base class
-│   │   ├── module_base.py        # Minimal ModuleBase
-│   │   ├── module_main.py        # Module standalone entry point
-│   │   ├── message.py            # MessagePack serialization
-│   │   ├── heartbeat.py          # Paranoid Pirate heartbeat
-│   │   ├── types.py              # Core types, enums, dataclasses
-│   │   └── example_module.py     # Example module implementation
-│   └── modules/                  # Domain-specific modules
-│       ├── __init__.py
-│       └── trading/              # Trading domain
-│           ├── __init__.py
-│           ├── events.py         # Event name constants & helpers
-│           ├── clock/            # Time abstraction
-│           │   ├── __init__.py
-│           │   └── clock.py
-│           ├── gateway/          # Exchange connectivity
-│           │   ├── __init__.py
-│           │   ├── base.py       # GatewayModule abstract base
-│           │   ├── simulated.py  # Simulated exchange gateway
-│           │   └── ctp/          # CTP futures gateway
-│           │       ├── __init__.py
-│           │       ├── gateway.py       # Base CTP gateway
-│           │       ├── live.py          # Live broker gateway
-│           │       ├── sim.py           # OpenCTP sim gateway
-│           │       ├── config.py        # Config loader
-│           │       ├── state_machine.py # Connection state machine
-│           │       └── gateway_main.py  # Standalone runner
-│           ├── models/           # Trading data models
-│           │   ├── __init__.py
-│           │   ├── enums.py      # Order/position enums
+│   │   ├── module_base.py        # Abstract ModuleBase with interface discovery
+│   │   ├── module_main.py        # CLI entry point for module process
+│   │   ├── example_module.py     # Reference module implementation
+│   │   ├── message.py            # MessagePack serialization (Message, Envelope)
+│   │   ├── heartbeat.py          # Paranoid Pirate heartbeat (Monitor, Sender, Manager)
+│   │   └── types.py              # Core types (Endpoint, Interface, ModuleId, etc.)
+│   └── modules/
+│       └── trading/              # Trading domain modules
+│           ├── events.py         # Event name constants and helpers
+│           ├── models/           # Pure data models (no ZMQ dependency)
+│           │   ├── __init__.py   # Re-exports all models
+│           │   ├── enums.py      # Trading enumerations
+│           │   ├── instrument.py # InstrumentId, Instrument
 │           │   ├── order.py      # Order, Fill, OrderUpdate
-│           │   ├── tick.py       # Quote, Trade, Bar
 │           │   ├── position.py   # Position
-│           │   ├── account.py    # Account, Balance
-│           │   └── instrument.py # InstrumentId
+│           │   ├── tick.py       # Quote, Trade, Bar, OrderBook
+│           │   └── account.py    # Account, Balance
+│           ├── gateway/          # Exchange gateway modules
+│           │   ├── base.py       # GatewayModule abstract base
+│           │   ├── simulated.py  # Simulated/mock gateway
+│           │   └── ctp/          # CTP (China futures) gateway
+│           │       ├── gateway.py       # CtpGateway base class
+│           │       ├── live.py          # CtpLiveGateway (real broker)
+│           │       ├── sim.py           # CtpSimGateway (OpenCTP sim)
+│           │       ├── state_machine.py # Connection state machine
+│           │       ├── config.py        # CTP configuration
+│           │       └── gateway_main.py  # CLI entry point
 │           ├── oms/              # Order Management System
-│           │   ├── __init__.py
-│           │   ├── module.py
-│           │   └── order_store.py
-│           ├── portfolio/        # Portfolio tracking
-│           │   ├── __init__.py
-│           │   └── module.py
-│           ├── risk/             # Risk engine
-│           │   ├── __init__.py
-│           │   ├── module.py
-│           │   └── rules.py
-│           ├── store/            # Recording & replay
-│           │   ├── __init__.py
-│           │   ├── recorder.py
-│           │   └── replay.py
-│           └── strategy/         # Strategy framework
-│               ├── __init__.py
-│               ├── base.py       # StrategyModule abstract base
-│               ├── context.py    # StrategyContext (order mgmt)
-│               └── example_ma_cross.py
-│
+│           │   ├── module.py     # OMSModule
+│           │   └── order_store.py # In-memory order state machine
+│           ├── risk/             # Pre-trade risk management
+│           │   ├── module.py     # RiskModule
+│           │   └── rules.py      # RiskRule engine and concrete rules
+│           ├── portfolio/        # Position tracking and P&L
+│           │   └── module.py     # PortfolioModule
+│           ├── strategy/         # Strategy framework
+│           │   ├── base.py       # StrategyModule abstract base
+│           │   ├── context.py    # StrategyContext (market state + order ops)
+│           │   └── example_ma_cross.py # Example strategy
+│           ├── persistence/      # Event storage backends
+│           │   ├── backend.py    # PersistenceBackend abstract base
+│           │   ├── clickhouse_backend.py
+│           │   ├── jsonl_backend.py
+│           │   └── schema.py     # ClickHouse DDL
+│           ├── store/            # Recording and replay
+│           │   ├── recorder.py   # DataRecorderModule
+│           │   └── replay.py     # ReplayModule (backtesting)
+│           └── clock/            # Time synchronization
+│               └── clock.py      # LiveClockModule, SimulatedClock
 ├── tests/
-│   ├── conftest.py               # pytest path setup
-│   ├── unit/                     # Unit tests (mock external deps)
+│   ├── conftest.py               # pytest config (adds src/ to sys.path)
+│   ├── unit/                     # Unit tests (>=80% coverage target)
 │   │   ├── test_engine.py
 │   │   ├── test_engine_main.py
 │   │   ├── test_engine_threading.py
-│   │   ├── test_example_module.py
-│   │   ├── test_heartbeat.py
-│   │   ├── test_heartbeat_protocol.py
-│   │   ├── test_message.py
 │   │   ├── test_module.py
 │   │   ├── test_module_base.py
 │   │   ├── test_module_main.py
-│   │   ├── test_signal_handling.py
+│   │   ├── test_example_module.py
+│   │   ├── test_message.py
 │   │   ├── test_types.py
+│   │   ├── test_heartbeat.py
+│   │   ├── test_heartbeat_protocol.py
+│   │   ├── test_gateway_main.py
+│   │   ├── test_simulated_gateway.py
 │   │   ├── test_ctp_gateway.py
 │   │   ├── test_ctp_gateway_enhanced.py
 │   │   ├── test_ctp_state_machine.py
 │   │   ├── test_ctp_config.py
-│   │   └── test_gateway_main.py
-│   ├── integration/              # Integration tests
-│   │   ├── test_engine_module.py
-│   │   └── test_multiprocess.py
-│   ├── perf/                     # Performance tests (placeholder)
-│   └── property/                 # Property tests (placeholder)
-│
-├── examples/                     # Usage examples & entry points
-│   ├── run_engine.py
-│   ├── run_module.py
-│   ├── run_strategy.py
-│   ├── run_gateway.py
-│   ├── run_ctp_gateway.py
-│   ├── run_trading_services.py
-│   └── run_trading_system.py
-│
-├── tui/                          # TypeScript/React dashboard
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── README.md
-│
+│   │   ├── test_oms_module.py
+│   │   ├── test_order_store.py
+│   │   ├── test_portfolio_module.py
+│   │   ├── test_risk_rules.py
+│   │   ├── test_strategy_context.py
+│   │   ├── test_data_recorder.py
+│   │   ├── test_backend.py
+│   │   ├── test_clickhouse_backend_unit.py
+│   │   ├── test_jsonl_backend.py
+│   │   ├── test_schema.py
+│   │   └── test_signal_handling.py
+│   └── integration/              # Integration tests
+│       ├── test_engine_module.py
+│       ├── test_multiprocess.py
+│       ├── test_trading_pipeline.py
+│       ├── test_clickhouse_backend.py
+│       └── test_message_queue_perf.py
 ├── docs/
-│   ├── design/                   # Design specs
-│   │   ├── tyche_engine_design_v1.md
-│   │   └── openctp_gateway_design_v1.md
+│   ├── design/                   # Design specifications
 │   ├── plan/                     # Implementation plans
-│   │   ├── tyche_engine_plan_v1.md
-│   │   └── tyche_engine_plan_v2.md
-│   ├── impl/                     # Implementation logs
-│   │   ├── tyche_engine_implement_v2.md
-│   │   └── openctp_gateway_implement_v1.md
-│   └── review/                   # Review logs
-│
-├── data/recorded/                # Recorded market data
-├── ctp_flow/                     # CTP API flow files (md/, td/)
-├── resources/logo/               # Project logo assets
-├── .github/workflows/            # CI/CD
-│   ├── ci.yml
-│   └── wiki-sync.yml
-├── pyproject.toml                # Project config
-├── README.md
-└── CLAUDE.md                     # Agent cooperation guide
+│   ├── review/                   # Review logs
+│   └── impl/                     # Implementation logs
+├── examples/                     # Usage examples
+├── docker/                       # Docker configurations
+├── resources/                    # Static resources (logo, etc.)
+├── pyproject.toml                # Project config, dependencies, tool settings
+├── README.md                     # Project documentation
+└── .planning/                    # Planning artifacts
+    └── codebase/                 # Codebase analysis documents
 ```
 
-## Key Entry Points
+## Directory Purposes
 
-| File | Purpose |
-|------|---------|
-| `src/tyche/engine_main.py` | Standalone engine process |
-| `src/tyche/module_main.py` | Standalone module process |
-| `examples/run_ctp_gateway.py` | CLI for running CTP gateway (sim or live) |
-| `src/modules/trading/gateway/ctp/gateway_main.py` | Gateway builder from config file |
+**`src/tyche/`: Core Framework**
+- Purpose: The engine broker and module base classes
+- Contains: ZMQ socket management, message serialization, heartbeat protocol, type definitions
+- Key files:
+  - `src/tyche/engine.py`: Central broker with 6 worker threads
+  - `src/tyche/module.py`: Module base with PUB/SUB/DEALER sockets
+  - `src/tyche/message.py`: MessagePack serialization with Decimal support
+  - `src/tyche/types.py`: All core dataclasses and enums
+- This directory has NO trading-domain knowledge
+
+**`src/modules/trading/`: Trading Domain**
+- Purpose: All trading-specific business logic
+- Contains: Models, gateways, OMS, risk, portfolio, strategy, persistence, clock
+- Key files:
+  - `src/modules/trading/events.py`: Event naming convention constants
+  - `src/modules/trading/models/`: Pure data models (serializable, no ZMQ)
+  - `src/modules/trading/gateway/`: Exchange connectivity
+  - `src/modules/trading/oms/`: Order lifecycle management
+  - `src/modules/trading/risk/`: Pre-trade risk validation
+  - `src/modules/trading/portfolio/`: Position tracking
+  - `src/modules/trading/strategy/`: Strategy framework
+  - `src/modules/trading/persistence/`: Event storage
+  - `src/modules/trading/store/`: Recording and replay
+  - `src/modules/trading/clock/`: Time synchronization
+
+**`tests/unit/`: Unit Tests**
+- Purpose: Fast, isolated tests with mocked dependencies
+- Contains: 29 test files covering all major components
+- Target: >=80% line coverage, run in <5 seconds per the project spec
+- No `__init__.py` files (pytest handles discovery)
+
+**`tests/integration/`: Integration Tests**
+- Purpose: Cross-component tests with real ZeroMQ sockets
+- Contains: 5 test files for engine+module interaction, trading pipeline, message queue performance
+- May use real ZeroMQ sockets per the project spec
+
+## Key File Locations
+
+**Entry Points:**
+- `src/tyche/engine_main.py`: Start the central broker process
+- `src/tyche/module_main.py`: Start a generic module process (uses ExampleModule)
+- `src/modules/trading/gateway/ctp/gateway_main.py`: Start a CTP gateway process
+
+**Configuration:**
+- `pyproject.toml`: Project metadata, dependencies, pytest/mypy/ruff/coverage settings
+- `src/modules/trading/gateway/ctp/config.py`: CTP-specific configuration
+
+**Core Logic:**
+- `src/tyche/engine.py`: Message broker, module registry, event proxy
+- `src/tyche/module.py`: Module lifecycle, socket management, event dispatch
+- `src/modules/trading/oms/module.py`: Order routing and fill processing
+- `src/modules/trading/risk/module.py`: Pre-trade risk gate
+- `src/modules/trading/portfolio/module.py`: Position tracking
+
+**Testing:**
+- `tests/conftest.py`: pytest configuration (adds `src/` to `sys.path`)
+- `tests/unit/test_engine.py`: Engine unit tests
+- `tests/integration/test_trading_pipeline.py`: End-to-end trading flow tests
 
 ## Naming Conventions
 
-- Core framework: `tyche.{component}` (e.g., `tyche.engine`)
-- Trading modules: `modules.trading.{domain}` (e.g., `modules.trading.gateway`)
-- Tests: `test_{module}.py` mirroring source structure
-- Design docs: `{spec}_design_v{N}.md`
-- Plans: `{spec}_plan_v{N}.md`
-- Impl logs: `{spec}_implement_v{N}.md`
+**Files:**
+- Module files: `module.py` (when directory is the module name)
+- Base classes: `base.py`
+- Entry points: `{module}_main.py`
+- Tests: `test_{module}.py`
+
+**Directories:**
+- Framework: `tyche/` (lowercase, no prefix)
+- Domain modules: `modules/trading/{domain}/` (kebab-case would be used if needed)
+- Tests mirror source structure by component name, not by path
+
+**Classes:**
+- Engine/broker: `TycheEngine`
+- Module base: `TycheModule` / `ModuleBase`
+- Domain modules: `{Domain}Module` (e.g., `OMSModule`, `RiskModule`, `PortfolioModule`)
+- Models: Noun form (e.g., `Order`, `Fill`, `Position`, `Quote`)
+- Abstract bases: `{Name}Module` or `{Name}Backend`
+
+**Event Topics:**
+- Market data: `quote.{instrument_id}`, `trade.{instrument_id}`, `bar.{instrument_id}.{timeframe}`
+- Order flow: `order.submit`, `order.approved`, `order.rejected`, `order.execute`, `order.cancel`, `order.update`
+- Fills: `fill.{instrument_id}`
+- Portfolio: `position.update`, `account.update`
+- Risk: `risk.alert`
+- System: `system.clock`, `system.shutdown`
+
+## Where to Add New Code
+
+**New Trading Module (e.g., new risk type, new strategy):**
+- Implementation: `src/modules/trading/{domain}/module.py`
+- Base class: `src/modules/trading/{domain}/base.py` (if needed)
+- Tests: `tests/unit/test_{domain}_module.py`
+
+**New Gateway (e.g., Binance, IB):**
+- Implementation: `src/modules/trading/gateway/{venue}/gateway.py`
+- Inherit from: `src/modules/trading/gateway/base.py` (`GatewayModule`)
+- Config: `src/modules/trading/gateway/{venue}/config.py`
+- Tests: `tests/unit/test_{venue}_gateway.py`
+
+**New Domain Model:**
+- Implementation: `src/modules/trading/models/{model_name}.py`
+- Export: Add to `src/modules/trading/models/__init__.py`
+- Tests: `tests/unit/test_{model_name}.py` or add to existing model test
+
+**New Persistence Backend:**
+- Implementation: `src/modules/trading/persistence/{backend_name}_backend.py`
+- Inherit from: `src/modules/trading/persistence/backend.py` (`PersistenceBackend`)
+- Tests: `tests/unit/test_{backend_name}_backend.py`
+
+**New Risk Rule:**
+- Implementation: `src/modules/trading/risk/rules.py` (add class inheriting `RiskRule`)
+- Tests: `tests/unit/test_risk_rules.py`
+
+**New Strategy:**
+- Implementation: `src/modules/trading/strategy/{strategy_name}.py`
+- Inherit from: `src/modules/trading/strategy/base.py` (`StrategyModule`)
+- Tests: `tests/unit/test_{strategy_name}.py`
+
+**Utilities/Helpers:**
+- Shared helpers: Add to the relevant domain directory or create `src/modules/trading/utils/` if cross-cutting
+
+## Special Directories
+
+**`.planning/`: Planning Artifacts**
+- Purpose: Contains codebase analysis and phase planning documents
+- Generated: No (manually maintained)
+- Committed: Yes
+
+**`docs/`: Project Documentation**
+- Purpose: Design specs, implementation plans, review logs
+- Subdirectories: `design/`, `plan/`, `review/`, `impl/`
+- Generated: No (manually maintained per the project process)
+- Committed: Yes
+
+**`examples/`: Usage Examples**
+- Purpose: Standalone example scripts demonstrating engine usage
+- Generated: No
+- Committed: Yes
+
+**`docker/`: Container Configurations**
+- Purpose: Dockerfiles and compose files for deployment
+- Generated: No
+- Committed: Yes
+
+---
+
+*Structure analysis: 2026-04-28*
