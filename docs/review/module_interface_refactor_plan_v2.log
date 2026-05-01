@@ -1,0 +1,48 @@
+Plan Review: module_interface_refactor_plan_v1.md (re-review)
+Date: 2026-05-01
+Reviewer: Plan Reviewer Agent
+
+## Summary
+
+All six conditions from the previous review have been addressed. The plan now clearly specifies dynamic handler migration, GatewayModule payload-based venue routing, expanded test coverage for Task 3, correct project state notes, EventType scope clarification, and unambiguous test_trading_pipeline.py pass expectations. Tasks remain under 300 LOC, dependencies are correct, and there are no conflicts with the v2 design spec.
+
+## Findings
+
+### [RESOLVED] MAJOR Task Sequencing - test_trading_pipeline.py pass expectation is now unambiguous
+Details: Task 5 explicitly states `test_trading_pipeline.py` is NOT expected to pass yet. Task 6 explicitly states it is expected to pass after Task 6 completes. The ambiguity is resolved.
+
+### [RESOLVED] MAJOR Task 6 Scope - Dynamic handler migration is now fully specified
+Details: The plan provides per-module migration strategies with concrete code snippets:
+- StrategyModule and PortfolioModule convert per-instrument handlers to generic `on_streaming_quote`/`on_streaming_trade` with `instrument_id` payload filtering.
+- DataRecorderModule uses generic handlers with an option to use `_register_handler()` for fine-grained filtering.
+- This removes the underspecification that would have blocked implementation.
+
+### [RESOLVED] MAJOR GatewayModule migration is now fully mapped
+Details: The plan specifies payload-based venue routing:
+- OMS sends `handle_whispered_order_execute` with `venue` in payload.
+- GatewayModule's `handle_whispered_order_execute` filters by `payload.get("venue") != self.venue_name`.
+- This aligns with the v2 design spec's requirement that target information goes in the payload, not the method name.
+
+### [RESOLVED] CRITICAL Test strategy gap - Task 3 now includes expanded test coverage
+Details: Task 3's test strategy now explicitly covers:
+- Auto-discovery of all 6 patterns from method names
+- `_dispatch()` behavior for `on_*` (returns None) vs `handle_*` (returns dict)
+- `_register_handler()` for dynamic registration
+- Heartbeat sleep using `stop_event.wait()`
+This validates the core dispatch behavior that was previously untested.
+
+### [RESOLVED] MINOR Task 3 estimated LOC underestimated
+Details: Source LOC estimate increased from 100 to 120. Test LOC increased from 80 to 120. This is more realistic for the scope of changes.
+
+### [RESOLVED] MINOR Plan does not mention EventType enum cleanup
+Details: The `## Project State at Plan Time` section now explicitly states: "Out of scope for this refactor: `EventType` enum cleanup... deferred to future cleanup."
+
+### [RESOLVED] MINOR module_base.py deleted in working tree but plan treated it as existing
+Details: Line 11 of `## Project State at Plan Time` now notes: "`src/tyche/module_base.py` is deleted in the working tree (`D` in git status). The plan treats Task 2 as 'create from scratch' rather than 'modify existing'." Task 2 description also reflects this.
+
+### [INFO] Trading pipeline test uses direct handler calls
+Details: Acknowledged in Task 6: "It exercises business logic via direct handler calls, so the main risk is method rename mismatches." The plan notes additional unit tests are recommended but not required for this phase. This is acceptable given the pipeline test provides sufficient coverage for the rename validation.
+
+## Verdict
+Result: APPROVED
+Conditions: None. All previous conditions have been satisfied. Proceed to implementation.
