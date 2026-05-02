@@ -6,6 +6,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
+import msgpack
 import zmq
 
 from tyche.heartbeat import HeartbeatManager
@@ -68,12 +69,38 @@ class TycheEngine:
         self._event_count = 0
         self._register_count = 0
 
+        # Per-event topic queues (created on module registration).
+        # Foundation for per-topic backpressure, prioritisation, and
+        # future transport swaps (e.g. Aeron per-channel publication).
+        self._topic_queues: Dict[str, List[List[bytes]]] = {}
+        self._topic_queues_lock = threading.Lock()
+
+        # Typed message queues for non-event paths
+        self._message_queues: Dict[MessageType, queue.Queue[List[bytes]]] = {
+            MessageType.REGISTER: queue.Queue(),
+            MessageType.RESPONSE: queue.Queue(),
+            MessageType.ACK: queue.Queue(),
+        }
         # Thread-safe queue for forwarding module heartbeats to PUB socket
         self._heartbeat_queue: queue.Queue[Message] = queue.Queue()
+
+        # Wakeup queue for the egress worker — enqueue a sentinel whenever
+        # a message is added to a topic queue so the egress worker blocks
+        # instead of spinning.
+        self._egress_wakeup: queue.Queue[None] = queue.Queue()
 
         # Request-response correlation mapping: correlation_id -> ROUTER identity
         self._ack_correlations: Dict[str, bytes] = {}
         self._ack_lock = threading.Lock()
+
+        # Event proxy sockets (shared between proxy ingress and egress workers)
+        self._xpub_socket: Optional[zmq.Socket] = None
+        self._xsub_socket: Optional[zmq.Socket] = None
+        self._xpub_lock = threading.Lock()
+
+        # Registration socket (shared between ingress and egress workers)
+        self._registration_socket: Optional[zmq.Socket] = None
+        self._registration_lock = threading.Lock()
 
         self.context: Optional[zmq.Context] = None
         self._running = False
@@ -103,6 +130,11 @@ class TycheEngine:
                 target=self._registration_worker, name="registration", daemon=True
             ),
             threading.Thread(
+                target=self._registration_egress_worker,
+                name="registration_egress",
+                daemon=True,
+            ),
+            threading.Thread(
                 target=self._heartbeat_worker, name="heartbeat", daemon=True
             ),
             threading.Thread(
@@ -113,6 +145,11 @@ class TycheEngine:
             ),
             threading.Thread(
                 target=self._event_proxy_worker, name="event_proxy", daemon=True
+            ),
+            threading.Thread(
+                target=self._event_egress_worker,
+                name="event_egress",
+                daemon=True,
             ),
             threading.Thread(
                 target=self._admin_worker, name="admin", daemon=True
@@ -141,18 +178,18 @@ class TycheEngine:
     # ── Registration ──────────────────────────────────────────────
 
     def _registration_worker(self) -> None:
-        """Handle module registrations in dedicated thread."""
+        """Receive registration requests and enqueue to typed queue."""
         assert self.context is not None
-        socket = self.context.socket(zmq.ROUTER)
-        socket.setsockopt(zmq.LINGER, 0)
+        self._registration_socket = self.context.socket(zmq.ROUTER)
+        self._registration_socket.setsockopt(zmq.LINGER, 0)
         try:
-            socket.bind(str(self.registration_endpoint))
-            socket.setsockopt(zmq.RCVTIMEO, 100)
+            self._registration_socket.bind(str(self.registration_endpoint))
+            self._registration_socket.setsockopt(zmq.RCVTIMEO, 100)
 
             while self._running:
                 try:
-                    frames = socket.recv_multipart()
-                    self._process_registration(socket, frames)
+                    frames = self._registration_socket.recv_multipart()
+                    self._message_queues[MessageType.REGISTER].put(frames)
                 except zmq.error.Again:
                     continue
                 except Exception as e:
@@ -161,11 +198,20 @@ class TycheEngine:
         except Exception as e:
             logger.error("Registration worker failed to start: %s", e)
         finally:
-            socket.close()
+            if self._registration_socket is not None:
+                self._registration_socket.close()
+                self._registration_socket = None
 
-    def _process_registration(
-        self, socket: zmq.Socket, frames: List[bytes]
-    ) -> None:
+    def _registration_egress_worker(self) -> None:
+        """Dequeue registration requests and send ACK replies."""
+        while self._running:
+            try:
+                frames = self._message_queues[MessageType.REGISTER].get(timeout=0.1)
+            except queue.Empty:
+                continue
+            self._process_registration(frames)
+
+    def _process_registration(self, frames: List[bytes]) -> None:
         """Process a registration request from a module."""
         if len(frames) < 2:
             return
@@ -195,7 +241,11 @@ class TycheEngine:
                         "ack_port": self.ack_endpoint.port,
                     },
                 )
-                socket.send_multipart([identity, b"", serialize(ack)])
+                if self._registration_socket is not None:
+                    with self._registration_lock:
+                        self._registration_socket.send_multipart(
+                            [identity, b"", serialize(ack)]
+                        )
                 logger.info("Registered module: %s", module_info.module_id)
         except Exception as e:
             logger.error("Failed to process registration: %s", e)
@@ -223,7 +273,11 @@ class TycheEngine:
         )
 
     def register_module(self, module_info: ModuleInfo) -> None:
-        """Register a module and its interfaces (thread-safe)."""
+        """Register a module and its interfaces (thread-safe).
+
+        Creates a dedicated queue for every interface/topic declared by the
+        module, enabling per-topic routing and backpressure in the future.
+        """
         with self._lock:
             self.modules[module_info.module_id] = module_info
 
@@ -234,6 +288,11 @@ class TycheEngine:
                 self.interfaces[event_name].append(
                     (module_info.module_id, interface)
                 )
+                # Create dedicated topic queue on first registration
+                with self._topic_queues_lock:
+                    if event_name not in self._topic_queues:
+                        self._topic_queues[event_name] = []
+                        logger.info("Created topic queue: %s", event_name)
 
         self.heartbeat_manager.register(module_info.module_id)
 
@@ -264,18 +323,15 @@ class TycheEngine:
         """Handle request-response correlation via ROUTER socket.
 
         Modules send requests via DEALER; we record correlation_id -> identity,
-        broadcast the request through the event proxy, and later route the
-        response back to the original caller.
+        enqueue the request for the event egress worker to broadcast, and
+        route responses back to the original caller.
         """
         assert self.context is not None
         router = self.context.socket(zmq.ROUTER)
         router.setsockopt(zmq.LINGER, 0)
-        pub = self.context.socket(zmq.PUB)
-        pub.setsockopt(zmq.LINGER, 0)
         try:
             router.bind(str(self.ack_endpoint))
             router.setsockopt(zmq.RCVTIMEO, 100)
-            pub.connect(str(self.event_sub_endpoint))
 
             while self._running:
                 try:
@@ -296,10 +352,15 @@ class TycheEngine:
                         if correlation_id:
                             with self._ack_lock:
                                 self._ack_correlations[correlation_id] = identity
-                        # Broadcast request via event proxy
-                        pub.send_multipart(
-                            [msg.event.encode(), serialize(msg)]
-                        )
+                        # Enqueue to the dedicated topic queue
+                        topic = msg.event
+                        with self._topic_queues_lock:
+                            q = self._topic_queues.get(topic)
+                            if q is None:
+                                q = []
+                                self._topic_queues[topic] = q
+                            q.append([msg.event.encode(), serialize(msg)])
+                        self._egress_wakeup.put(None)
                     elif msg.msg_type == MessageType.RESPONSE:
                         correlation_id = msg.payload.get("_correlation_id")
                         with self._ack_lock:
@@ -319,33 +380,36 @@ class TycheEngine:
             logger.error("ACK worker failed to start: %s", e)
         finally:
             router.close()
-            pub.close()
 
     def _event_proxy_worker(self) -> None:
         """XSUB/XPUB proxy for event distribution.
 
         Modules publish events to the XSUB socket.
         Modules subscribe to events via the XPUB socket.
-        The proxy forwards between them.
+        The proxy forwards between them directly for minimum latency.
+
+        Per-topic queues are maintained for ACK messages (routed by
+        _ack_worker) and future backpressure / persistence features,
+        but the hot path bypasses them to preserve throughput.
         """
         assert self.context is not None
 
-        xpub = self.context.socket(zmq.XPUB)
-        xpub.setsockopt(zmq.LINGER, 0)
-        xpub.setsockopt(zmq.SNDHWM, 10000)
-        xpub.setsockopt(zmq.RCVHWM, 10000)
-        xsub = self.context.socket(zmq.XSUB)
-        xsub.setsockopt(zmq.LINGER, 0)
-        xsub.setsockopt(zmq.SNDHWM, 10000)
-        xsub.setsockopt(zmq.RCVHWM, 10000)
+        self._xpub_socket = self.context.socket(zmq.XPUB)
+        self._xpub_socket.setsockopt(zmq.LINGER, 0)
+        self._xpub_socket.setsockopt(zmq.SNDHWM, 10000)
+        self._xpub_socket.setsockopt(zmq.RCVHWM, 10000)
+        self._xsub_socket = self.context.socket(zmq.XSUB)
+        self._xsub_socket.setsockopt(zmq.LINGER, 0)
+        self._xsub_socket.setsockopt(zmq.SNDHWM, 10000)
+        self._xsub_socket.setsockopt(zmq.RCVHWM, 10000)
 
         try:
-            xpub.bind(str(self.event_endpoint))
-            xsub.bind(str(self.event_sub_endpoint))
+            self._xpub_socket.bind(str(self.event_endpoint))
+            self._xsub_socket.bind(str(self.event_sub_endpoint))
 
             poller = zmq.Poller()
-            poller.register(xpub, zmq.POLLIN)
-            poller.register(xsub, zmq.POLLIN)
+            poller.register(self._xpub_socket, zmq.POLLIN)
+            poller.register(self._xsub_socket, zmq.POLLIN)
 
             while self._running:
                 try:
@@ -353,20 +417,93 @@ class TycheEngine:
                 except zmq.error.ZMQError:
                     break
 
-                if xpub in events:
-                    frame = xpub.recv_multipart()
-                    xsub.send_multipart(frame)
+                if self._xpub_socket in events:
+                    with self._xpub_lock:
+                        frame = self._xpub_socket.recv_multipart()
+                    self._xsub_socket.send_multipart(frame)
 
-                if xsub in events:
-                    frame = xsub.recv_multipart()
-                    xpub.send_multipart(frame)
-                    with self._lock:
-                        self._event_count += 1
+                if self._xsub_socket in events:
+                    # Batch drain — amortise poll() overhead over many messages
+                    batch_count = 0
+                    while self._running:
+                        try:
+                            frames = self._xsub_socket.recv_multipart(zmq.NOBLOCK)
+                            self._xpub_socket.send_multipart(frames)
+                            batch_count += 1
+                        except zmq.error.Again:
+                            break
+                    if batch_count:
+                        with self._lock:
+                            self._event_count += batch_count
         except Exception as e:
             logger.error("Event proxy worker failed: %s", e)
         finally:
-            xpub.close()
-            xsub.close()
+            if self._xpub_socket is not None:
+                self._xpub_socket.close()
+                self._xpub_socket = None
+            if self._xsub_socket is not None:
+                self._xsub_socket.close()
+                self._xsub_socket = None
+
+    def _enqueue_from_xsub(self, frames: List[bytes]) -> None:
+        """Route XSUB data to the dedicated topic queue.
+
+        Topic is taken from frame[0]; queue is created on-demand if a module
+        has not yet registered for this topic (dynamic subscription).
+        Fast path avoids the dict lock when the queue already exists.
+        """
+        if len(frames) < 2:
+            return
+        topic = frames[0].decode()
+        # Fast path: lock-free lookup for existing queues (hot path)
+        q = self._topic_queues.get(topic)
+        if q is not None:
+            q.append(frames)
+            return
+        # Slow path: create queue under lock
+        with self._topic_queues_lock:
+            q = self._topic_queues.get(topic)
+            if q is None:
+                q = []
+                self._topic_queues[topic] = q
+                logger.debug("Created dynamic topic queue: %s", topic)
+            q.append(frames)
+        self._egress_wakeup.put(None)
+
+    def _event_egress_worker(self) -> None:
+        """Background drainer for ACK messages and catch-up under backpressure.
+
+        Blocks on a wakeup queue so it does not spin.  The proxy worker
+        handles the bulk of event forwarding inline; this worker only
+        activates when ACK messages (enqueued by _ack_worker) need delivery.
+        """
+        while self._running:
+            try:
+                self._egress_wakeup.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            # Drain all topic queues completely
+            with self._topic_queues_lock:
+                queues = list(self._topic_queues.items())
+
+            for topic, q in queues:
+                while self._running:
+                    try:
+                        frames = q.pop()
+                    except IndexError:
+                        break
+
+                    if self._xpub_socket is not None:
+                        try:
+                            with self._xpub_lock:
+                                self._xpub_socket.send_multipart(frames)
+                            with self._lock:
+                                self._event_count += 1
+                        except Exception as e:
+                            if self._running:
+                                logger.error("Event egress error: %s", e)
+                            break
 
     # ── Heartbeat ─────────────────────────────────────────────────
 
@@ -487,20 +624,31 @@ class TycheEngine:
         msg_data = frames[2] if len(frames) >= 3 and frames[1] == b"" else frames[1]
 
         try:
-            import msgpack
-
             query = msgpack.unpackb(msg_data, raw=False)
             response: dict = {}
 
             if query == "STATUS":
                 with self._lock:
                     uptime = time.time() - self._start_time
+                    with self._topic_queues_lock:
+                        topic_queue_sizes = {
+                            topic: len(q)
+                            for topic, q in self._topic_queues.items()
+                        }
                     response = {
                         "status": "running",
                         "uptime": uptime,
                         "module_count": len(self.modules),
                         "event_count": self._event_count,
                         "register_count": self._register_count,
+                        "topic_queue_count": len(self._topic_queues),
+                        "topic_queue_sizes": topic_queue_sizes,
+                        "other_queue_sizes": {
+                            "register": self._message_queues[MessageType.REGISTER].qsize(),
+                            "response": self._message_queues[MessageType.RESPONSE].qsize(),
+                            "ack": self._message_queues[MessageType.ACK].qsize(),
+                            "heartbeat": self._heartbeat_queue.qsize(),
+                        },
                     }
             elif query == "MODULES":
                 with self._lock:

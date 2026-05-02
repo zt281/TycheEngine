@@ -25,6 +25,7 @@ class TestMessageQueueThroughput:
             event_endpoint=Endpoint("127.0.0.1", 25002),
             heartbeat_endpoint=Endpoint("127.0.0.1", 25004),
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25006),
+            admin_endpoint="tcp://127.0.0.1:25600",
         )
         engine.start_nonblocking()
         time.sleep(0.3)
@@ -85,6 +86,7 @@ class TestMessageQueueThroughput:
             event_endpoint=Endpoint("127.0.0.1", 25102),
             heartbeat_endpoint=Endpoint("127.0.0.1", 25104),
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25106),
+            admin_endpoint="tcp://127.0.0.1:25601",
         )
         engine.start_nonblocking()
         time.sleep(0.3)
@@ -179,6 +181,7 @@ class TestMessageQueueLatency:
             event_endpoint=Endpoint("127.0.0.1", 25202),
             heartbeat_endpoint=Endpoint("127.0.0.1", 25204),
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25206),
+            admin_endpoint="tcp://127.0.0.1:25602",
         )
         engine.start_nonblocking()
         time.sleep(0.3)

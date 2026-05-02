@@ -42,8 +42,8 @@ def main():
     print()
 
     try:
-        # Start module in non-blocking mode so we can call start_ping_pong()
-        module.start_nonblocking()
+        # Start module (non-blocking) so we can call start_ping_pong()
+        module.start()
 
         # Wait briefly for registration to complete
         time.sleep(1)

@@ -69,7 +69,7 @@ def main() -> None:
     print()
 
     try:
-        gateway.start_nonblocking()
+        gateway.start()
         time.sleep(1)
 
         # Start generating market data

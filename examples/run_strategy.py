@@ -65,7 +65,7 @@ def main() -> None:
     print()
 
     try:
-        strategy.start_nonblocking()
+        strategy.start()
 
         # Keep alive and print stats
         while True:

@@ -125,7 +125,7 @@ def main(argv: Optional[list] = None) -> int:
     venue = gateway.venue_name
     instrument_ids = [f"{sym}.{venue}.futures" for sym in gateway._subscribed_instruments or args.instruments]
     logger.info("Starting CTP gateway (venue=%s, id=%s)", gateway.venue_name, gateway.module_id)
-    gateway.start_nonblocking()
+    gateway.start()
     time.sleep(0.5)
     gateway.connect()
     if instrument_ids:

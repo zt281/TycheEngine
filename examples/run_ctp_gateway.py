@@ -175,7 +175,7 @@ def main() -> None:
 
     try:
         # Start the module (registers with engine)
-        gateway.start_nonblocking()
+        gateway.start()
         time.sleep(1)
 
         # Connect to CTP front servers and log in

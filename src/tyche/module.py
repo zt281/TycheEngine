@@ -52,6 +52,10 @@ class TycheModule(ModuleBase):
         self._handlers: Dict[str, Callable[..., Any]] = {}
         self._handlers_lock = threading.RLock()
 
+        # ZMQ socket locks (sockets are not thread-safe)
+        self._pub_lock = threading.Lock()
+        self._ack_lock = threading.Lock()
+
         # Discovered interfaces
         self._interfaces: List[Interface] = []
 
@@ -308,7 +312,18 @@ class TycheModule(ModuleBase):
                 frames = self._sub_socket.recv_multipart()
                 if len(frames) >= 2:
                     topic = frames[0].decode()
-                    msg = deserialize(frames[1])
+                    try:
+                        msg = deserialize(frames[1])
+                    except Exception as e:
+                        logger.error(
+                            "[%s] Deserialization failed on topic=%s frames=%s all_frames=%r: %s",
+                            self._module_id,
+                            topic,
+                            len(frames),
+                            [f[:100] for f in frames],
+                            e,
+                        )
+                        continue
                     # Ignore messages sent by ourselves
                     if msg.sender == self._module_id:
                         continue
@@ -325,7 +340,8 @@ class TycheModule(ModuleBase):
                                     "_correlation_id": correlation_id,
                                 },
                             )
-                            self._ack_socket.send(serialize(response))
+                            with self._ack_lock:
+                                self._ack_socket.send(serialize(response))
             except zmq.error.Again:
                 continue
             except Exception as e:
@@ -388,7 +404,8 @@ class TycheModule(ModuleBase):
             payload=payload,
         )
 
-        self._pub_socket.send_multipart([event.encode(), serialize(msg)])
+        with self._pub_lock:
+            self._pub_socket.send_multipart([event.encode(), serialize(msg)])
 
     def send_event_with_response(
         self,
@@ -426,7 +443,8 @@ class TycheModule(ModuleBase):
         )
 
         # Send request via DEALER to engine's ACK router
-        self._ack_socket.send(serialize(msg))
+        with self._ack_lock:
+            self._ack_socket.send(serialize(msg))
 
         # Wait for response on same DEALER ACK socket
         self._ack_socket.setsockopt(zmq.RCVTIMEO, timeout_ms)

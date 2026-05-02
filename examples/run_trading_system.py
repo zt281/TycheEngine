@@ -69,7 +69,7 @@ def main() -> None:
         heartbeat_receive_endpoint=Endpoint(ENGINE_HOST, HB_RECV_PORT),
         admin_endpoint=f"tcp://{ENGINE_HOST}:5560",
     )
-    engine.start_nonblocking()
+    engine.start()
     time.sleep(0.5)
 
     # --- Start Risk Module ---
@@ -83,7 +83,7 @@ def main() -> None:
             MaxDailyLossRule(max_loss=Decimal("5000")),
         ],
     )
-    risk.start_nonblocking()
+    risk.start()
     time.sleep(0.3)
 
     # --- Start OMS ---
@@ -92,7 +92,7 @@ def main() -> None:
         engine_endpoint=engine_endpoint,
         heartbeat_receive_endpoint=hb_recv_endpoint,
     )
-    oms.start_nonblocking()
+    oms.start()
     time.sleep(0.3)
 
     # --- Start Portfolio ---
@@ -102,7 +102,7 @@ def main() -> None:
         heartbeat_receive_endpoint=hb_recv_endpoint,
     )
     portfolio.subscribe_quotes(INSTRUMENTS)
-    portfolio.start_nonblocking()
+    portfolio.start()
     time.sleep(0.3)
 
     # --- Start Data Recorder ---
@@ -113,7 +113,7 @@ def main() -> None:
         data_dir="./data/recorded",
         instrument_ids=INSTRUMENTS,
     )
-    recorder.start_nonblocking()
+    recorder.start()
     time.sleep(0.3)
 
     # --- Start Simulated Gateway ---
@@ -128,7 +128,7 @@ def main() -> None:
             "ETHUSDT.simulated.crypto": Decimal("3200.00"),
         },
     )
-    gateway.start_nonblocking()
+    gateway.start()
     time.sleep(0.3)
     gateway.start_market_data()
 
@@ -142,7 +142,7 @@ def main() -> None:
         slow_period=15,
         order_quantity=Decimal("0.1"),
     )
-    strategy.start_nonblocking()
+    strategy.start()
     time.sleep(0.5)
 
     print()
