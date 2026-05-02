@@ -13,7 +13,7 @@ from modules.trading.models.order import Order
 from modules.trading.models.position import Position
 from modules.trading.risk.rules import RiskContext, RiskRule, RiskRuleEngine
 from tyche.module import TycheModule
-from tyche.types import DurabilityLevel, Endpoint, InterfacePattern
+from tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +40,12 @@ class RiskModule(TycheModule):
         self._rule_engine = RiskRuleEngine(rules=rules)
         self._risk_context = RiskContext()
 
-        # Register handlers
-        self.add_interface(
-            name=f"ack_{events.ORDER_SUBMIT}",
-            handler=self._handle_order_submit,
-            pattern=InterfacePattern.ACK,
-            durability=DurabilityLevel.ASYNC_FLUSH,
-        )
-
-        # Listen for position updates to maintain context
-        self.add_interface(
-            name=f"on_common_{events.POSITION_UPDATE}",
-            handler=self._handle_position_update,
-            pattern=InterfacePattern.ON_COMMON,
-        )
-
     def add_rule(self, rule: RiskRule) -> None:
         """Add a risk rule at runtime."""
         self._rule_engine.add_rule(rule)
 
-    def _handle_order_submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Evaluate order against risk rules (ack_ pattern).
+    def handle_broadcasted_order_submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Evaluate order against risk rules (handle_broadcasted pattern).
 
         Returns response indicating approval or rejection.
         """
@@ -103,7 +88,7 @@ class RiskModule(TycheModule):
             )
             return {"approved": False, "order_id": order.order_id, "reason": reasons}
 
-    def _handle_position_update(self, payload: Dict[str, Any]) -> None:
+    def on_broadcasted_position_update(self, payload: Dict[str, Any]) -> None:
         """Update risk context with latest position data."""
         position = Position.from_dict(payload)
         self._risk_context.positions[position.instrument_id] = position

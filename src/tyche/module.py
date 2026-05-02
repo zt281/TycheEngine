@@ -3,9 +3,9 @@
 Modules connect to TycheEngine and handle events using interface patterns.
 """
 
+import inspect
 import logging
 import threading
-import time
 from typing import Any, Callable, Dict, List, Optional
 
 import zmq
@@ -42,13 +42,11 @@ class TycheModule(ModuleBase):
         self,
         engine_endpoint: Endpoint,
         module_id: Optional[str] = None,
-        event_endpoint: Optional[Endpoint] = None,
         heartbeat_endpoint: Optional[Endpoint] = None,
         heartbeat_receive_endpoint: Optional[Endpoint] = None,
     ):
         self._module_id = module_id or ModuleId.generate()
         self.engine_endpoint = engine_endpoint
-        self.event_endpoint = event_endpoint
         self.heartbeat_endpoint = heartbeat_endpoint
         self.heartbeat_receive_endpoint = heartbeat_receive_endpoint
 
@@ -59,8 +57,8 @@ class TycheModule(ModuleBase):
         self._interfaces: List[Interface] = []
 
         # Ports returned by engine during registration
-        self._event_pub_port: Optional[int] = None
-        self._event_sub_port: Optional[int] = None
+        self._engine_pub_port: Optional[int] = None
+        self._engine_sub_port: Optional[int] = None
 
         # ZMQ context and sockets
         self.context: Optional[zmq.Context] = None
@@ -74,6 +72,9 @@ class TycheModule(ModuleBase):
         self._stop_event = threading.Event()
         self._registered = False
 
+        # Auto-discover interfaces from method names
+        self._discover_and_register_handlers()
+
     @property
     def module_id(self) -> str:
         """Return module identifier."""
@@ -84,17 +85,43 @@ class TycheModule(ModuleBase):
         """Return discovered interfaces."""
         return self._interfaces
 
-    def add_interface(
+    # ── Interface Discovery ───────────────────────────────────────
+
+    @staticmethod
+    def _pattern_for_name(name: str) -> Optional[InterfacePattern]:
+        """Determine interface pattern from method name."""
+        if name.startswith("handle_broadcasted_"):
+            return InterfacePattern.HANDLE_BROADCASTED
+        if name.startswith("on_broadcasted_"):
+            return InterfacePattern.ON_BROADCASTED
+        if name.startswith("handle_whispered_"):
+            return InterfacePattern.HANDLE_WHISPERED
+        if name.startswith("on_whispered_"):
+            return InterfacePattern.ON_WHISPERED
+        if name.startswith("handle_streaming_"):
+            return InterfacePattern.HANDLE_STREAMING
+        if name.startswith("on_streaming_"):
+            return InterfacePattern.ON_STREAMING
+        return None
+
+    def _discover_and_register_handlers(self) -> None:
+        """Auto-discover interfaces from method names and register handlers."""
+        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
+            pattern = self._pattern_for_name(name)
+            if pattern:
+                self._register_handler(name, method, pattern)
+
+    def _register_handler(
         self,
         name: str,
         handler: Callable[..., Any],
-        pattern: InterfacePattern = InterfacePattern.ON,
+        pattern: InterfacePattern = InterfacePattern.ON_STREAMING,
         durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH,
     ) -> None:
-        """Add an event handler interface.
+        """Register an event handler interface (for internal/subclass use).
 
         Args:
-            name: Interface name (e.g., "on_data", "ack_request")
+            name: Interface name (e.g., "on_streaming_data")
             handler: Function to handle events
             pattern: Interface pattern type
             durability: Message durability level
@@ -137,16 +164,16 @@ class TycheModule(ModuleBase):
 
         # Set up event PUB socket (module -> engine XSUB)
         host = self.engine_endpoint.host
-        if self._event_sub_port is not None:
+        if self._engine_sub_port is not None:
             self._pub_socket = self.context.socket(zmq.PUB)
             self._pub_socket.setsockopt(zmq.LINGER, 0)
-            self._pub_socket.connect(f"tcp://{host}:{self._event_sub_port}")
+            self._pub_socket.connect(f"tcp://{host}:{self._engine_sub_port}")
 
         # Set up event SUB socket (engine XPUB -> module)
-        if self._event_pub_port is not None:
+        if self._engine_pub_port is not None:
             self._sub_socket = self.context.socket(zmq.SUB)
             self._sub_socket.setsockopt(zmq.LINGER, 0)
-            self._sub_socket.connect(f"tcp://{host}:{self._event_pub_port}")
+            self._sub_socket.connect(f"tcp://{host}:{self._engine_pub_port}")
             # Subscribe to events matching our handlers
             self._subscribe_to_interfaces()
 
@@ -239,8 +266,8 @@ class TycheModule(ModuleBase):
 
             if reply.msg_type == MessageType.ACK:
                 self._registered = True
-                self._event_pub_port = reply.payload.get("event_pub_port")
-                self._event_sub_port = reply.payload.get("event_sub_port")
+                self._engine_pub_port = reply.payload.get("event_pub_port")
+                self._engine_sub_port = reply.payload.get("event_sub_port")
                 logger.info("[%s] Registered with engine", self._module_id)
                 return True
 
@@ -280,21 +307,27 @@ class TycheModule(ModuleBase):
                 if self._running:
                     logger.error("[%s] Event receive error: %s", self._module_id, e)
 
-    def _dispatch(self, topic: str, msg: Message) -> None:
-        """Route an incoming message to the correct handler."""
+    def _dispatch(self, topic: str, msg: Message) -> Any:
+        """Route an incoming message to the correct handler.
+
+        Returns:
+            Handler result for handle_* prefixes, None for on_* prefixes.
+        """
         handler = self._handlers.get(topic)
         if handler is None:
-            return
+            return None
 
         try:
-            if topic.startswith("ack_"):
-                handler(msg.payload)
+            if topic.startswith("handle_"):
+                return handler(msg.payload)
             else:
                 handler(msg.payload)
+                return None
         except Exception as e:
             logger.error(
                 "[%s] Handler %s raised: %s", self._module_id, topic, e
             )
+            return None
 
     # ── Event Publishing ──────────────────────────────────────────
 
@@ -393,8 +426,4 @@ class TycheModule(ModuleBase):
                         "[%s] Heartbeat send error: %s", self._module_id, e
                     )
 
-            # Interruptible sleep
-            for _ in range(int(HEARTBEAT_INTERVAL * 10)):
-                if not self._running:
-                    break
-                time.sleep(0.1)
+            self._stop_event.wait(HEARTBEAT_INTERVAL)

@@ -12,7 +12,7 @@ from modules.trading import events
 from modules.trading.models.order import Fill
 from modules.trading.models.position import Position
 from tyche.module import TycheModule
-from tyche.types import DurabilityLevel, Endpoint, InterfacePattern
+from tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,12 @@ class PortfolioModule(TycheModule):
     - Broadcast account summary updates
 
     Listens to:
-    - fill.{instrument_id}: Update positions on fills
-    - quote.{instrument_id}: Update mark-to-market pricing
+    - fill events: Update positions on fills
+    - quote events: Update mark-to-market pricing
 
     Publishes:
-    - position.update (on_common_): When position changes
-    - account.update (on_common_): Periodic account summary
+    - position.update (on_broadcasted): When position changes
+    - account.update (on_broadcasted): Periodic account summary
     """
 
     def __init__(
@@ -46,22 +46,16 @@ class PortfolioModule(TycheModule):
         self._total_realized_pnl: Decimal = Decimal("0")
         self._total_unrealized_pnl: Decimal = Decimal("0")
 
-        # Register fill handler (subscribes to all fills via prefix)
-        self.add_interface(
-            name=f"on_{events.FILL}",
-            handler=self._handle_fill,
-            pattern=InterfacePattern.ON,
-            durability=DurabilityLevel.ASYNC_FLUSH,
-        )
-
     def subscribe_quotes(self, instrument_ids: list) -> None:  # type: ignore[type-arg]
-        """Subscribe to quote events for mark-to-market updates."""
+        """Track quote events for mark-to-market updates.
+
+        Under v2, all quote events flow through on_streaming_quote and
+        are filtered by instrument_id internally.
+        """
+        # Ensure positions exist for tracking
         for instrument_id in instrument_ids:
-            self.add_interface(
-                name=f"on_{events.quote_event(instrument_id)}",
-                handler=self._handle_quote,
-                pattern=InterfacePattern.ON,
-            )
+            if instrument_id not in self._positions:
+                self._positions[instrument_id] = Position(instrument_id=instrument_id)
 
     def get_position(self, instrument_id: str) -> Position:
         """Get position for an instrument."""
@@ -81,7 +75,7 @@ class PortfolioModule(TycheModule):
     def total_unrealized_pnl(self) -> Decimal:
         return sum((p.unrealized_pnl for p in self._positions.values()), Decimal("0"))
 
-    def _handle_fill(self, payload: Dict[str, Any]) -> None:
+    def on_broadcasted_fill(self, payload: Dict[str, Any]) -> None:
         """Process a fill and update position."""
         fill = Fill.from_dict(payload)
         position = self.get_position(fill.instrument_id)
@@ -105,23 +99,25 @@ class PortfolioModule(TycheModule):
         # Broadcast position update
         self._publish_position_update(position)
 
-    def _handle_quote(self, payload: Dict[str, Any]) -> None:
+    def on_streaming_quote(self, payload: Dict[str, Any]) -> None:
         """Update mark-to-market pricing from quotes."""
         instrument_id = payload.get("instrument_id", "")
-        if instrument_id in self._positions:
-            # Use mid price for mark-to-market
-            bid = Decimal(payload.get("bid", "0"))
-            ask = Decimal(payload.get("ask", "0"))
-            mid = (bid + ask) / 2 if bid and ask else Decimal("0")
+        if instrument_id not in self._positions:
+            return
 
-            if mid > Decimal("0"):
-                position = self._positions[instrument_id]
-                old_pnl = position.unrealized_pnl
-                position.update_price(mid)
+        # Use mid price for mark-to-market
+        bid = Decimal(payload.get("bid", "0"))
+        ask = Decimal(payload.get("ask", "0"))
+        mid = (bid + ask) / 2 if bid and ask else Decimal("0")
 
-                # Only broadcast if P&L changed materially
-                if abs(position.unrealized_pnl - old_pnl) > Decimal("0.01"):
-                    self._publish_position_update(position)
+        if mid > Decimal("0"):
+            position = self._positions[instrument_id]
+            old_pnl = position.unrealized_pnl
+            position.update_price(mid)
+
+            # Only broadcast if P&L changed materially
+            if abs(position.unrealized_pnl - old_pnl) > Decimal("0.01"):
+                self._publish_position_update(position)
 
     def _publish_position_update(self, position: Position) -> None:
         """Broadcast position update to all subscribers."""

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from modules.trading import events
 from tyche.module import TycheModule
-from tyche.types import Endpoint, InterfacePattern
+from tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -43,50 +43,37 @@ class DataRecorderModule(TycheModule):
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._instrument_ids = instrument_ids or []
+        self._record_fills = record_fills
+        self._record_orders = record_orders
         self._event_count = 0
         self._file_handles: Dict[str, Any] = {}
 
-        # Subscribe to market data for specified instruments
-        for instrument_id in self._instrument_ids:
-            self.add_interface(
-                name=f"on_{events.quote_event(instrument_id)}",
-                handler=self._record_event,
-                pattern=InterfacePattern.ON,
-            )
-            self.add_interface(
-                name=f"on_{events.trade_event(instrument_id)}",
-                handler=self._record_event,
-                pattern=InterfacePattern.ON,
-            )
-
-        # Optionally record fills and order updates
-        if record_fills:
-            self.add_interface(
-                name=f"on_{events.FILL}",
-                handler=self._record_event,
-                pattern=InterfacePattern.ON,
-            )
-        if record_orders:
-            self.add_interface(
-                name=f"on_{events.ORDER_UPDATE}",
-                handler=self._record_event,
-                pattern=InterfacePattern.ON,
-            )
-
     def subscribe_instrument(self, instrument_id: str) -> None:
-        """Add an instrument to record at runtime."""
+        """Add an instrument to track at runtime."""
         if instrument_id not in self._instrument_ids:
             self._instrument_ids.append(instrument_id)
-            self.add_interface(
-                name=f"on_{events.quote_event(instrument_id)}",
-                handler=self._record_event,
-                pattern=InterfacePattern.ON,
-            )
-            self.add_interface(
-                name=f"on_{events.trade_event(instrument_id)}",
-                handler=self._record_event,
-                pattern=InterfacePattern.ON,
-            )
+
+    def on_streaming_quote(self, payload: Dict[str, Any]) -> None:
+        """Record quote events."""
+        self._record_event(payload)
+
+    def on_streaming_trade(self, payload: Dict[str, Any]) -> None:
+        """Record trade events."""
+        self._record_event(payload)
+
+    def on_streaming_bar(self, payload: Dict[str, Any]) -> None:
+        """Record bar events."""
+        self._record_event(payload)
+
+    def on_broadcasted_fill(self, payload: Dict[str, Any]) -> None:
+        """Record fill events."""
+        if self._record_fills:
+            self._record_event(payload)
+
+    def on_broadcasted_order_update(self, payload: Dict[str, Any]) -> None:
+        """Record order update events."""
+        if self._record_orders:
+            self._record_event(payload)
 
     def _record_event(self, payload: Dict[str, Any]) -> None:
         """Write event payload to file as JSON line."""

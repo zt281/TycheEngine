@@ -57,12 +57,13 @@ def test_event_type_values():
 
 
 def test_interface_pattern_values():
-    """InterfacePattern enum has expected prefixes."""
-    assert InterfacePattern.ON.value == "on_"
-    assert InterfacePattern.ACK.value == "ack_"
-    assert InterfacePattern.WHISPER.value == "whisper_"
-    assert InterfacePattern.ON_COMMON.value == "on_common_"
-    assert InterfacePattern.BROADCAST.value == "broadcast_"
+    """InterfacePattern enum has expected v2 categories and prefixes."""
+    assert InterfacePattern.ON_BROADCASTED.value == "on_broadcasted"
+    assert InterfacePattern.HANDLE_BROADCASTED.value == "handle_broadcasted"
+    assert InterfacePattern.ON_WHISPERED.value == "on_whispered"
+    assert InterfacePattern.HANDLE_WHISPERED.value == "handle_whispered"
+    assert InterfacePattern.ON_STREAMING.value == "on_streaming"
+    assert InterfacePattern.HANDLE_STREAMING.value == "handle_streaming"
 
 
 def test_durability_levels():
@@ -88,9 +89,9 @@ def test_heartbeat_constants():
 def test_interface_dataclass_defaults():
     """Interface dataclass has correct default durability."""
     iface = Interface(
-        name="on_data",
-        pattern=InterfacePattern.ON,
-        event_type="on_data",
+        name="on_streaming_data",
+        pattern=InterfacePattern.ON_STREAMING,
+        event_type="on_streaming_data",
     )
     assert iface.durability == DurabilityLevel.ASYNC_FLUSH
 

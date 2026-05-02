@@ -52,12 +52,17 @@ class EventType(Enum):
 
 
 class InterfacePattern(Enum):
-    """Module interface naming patterns."""
-    ON = "on_"           # Fire-and-forget, load-balanced
-    ACK = "ack_"         # Must reply with ACK
-    WHISPER = "whisper_" # Direct P2P
-    ON_COMMON = "on_common_"  # Broadcast to all
-    BROADCAST = "broadcast_"  # Publish via Engine
+    """Module interface naming patterns (v2).
+
+    Three message categories, each with fire-and-forget (on_*) and
+    request-response (handle_*) variants.
+    """
+    ON_BROADCASTED = "on_broadcasted"
+    HANDLE_BROADCASTED = "handle_broadcasted"
+    ON_WHISPERED = "on_whispered"
+    HANDLE_WHISPERED = "handle_whispered"
+    ON_STREAMING = "on_streaming"
+    HANDLE_STREAMING = "handle_streaming"
 
 
 class DurabilityLevel(Enum):

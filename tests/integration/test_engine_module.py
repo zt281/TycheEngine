@@ -54,7 +54,7 @@ def test_event_pubsub():
     received = []
 
     class ReceiverModule(TycheModule):
-        def on_test_event(self, payload: dict) -> None:
+        def on_streaming_test_event(self, payload: dict) -> None:
             received.append(payload)
 
     receiver = ReceiverModule(
@@ -62,7 +62,6 @@ def test_event_pubsub():
         heartbeat_receive_endpoint=Endpoint("127.0.0.1", 24106),
         module_id="receiver_001",
     )
-    receiver.add_interface("on_test_event", receiver.on_test_event)
 
     sender = TycheModule(
         engine_endpoint=Endpoint("127.0.0.1", 24100),
@@ -77,7 +76,7 @@ def test_event_pubsub():
         time.sleep(0.5)
 
         # Send event through the proxy
-        sender.send_event("on_test_event", {"data": "hello"})
+        sender.send_event("on_streaming_test_event", {"data": "hello"})
         time.sleep(0.5)
 
         assert len(received) >= 1, f"Expected at least 1 event, got {len(received)}"
@@ -144,15 +143,15 @@ def test_full_two_node_interaction():
         # Interfaces are discovered
         module_info = engine.modules["athenatest1"]
         interface_names = [i.name for i in module_info.interfaces]
-        assert "on_data" in interface_names
-        assert "ack_request" in interface_names
+        assert "on_streaming_data" in interface_names
+        assert "handle_broadcasted_request" in interface_names
 
         # Direct handler invocation works
-        module.on_data({"test": "data"})
+        module.on_streaming_data({"test": "data"})
         assert len(module.received_events) == 1
         assert module.received_events[0]["payload"]["test"] == "data"
 
-        response = module.ack_request({"request_id": "test123"})
+        response = module.handle_broadcasted_request({"request_id": "test123"})
         assert response["status"] == "acknowledged"
         assert response["request_id"] == "test123"
 

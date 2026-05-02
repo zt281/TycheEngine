@@ -32,7 +32,7 @@ class TestMessageQueueThroughput:
         received: List[dict] = []
 
         class Receiver(TycheModule):
-            def on_perf_event(self, payload: dict) -> None:
+            def on_streaming_perf_event(self, payload: dict) -> None:
                 received.append(payload)
 
         receiver = Receiver(
@@ -40,7 +40,6 @@ class TestMessageQueueThroughput:
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25006),
             module_id="recv_tp_1",
         )
-        receiver.add_interface("on_perf_event", receiver.on_perf_event)
 
         sender = TycheModule(
             engine_endpoint=Endpoint("127.0.0.1", 25000),
@@ -57,7 +56,7 @@ class TestMessageQueueThroughput:
             msg_count = 5000
             start_send = time.perf_counter()
             for i in range(msg_count):
-                sender.send_event("on_perf_event", {"seq": i})
+                sender.send_event("on_streaming_perf_event", {"seq": i})
 
             # Wait for all messages to propagate
             deadline = time.perf_counter() + 10.0
@@ -95,15 +94,15 @@ class TestMessageQueueThroughput:
         received_c: List[dict] = []
 
         class ReceiverA(TycheModule):
-            def on_perf_event(self, payload: dict) -> None:
+            def on_streaming_perf_event(self, payload: dict) -> None:
                 received_a.append(payload)
 
         class ReceiverB(TycheModule):
-            def on_perf_event(self, payload: dict) -> None:
+            def on_streaming_perf_event(self, payload: dict) -> None:
                 received_b.append(payload)
 
         class ReceiverC(TycheModule):
-            def on_perf_event(self, payload: dict) -> None:
+            def on_streaming_perf_event(self, payload: dict) -> None:
                 received_c.append(payload)
 
         rec_a = ReceiverA(
@@ -111,21 +110,18 @@ class TestMessageQueueThroughput:
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25106),
             module_id="recv_a",
         )
-        rec_a.add_interface("on_perf_event", rec_a.on_perf_event)
 
         rec_b = ReceiverB(
             engine_endpoint=Endpoint("127.0.0.1", 25100),
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25106),
             module_id="recv_b",
         )
-        rec_b.add_interface("on_perf_event", rec_b.on_perf_event)
 
         rec_c = ReceiverC(
             engine_endpoint=Endpoint("127.0.0.1", 25100),
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25106),
             module_id="recv_c",
         )
-        rec_c.add_interface("on_perf_event", rec_c.on_perf_event)
 
         sender = TycheModule(
             engine_endpoint=Endpoint("127.0.0.1", 25100),
@@ -143,7 +139,7 @@ class TestMessageQueueThroughput:
             msg_count = 2000
             start_send = time.perf_counter()
             for i in range(msg_count):
-                sender.send_event("on_perf_event", {"seq": i})
+                sender.send_event("on_streaming_perf_event", {"seq": i})
 
             deadline = time.perf_counter() + 10.0
             while (
@@ -190,7 +186,7 @@ class TestMessageQueueLatency:
         latencies: List[float] = []
 
         class Receiver(TycheModule):
-            def on_latency_event(self, payload: dict) -> None:
+            def on_streaming_latency_event(self, payload: dict) -> None:
                 now = time.perf_counter()
                 sent = payload["ts"]
                 latencies.append((now - sent) * 1000)  # ms
@@ -200,7 +196,6 @@ class TestMessageQueueLatency:
             heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25206),
             module_id="recv_lat_1",
         )
-        receiver.add_interface("on_latency_event", receiver.on_latency_event)
 
         sender = TycheModule(
             engine_endpoint=Endpoint("127.0.0.1", 25200),
@@ -216,7 +211,7 @@ class TestMessageQueueLatency:
 
             msg_count = 1000
             for i in range(msg_count):
-                sender.send_event("on_latency_event", {"seq": i, "ts": time.perf_counter()})
+                sender.send_event("on_streaming_latency_event", {"seq": i, "ts": time.perf_counter()})
                 # small gap to avoid overwhelming the queue during latency test
                 if i % 100 == 0:
                     time.sleep(0.01)

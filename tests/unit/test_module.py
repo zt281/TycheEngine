@@ -1,7 +1,14 @@
-"""Tests for TycheModule core functionality."""
+"""Tests for TycheModule core functionality (v2 interface patterns)."""
+
+from unittest.mock import MagicMock, patch
 
 from tyche.module import TycheModule
-from tyche.types import Endpoint, InterfacePattern
+from tyche.message import Message
+from tyche.types import (
+    Endpoint,
+    InterfacePattern,
+    MessageType,
+)
 
 
 def test_module_init_with_explicit_id():
@@ -17,44 +24,106 @@ def test_module_init_with_explicit_id():
 def test_module_auto_generates_id():
     """TycheModule generates a deity-prefixed ID when none is provided."""
     module = TycheModule(engine_endpoint=Endpoint("127.0.0.1", 5555))
-    # Deity names range from 4 chars ("zeus") to 11 chars ("hephaestus")
-    # plus 6 hex chars = 10 to 17 total
     assert len(module.module_id) >= 10
     assert len(module.module_id) <= 17
 
 
-def test_module_add_interface():
-    """add_interface registers handler and creates Interface entry."""
+def test_module_auto_discovers_all_patterns():
+    """Auto-discovery finds all 6 v2 interface patterns from method names."""
+
+    class DiscoveryModule(TycheModule):
+        def on_broadcasted_alert(self, payload: dict) -> None:
+            pass
+
+        def handle_broadcasted_request(self, payload: dict) -> dict:
+            return {"ack": True}
+
+        def on_whispered_message(self, payload: dict) -> None:
+            pass
+
+        def handle_whispered_command(self, payload: dict) -> dict:
+            return {"done": True}
+
+        def on_streaming_data(self, payload: dict) -> None:
+            pass
+
+        def handle_streaming_query(self, payload: dict) -> dict:
+            return {"result": []}
+
+    module = DiscoveryModule(engine_endpoint=Endpoint("127.0.0.1", 5555))
+    patterns = {i.name: i.pattern for i in module.interfaces}
+
+    assert patterns["on_broadcasted_alert"] == InterfacePattern.ON_BROADCASTED
+    assert patterns["handle_broadcasted_request"] == InterfacePattern.HANDLE_BROADCASTED
+    assert patterns["on_whispered_message"] == InterfacePattern.ON_WHISPERED
+    assert patterns["handle_whispered_command"] == InterfacePattern.HANDLE_WHISPERED
+    assert patterns["on_streaming_data"] == InterfacePattern.ON_STREAMING
+    assert patterns["handle_streaming_query"] == InterfacePattern.HANDLE_STREAMING
+
+    # Handlers are registered
+    assert "on_broadcasted_alert" in module._handlers
+    assert "handle_broadcasted_request" in module._handlers
+
+
+def test_module_dispatch_on_prefix_returns_none():
+    """Dispatching an on_* event calls handler and returns None."""
+
+    class DispatchModule(TycheModule):
+        def on_broadcasted_test(self, payload: dict) -> None:
+            self.called = True
+
+    module = DispatchModule(engine_endpoint=Endpoint("127.0.0.1", 5555))
+    module.called = False
+
+    msg = Message(
+        msg_type=MessageType.EVENT,
+        sender="test",
+        event="on_broadcasted_test",
+        payload={"key": "val"},
+    )
+    result = module._dispatch("on_broadcasted_test", msg)
+    assert result is None
+    assert module.called
+
+
+def test_module_dispatch_handle_prefix_returns_result():
+    """Dispatching a handle_* event calls handler and returns its result."""
+
+    class DispatchModule(TycheModule):
+        def handle_broadcasted_test(self, payload: dict) -> dict:
+            return {"status": "ok", "data": payload}
+
+    module = DispatchModule(engine_endpoint=Endpoint("127.0.0.1", 5555))
+
+    msg = Message(
+        msg_type=MessageType.EVENT,
+        sender="test",
+        event="handle_broadcasted_test",
+        payload={"key": "val"},
+    )
+    result = module._dispatch("handle_broadcasted_test", msg)
+    assert result == {"status": "ok", "data": {"key": "val"}}
+
+
+def test_module_register_handler_dynamic():
+    """_register_handler allows subclasses to add handlers dynamically."""
     module = TycheModule(
         engine_endpoint=Endpoint("127.0.0.1", 5555),
-        module_id="test_mod",
+        module_id="dyn_mod",
     )
 
-    def handler(payload: dict) -> None:
+    def dynamic_handler(payload: dict) -> None:
         pass
 
-    module.add_interface("on_data", handler, pattern=InterfacePattern.ON)
-
-    assert len(module.interfaces) == 1
-    assert module.interfaces[0].name == "on_data"
-    assert module.interfaces[0].pattern == InterfacePattern.ON
-    assert module._handlers["on_data"] is handler
-
-
-def test_module_add_multiple_interfaces():
-    """Multiple interfaces can be added with different patterns."""
-    module = TycheModule(
-        engine_endpoint=Endpoint("127.0.0.1", 5555),
-        module_id="test_mod",
+    module._register_handler(
+        "on_streaming_dynamic",
+        dynamic_handler,
+        InterfacePattern.ON_STREAMING,
     )
 
-    module.add_interface("on_data", lambda p: None, pattern=InterfacePattern.ON)
-    module.add_interface("ack_req", lambda p: {}, pattern=InterfacePattern.ACK)
-
-    assert len(module.interfaces) == 2
-    patterns = {i.name: i.pattern for i in module.interfaces}
-    assert patterns["on_data"] == InterfacePattern.ON
-    assert patterns["ack_req"] == InterfacePattern.ACK
+    assert "on_streaming_dynamic" in module._handlers
+    assert len(module.interfaces) == 1
+    assert module.interfaces[0].name == "on_streaming_dynamic"
 
 
 def test_module_has_run_and_stop():
@@ -66,3 +135,12 @@ def test_module_has_run_and_stop():
     assert callable(getattr(module, "run", None))
     assert callable(getattr(module, "stop", None))
     assert callable(getattr(module, "start_nonblocking", None))
+
+
+def test_module_no_event_endpoint_param():
+    """event_endpoint parameter is removed from __init__."""
+    import inspect
+
+    sig = inspect.signature(TycheModule.__init__)
+    params = list(sig.parameters.keys())
+    assert "event_endpoint" not in params

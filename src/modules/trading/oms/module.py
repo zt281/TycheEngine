@@ -16,7 +16,7 @@ from modules.trading.models.enums import OrderStatus
 from modules.trading.models.order import Fill, Order, OrderUpdate
 from modules.trading.oms.order_store import OrderStore
 from tyche.module import TycheModule
-from tyche.types import DurabilityLevel, Endpoint, InterfacePattern
+from tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -38,30 +38,7 @@ class OMSModule(TycheModule):
         super().__init__(engine_endpoint, module_id=module_id, **kwargs)
         self.order_store = OrderStore()
 
-        # Register event handlers
-        self.add_interface(
-            name=f"on_{events.ORDER_APPROVED}",
-            handler=self._handle_order_approved,
-            pattern=InterfacePattern.ON,
-            durability=DurabilityLevel.ASYNC_FLUSH,
-        )
-
-        # Fill handler - subscribes to all fills
-        self.add_interface(
-            name=f"on_{events.FILL}",
-            handler=self._handle_fill,
-            pattern=InterfacePattern.ON,
-            durability=DurabilityLevel.ASYNC_FLUSH,
-        )
-
-        # Cancel requests from strategies
-        self.add_interface(
-            name=f"on_{events.ORDER_CANCEL}",
-            handler=self._handle_cancel_request,
-            pattern=InterfacePattern.ON,
-        )
-
-    def _handle_order_approved(self, payload: Dict[str, Any]) -> None:
+    def on_broadcasted_order_approved(self, payload: Dict[str, Any]) -> None:
         """Process an approved order from the risk module.
 
         Stores the order and routes execution to the appropriate gateway.
@@ -81,15 +58,17 @@ class OMSModule(TycheModule):
 
         # Route to gateway based on venue in instrument_id
         venue = self._extract_venue(order.instrument_id)
-        execute_topic = f"ack_order_execute_{venue}"
 
-        # Send execution request to gateway
-        self.send_event(execute_topic, order.to_dict())
+        # Send execution request to gateway (all gateways receive, filter by venue)
+        self.send_event(
+            "handle_whispered_order_execute",
+            {**order.to_dict(), "venue": venue},
+        )
 
         # Publish order update
         self._publish_order_update(order)
 
-    def _handle_fill(self, payload: Dict[str, Any]) -> None:
+    def on_broadcasted_fill(self, payload: Dict[str, Any]) -> None:
         """Process a fill from a gateway.
 
         Updates order state and publishes order update.
@@ -110,7 +89,7 @@ class OMSModule(TycheModule):
         else:
             logger.warning("Fill for unknown order: %s", fill.order_id)
 
-    def _handle_cancel_request(self, payload: Dict[str, Any]) -> None:
+    def on_broadcasted_order_cancel(self, payload: Dict[str, Any]) -> None:
         """Handle cancel request from strategy.
 
         Routes to appropriate gateway for cancellation.
@@ -131,10 +110,12 @@ class OMSModule(TycheModule):
         self.order_store.update_status(order_id, OrderStatus.PENDING_CANCEL)
         order.updated_at = time.time()
 
-        # Route cancel to gateway
+        # Route cancel to gateway (all gateways receive, filter by venue)
         venue = self._extract_venue(instrument_id)
-        cancel_topic = f"ack_order_cancel_{venue}"
-        self.send_event(cancel_topic, payload)
+        self.send_event(
+            "handle_whispered_order_cancel",
+            {**payload, "venue": venue},
+        )
 
         self._publish_order_update(order)
 
