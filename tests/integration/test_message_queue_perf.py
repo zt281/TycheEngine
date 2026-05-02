@@ -48,9 +48,9 @@ class TestMessageQueueThroughput:
         )
 
         try:
-            receiver.start_nonblocking()
+            receiver.start()
             time.sleep(0.3)
-            sender.start_nonblocking()
+            sender.start()
             time.sleep(0.3)  # let ZMQ SUB connect
 
             msg_count = 5000
@@ -131,9 +131,9 @@ class TestMessageQueueThroughput:
 
         try:
             for r in (rec_a, rec_b, rec_c):
-                r.start_nonblocking()
+                r.start()
             time.sleep(0.3)
-            sender.start_nonblocking()
+            sender.start()
             time.sleep(0.3)
 
             msg_count = 2000
@@ -204,9 +204,9 @@ class TestMessageQueueLatency:
         )
 
         try:
-            receiver.start_nonblocking()
+            receiver.start()
             time.sleep(0.3)
-            sender.start_nonblocking()
+            sender.start()
             time.sleep(0.3)
 
             msg_count = 1000

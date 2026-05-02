@@ -79,6 +79,7 @@ class MessageType(Enum):
     HEARTBEAT = "hbt"
     REGISTER = "reg"
     ACK = "ack"
+    RESPONSE = "resp"
 
 
 @dataclass

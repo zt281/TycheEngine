@@ -71,6 +71,10 @@ class TycheEngine:
         # Thread-safe queue for forwarding module heartbeats to PUB socket
         self._heartbeat_queue: queue.Queue[Message] = queue.Queue()
 
+        # Request-response correlation mapping: correlation_id -> ROUTER identity
+        self._ack_correlations: Dict[str, bytes] = {}
+        self._ack_lock = threading.Lock()
+
         self.context: Optional[zmq.Context] = None
         self._running = False
         self._threads: List[threading.Thread] = []
@@ -112,6 +116,9 @@ class TycheEngine:
             ),
             threading.Thread(
                 target=self._admin_worker, name="admin", daemon=True
+            ),
+            threading.Thread(
+                target=self._ack_worker, name="ack", daemon=True
             ),
         ]
 
@@ -185,6 +192,7 @@ class TycheEngine:
                         "module_id": module_info.module_id,
                         "event_pub_port": self.event_endpoint.port,
                         "event_sub_port": self.event_sub_endpoint.port,
+                        "ack_port": self.ack_endpoint.port,
                     },
                 )
                 socket.send_multipart([identity, b"", serialize(ack)])
@@ -251,6 +259,67 @@ class TycheEngine:
         self.heartbeat_manager.unregister(module_id)
 
     # ── Event Proxy (XPUB/XSUB) ──────────────────────────────────
+
+    def _ack_worker(self) -> None:
+        """Handle request-response correlation via ROUTER socket.
+
+        Modules send requests via DEALER; we record correlation_id -> identity,
+        broadcast the request through the event proxy, and later route the
+        response back to the original caller.
+        """
+        assert self.context is not None
+        router = self.context.socket(zmq.ROUTER)
+        router.setsockopt(zmq.LINGER, 0)
+        pub = self.context.socket(zmq.PUB)
+        pub.setsockopt(zmq.LINGER, 0)
+        try:
+            router.bind(str(self.ack_endpoint))
+            router.setsockopt(zmq.RCVTIMEO, 100)
+            pub.connect(str(self.event_sub_endpoint))
+
+            while self._running:
+                try:
+                    frames = router.recv_multipart()
+                    if len(frames) < 2:
+                        continue
+
+                    identity = frames[0]
+                    msg_data = (
+                        frames[2]
+                        if len(frames) >= 3 and frames[1] == b""
+                        else frames[1]
+                    )
+                    msg = deserialize(msg_data)
+
+                    if msg.msg_type == MessageType.COMMAND:
+                        correlation_id = msg.payload.get("_correlation_id")
+                        if correlation_id:
+                            with self._ack_lock:
+                                self._ack_correlations[correlation_id] = identity
+                        # Broadcast request via event proxy
+                        pub.send_multipart(
+                            [msg.event.encode(), serialize(msg)]
+                        )
+                    elif msg.msg_type == MessageType.RESPONSE:
+                        correlation_id = msg.payload.get("_correlation_id")
+                        with self._ack_lock:
+                            caller_identity = self._ack_correlations.pop(
+                                correlation_id, None
+                            )
+                        if caller_identity is not None:
+                            router.send_multipart(
+                                [caller_identity, b"", serialize(msg)]
+                            )
+                except zmq.error.Again:
+                    continue
+                except Exception as e:
+                    if self._running:
+                        logger.error("ACK worker error: %s", e)
+        except Exception as e:
+            logger.error("ACK worker failed to start: %s", e)
+        finally:
+            router.close()
+            pub.close()
 
     def _event_proxy_worker(self) -> None:
         """XSUB/XPUB proxy for event distribution.

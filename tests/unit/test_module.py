@@ -127,14 +127,23 @@ def test_module_register_handler_dynamic():
 
 
 def test_module_has_run_and_stop():
-    """TycheModule exposes run(), stop(), and start_nonblocking() methods."""
+    """TycheModule exposes run(), stop(), and start() methods."""
     module = TycheModule(
         engine_endpoint=Endpoint("127.0.0.1", 5555),
         module_id="test_mod",
     )
     assert callable(getattr(module, "run", None))
     assert callable(getattr(module, "stop", None))
-    assert callable(getattr(module, "start_nonblocking", None))
+    assert callable(getattr(module, "start", None))
+
+
+def test_start_does_not_block():
+    """start() returns immediately after worker threads are up."""
+    module = TycheModule(
+        engine_endpoint=Endpoint("127.0.0.1", 5555),
+        module_id="test_mod",
+    )
+    assert not module._running
 
 
 def test_module_no_event_endpoint_param():
@@ -144,3 +153,127 @@ def test_module_no_event_endpoint_param():
     sig = inspect.signature(TycheModule.__init__)
     params = list(sig.parameters.keys())
     assert "event_endpoint" not in params
+
+
+def test_dynamic_register_subscribes_topic():
+    """_register_handler after start subscribes SUB socket to new topic."""
+    import time
+    import zmq
+
+    from tyche.message import deserialize, serialize
+
+    module = TycheModule(
+        engine_endpoint=Endpoint("127.0.0.1", 5555),
+        module_id="dyn_sub_test",
+    )
+
+    module.context = zmq.Context()
+    module._sub_socket = module.context.socket(zmq.SUB)
+    module._sub_socket.bind("tcp://127.0.0.1:0")
+    addr = module._sub_socket.getsockopt(zmq.LAST_ENDPOINT).decode()
+
+    pub = module.context.socket(zmq.PUB)
+    pub.connect(addr)
+
+    received = []
+
+    def handler(payload: dict) -> None:
+        received.append(payload)
+
+    # Register handler after socket exists — should auto-subscribe
+    module._register_handler("on_streaming_dynamic", handler)
+
+    # ZMQ slow-joiner grace period — SUB subscription must propagate to PUB
+    time.sleep(0.5)
+
+    msg = Message(
+        msg_type=MessageType.EVENT,
+        sender="test",
+        event="on_streaming_dynamic",
+        payload={"key": "val"},
+    )
+
+    # Retry loop: ZMQ PUB/SUB subscription propagation is asynchronous
+    module._sub_socket.setsockopt(zmq.RCVTIMEO, 500)
+    frames = None
+    for _ in range(10):
+        pub.send_multipart([b"on_streaming_dynamic", serialize(msg)])
+        try:
+            frames = module._sub_socket.recv_multipart()
+            break
+        except zmq.error.Again:
+            continue
+
+    assert frames is not None, "SUB socket never received message — subscription not propagated"
+    received_msg = deserialize(frames[1])
+    module._dispatch(frames[0].decode(), received_msg)
+
+    assert len(received) == 1
+    assert received[0] == {"key": "val"}
+
+    pub.close()
+    module._sub_socket.close()
+    module.context.destroy(linger=0)
+
+
+def test_dispatch_handle_error_returns_error_dict():
+    """Dispatching a handle_* event where handler raises returns error dict."""
+
+    class ErrorModule(TycheModule):
+        def handle_broadcasted_test(self, payload: dict) -> dict:
+            raise ValueError("boom")
+
+    module = ErrorModule(engine_endpoint=Endpoint("127.0.0.1", 5555))
+
+    msg = Message(
+        msg_type=MessageType.EVENT,
+        sender="test",
+        event="handle_broadcasted_test",
+        payload={"key": "val"},
+    )
+    result = module._dispatch("handle_broadcasted_test", msg)
+    assert result == {"error": "boom", "type": "ValueError"}
+
+
+def test_concurrent_register_and_dispatch():
+    """Concurrent registration and dispatch does not raise or lose events."""
+    import threading
+
+    module = TycheModule(
+        engine_endpoint=Endpoint("127.0.0.1", 5555),
+        module_id="concurrent_test",
+    )
+    received = []
+
+    def make_handler(idx: int):
+        def handler(payload: dict) -> None:
+            received.append(idx)
+        return handler
+
+    threads = []
+    for i in range(20):
+        t = threading.Thread(
+            target=module._register_handler,
+            args=(f"on_streaming_event_{i}", make_handler(i)),
+        )
+        threads.append(t)
+
+    for t in threads:
+        t.start()
+
+    # Dispatch to registered handlers while registration is in flight
+    for i in range(20):
+        msg = Message(
+            msg_type=MessageType.EVENT,
+            sender="test",
+            event=f"on_streaming_event_{i}",
+            payload={},
+        )
+        module._dispatch(f"on_streaming_event_{i}", msg)
+
+    for t in threads:
+        t.join(timeout=5.0)
+
+    # All handlers registered; all dispatched events handled (or handler not yet registered)
+    assert len(module._handlers) == 20
+    assert len(module._interfaces) == 20

@@ -1,10 +1,11 @@
 """Protocol / abstract base class for Tyche modules."""
 
-from abc import ABC, abstractmethod
+from typing import Protocol, runtime_checkable
 
 
-class ModuleBase(ABC):
-    """Lightweight abstract base defining the module contract.
+@runtime_checkable
+class ModuleBase(Protocol):
+    """Lightweight protocol defining the module contract.
 
     Subclasses must implement:
     - ``module_id`` property
@@ -17,17 +18,14 @@ class ModuleBase(ABC):
     """
 
     @property
-    @abstractmethod
     def module_id(self) -> str:
         """Return unique module identifier."""
-        pass
+        ...
 
-    @abstractmethod
     def start(self) -> None:
         """Start the module."""
-        pass
+        ...
 
-    @abstractmethod
     def stop(self) -> None:
         """Stop the module gracefully."""
-        pass
+        ...

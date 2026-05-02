@@ -29,7 +29,7 @@ def test_module_registration():
     )
 
     try:
-        module.start_nonblocking()
+        module.start()
         time.sleep(0.5)
 
         assert module._registered
@@ -70,9 +70,9 @@ def test_event_pubsub():
     )
 
     try:
-        receiver.start_nonblocking()
+        receiver.start()
         time.sleep(0.3)
-        sender.start_nonblocking()
+        sender.start()
         time.sleep(0.5)
 
         # Send event through the proxy
@@ -105,7 +105,7 @@ def test_module_heartbeat_keeps_alive():
     )
 
     try:
-        module.start_nonblocking()
+        module.start()
         time.sleep(0.5)
 
         assert "hb_test_mod" in engine.modules
@@ -133,7 +133,7 @@ def test_full_two_node_interaction():
     )
 
     try:
-        module.start_nonblocking()
+        module.start()
         time.sleep(0.5)
 
         # Registration succeeded

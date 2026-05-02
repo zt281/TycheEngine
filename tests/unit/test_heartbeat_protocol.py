@@ -34,7 +34,7 @@ def test_module_does_not_expire_with_heartbeats():
             module_id="test_heartbeat_module",
         )
 
-        module.start_nonblocking()
+        module.start()
         time.sleep(0.3)
 
         assert "test_heartbeat_module" in engine.modules, "Module not registered"
