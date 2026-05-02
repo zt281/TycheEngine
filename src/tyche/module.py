@@ -165,12 +165,14 @@ class TycheModule(ModuleBase):
         if self._engine_sub_port is not None:
             self._pub_socket = self.context.socket(zmq.PUB)
             self._pub_socket.setsockopt(zmq.LINGER, 0)
+            self._pub_socket.setsockopt(zmq.SNDHWM, 10000)
             self._pub_socket.connect(f"tcp://{host}:{self._engine_sub_port}")
 
         # Set up event SUB socket (engine XPUB -> module)
         if self._engine_pub_port is not None:
             self._sub_socket = self.context.socket(zmq.SUB)
             self._sub_socket.setsockopt(zmq.LINGER, 0)
+            self._sub_socket.setsockopt(zmq.RCVHWM, 10000)
             self._sub_socket.connect(f"tcp://{host}:{self._engine_pub_port}")
             # Subscribe to events matching our handlers
             self._subscribe_to_interfaces()

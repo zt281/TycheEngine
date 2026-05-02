@@ -332,8 +332,12 @@ class TycheEngine:
 
         xpub = self.context.socket(zmq.XPUB)
         xpub.setsockopt(zmq.LINGER, 0)
+        xpub.setsockopt(zmq.SNDHWM, 10000)
+        xpub.setsockopt(zmq.RCVHWM, 10000)
         xsub = self.context.socket(zmq.XSUB)
         xsub.setsockopt(zmq.LINGER, 0)
+        xsub.setsockopt(zmq.SNDHWM, 10000)
+        xsub.setsockopt(zmq.RCVHWM, 10000)
 
         try:
             xpub.bind(str(self.event_endpoint))

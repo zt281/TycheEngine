@@ -13,7 +13,12 @@ _(none)_
 
 ## Plan Amendments
 
-_(none)_
+### [AMEND-1] Increase ZMQ HWM for perf tests
+**Date:** 2026-05-02
+**Approved by:** team lead (user)
+**Amendment:** Add `zmq.SNDHWM=10000` and `zmq.RCVHWM=10000` to engine XPUB/XSUB proxy sockets and module PUB/SUB sockets.
+**Reason:** `test_message_queue_perf.py::test_single_sender_single_receiver_throughput` was consistently failing with exactly 4000/5000 messages received. Root cause: default ZMQ HWM=1000 causes PUB to drop messages when receiver cannot keep up. Plan v1 baseline already noted "1 flaky perf failure"; the HWM increase stabilizes it.
+**Files touched:** `src/tyche/engine.py`, `src/tyche/module.py`
 
 ## Design Gaps Surfaced
 
