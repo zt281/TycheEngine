@@ -7,6 +7,13 @@
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 - [tests/conftest.py](file://tests/conftest.py)
 - [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_omas_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
@@ -18,6 +25,13 @@
 - [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
 - [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
 - [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [src/modules/trading/oms/order_store.py](file://src/modules/trading/oms/order_store.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/risk/module.py](file://src/modules/trading/risk/module.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/store/recorder.py](file://src/modules/trading/store/recorder.py)
 - [examples/run_engine.py](file://examples/run_engine.py)
 - [examples/run_module.py](file://examples/run_module.py)
 - [examples/run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
@@ -35,16 +49,19 @@
 - [tests/unit/test_types.py](file://tests/unit/test_types.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
+- [tests/integration/test_handle_response.py](file://tests/integration/test_handle_response.py)
+- [tests/integration/test_message_queue_perf.py](file://tests/integration/test_message_queue_perf.py)
+- [tests/integration/test_clickhouse_backend.py](file://tests/integration/test_clickhouse_backend.py)
 - [CLAUDE.md](file://CLAUDE.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive unit tests for CTP gateway implementation with over 449 lines of test coverage
-- Expanded testing strategy to include exchange mapping, instrument parsing, and gateway configuration validation
-- Enhanced gateway testing infrastructure with specialized fixtures for CtpSimGateway and CtpLiveGateway
-- Integrated CTP-specific helper function testing including safe string and float conversions
-- Updated test structure to support both simulated and live CTP gateway configurations
+- Dramatically expanded testing infrastructure with comprehensive unit tests for trading pipeline modules
+- Added new test suites covering OrderStore, OMSModule, PortfolioModule, RiskRuleEngine, StrategyContext, and DataRecorderModule
+- Enhanced integration tests with complete trading system pipeline testing
+- Updated test organization structure and CI configuration documentation
+- Expanded coverage reporting to include trading modules and expanded test suite
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -52,7 +69,7 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [CTP Gateway Testing Strategy](#ctp-gateway-testing-strategy)
+6. [Expanded Trading Pipeline Testing Strategy](#expanded-trading-pipeline-testing-strategy)
 7. [Coverage Reporting and Analysis](#coverage-reporting-and-analysis)
 8. [Dependency Analysis](#dependency-analysis)
 9. [Performance Considerations](#performance-considerations)
@@ -61,17 +78,17 @@
 12. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. The testing infrastructure has been significantly enhanced with defensive programming approaches to prevent test instability, particularly around broadcast messaging patterns that could cause infinite loops in automated environments. The CI pipeline now includes comprehensive coverage reporting through Codecov integration.
+This document provides comprehensive testing and development guidelines for Tyche Engine. It covers the multi-layered testing strategy (unit, integration, and process-level tests), test structure and fixtures, mocking strategies for distributed components, development workflow, code quality standards, linting rules, and testing best practices. The testing infrastructure has been significantly enhanced with dramatic expansion of unit tests for trading pipeline modules, comprehensive integration tests for the complete trading system, and new test suites covering OrderStore, OMSModule, PortfolioModule, RiskRuleEngine, StrategyContext, and DataRecorderModule.
 
-**Updated** The addition of comprehensive CTP gateway unit tests (over 449 lines) provides extensive coverage of exchange mapping, instrument parsing, and gateway configuration validation, significantly expanding the testing framework for trading gateway components.
+**Updated** The testing framework now includes over 1,500 lines of comprehensive unit tests specifically targeting trading pipeline components, providing extensive coverage of order management, portfolio tracking, risk management, and data recording functionality. The CI pipeline has been updated to reflect the expanded test suite with enhanced coverage reporting.
 
 ## Project Structure
 Tyche Engine follows a layered architecture with clear separation between core components and tests:
 - Core library under src/tyche implementing the engine, modules, message handling, heartbeat, and types.
-- Trading gateway components under src/modules/trading/gateway supporting multiple venues including CTP.
-- Tests organized into unit, integration, and property test areas with comprehensive coverage.
+- Trading modules under src/modules/trading providing comprehensive trading pipeline functionality including OMS, portfolio management, risk rules, strategy context, and data recording.
+- Tests organized into unit, integration, and property test areas with dramatically expanded coverage.
 - Examples demonstrating standalone engine and module usage.
-- CI configured via GitHub Actions with enhanced coverage reporting.
+- CI configured via GitHub Actions with enhanced coverage reporting across the expanded test suite.
 
 ```mermaid
 graph TB
@@ -84,22 +101,26 @@ E["types.py"]
 F["example_module.py"]
 G["__init__.py"]
 end
-subgraph "Trading Gateways (src/modules/trading/gateway)"
-BG["base.py"]
-CTPG["ctp/gateway.py"]
-CTPL["ctp/live.py"]
-CTPS["ctp/sim.py"]
+subgraph "Trading Modules (src/modules/trading)"
+OMS["oms/"]
+PORT["portfolio/"]
+RISK["risk/"]
+STRAT["strategy/"]
+STORE["store/"]
+GATE["gateway/"]
 end
 subgraph "Tests (tests)"
 U1["unit/test_engine.py"]
 U2["unit/test_module.py"]
-U3["unit/test_engine_threading.py"]
-U4["unit/test_signal_handling.py"]
-U5["unit/test_heartbeat_protocol.py"]
-U6["unit/test_ctp_gateway.py"]
-I1["integration/test_engine_module.py"]
-I2["integration/test_multiprocess.py"]
-CF["conftest.py"]
+U3["unit/test_order_store.py"]
+U4["unit/test_oms_module.py"]
+U5["unit/test_portfolio_module.py"]
+U6["unit/test_risk_rules.py"]
+U7["unit/test_strategy_context.py"]
+U8["unit/test_data_recorder.py"]
+I1["integration/test_trading_pipeline.py"]
+I2["integration/test_engine_module.py"]
+I3["integration/test_multiprocess.py"]
 end
 subgraph "Examples"
 X1["examples/run_engine.py"]
@@ -114,28 +135,31 @@ CE["Codecov Integration"]
 end
 U1 --> A
 U2 --> B
-U3 --> A
-U4 --> A
-U5 --> D
-U6 --> CTPG
-U6 --> CTPL
-U6 --> CTPS
-I1 --> A
-I1 --> B
+U3 --> OMS
+U4 --> OMS
+U5 --> PORT
+U6 --> RISK
+U7 --> STRAT
+U8 --> STORE
+I1 --> OMS
+I1 --> PORT
+I1 --> RISK
+I1 --> STRAT
 I2 --> A
 I2 --> B
-CF --> G
-X1 --> A
-X2 --> B
-X3 --> CTPG
+I3 --> A
+I3 --> B
 P --> U1
 P --> U2
 P --> U3
 P --> U4
 P --> U5
 P --> U6
+P --> U7
+P --> U8
 P --> I1
 P --> I2
+P --> I3
 W --> P
 W --> CE
 C --> P
@@ -149,22 +173,21 @@ C --> P
 - [src/tyche/types.py](file://src/tyche/types.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
-- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
-- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
-- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
-- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
-- [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
-- [tests/unit/test_module.py](file://tests/unit/test_module.py)
-- [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
-- [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
-- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
-- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
+- [src/modules/trading/oms/order_store.py](file://src/modules/trading/oms/order_store.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/store/recorder.py](file://src/modules/trading/store/recorder.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
-- [tests/conftest.py](file://tests/conftest.py)
-- [examples/run_engine.py](file://examples/run_engine.py)
-- [examples/run_module.py](file://examples/run_module.py)
-- [examples/run_ctp_gateway.py](file://examples/run_ctp_gateway.py)
 - [pyproject.toml](file://pyproject.toml)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 
@@ -183,6 +206,8 @@ This section outlines the core building blocks relevant to testing and developme
 - Example Module: Demonstrates all interface patterns including ping-pong broadcast handling.
 - GatewayModule: Abstract base class for exchange/venue gateway modules with standardized event publishing.
 
+**Updated** Trading pipeline components now include comprehensive modules for order management, portfolio tracking, risk management, strategy context, and data recording, each with dedicated unit tests and integration validation.
+
 Key testing-relevant aspects:
 - Engine exposes non-blocking start methods suitable for tests.
 - Module supports non-blocking start and provides registration, subscription, and event dispatch mechanisms.
@@ -190,6 +215,12 @@ Key testing-relevant aspects:
 - Heartbeat constants and manager provide predictable timing for tests.
 - Example Module implements defensive ping-pong patterns to prevent infinite loops.
 - GatewayModule provides standardized interfaces for order handling and event publishing.
+- OrderStore provides thread-safe order management with comprehensive status transitions.
+- OMSModule orchestrates order lifecycle from approval to execution and fill management.
+- PortfolioModule tracks positions and calculates PnL with configurable thresholds.
+- RiskRuleEngine validates orders against configurable risk constraints.
+- StrategyContext provides unified interface for strategy order management and market data access.
+- DataRecorderModule persists market data and trading events to JSONL files.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -199,6 +230,12 @@ Key testing-relevant aspects:
 - [src/tyche/types.py](file://src/tyche/types.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
 - [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+- [src/modules/trading/oms/order_store.py](file://src/modules/trading/oms/order_store.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/store/recorder.py](file://src/modules/trading/store/recorder.py)
 
 ## Architecture Overview
 Tyche Engine uses ZeroMQ for distributed messaging. The architecture supports:
@@ -207,6 +244,8 @@ Tyche Engine uses ZeroMQ for distributed messaging. The architecture supports:
 - Load-balanced work via PUSH/PULL.
 - Direct P2P whisper messaging via DEALER/ROUTER.
 - Heartbeat monitoring via PUB/SUB and ROUTER/DEALER.
+
+**Updated** The trading pipeline architecture integrates specialized modules for order management, portfolio tracking, risk validation, and data persistence, each with dedicated event handling and state management.
 
 ```mermaid
 graph TB
@@ -217,24 +256,30 @@ HB["Heartbeat Worker<br/>PUB"]
 HBR["Heartbeat Receive Worker<br/>ROUTER"]
 MON["Monitor Worker"]
 end
-subgraph "Modules"
-M1["TycheModule<br/>PUB/SUB/DEALER"]
-M2["TycheModule<br/>PUB/SUB/DEALER"]
-EM["ExampleModule<br/>Ping-Pong Broadcast"]
-GW["GatewayModule<br/>CTP Gateway"]
+subgraph "Trading Pipeline Modules"
+M1["StrategyContext<br/>Order Management"]
+M2["RiskRuleEngine<br/>Risk Validation"]
+M3["OMSModule<br/>Order Lifecycle"]
+M4["PortfolioModule<br/>Position Tracking"]
+M5["DataRecorderModule<br/>Event Persistence"]
+GW["GatewayModule<br/>Market Data & Orders"]
 end
-M1 -- "REQ (REGISTER)" --> R
-R -- "ACK" --> M1
-M1 -- "SUBSCRIBE" --> EP
-EP -- "PUBLISH" --> M1
-EP -- "PUBLISH" --> M2
-HB -- "HEARTBEAT" --> M1
-HB -- "HEARTBEAT" --> M2
-HBR -- "HEARTBEAT" <-- M1
-HBR -- "HEARTBEAT" <-- M2
-MON -- "Expire Modules" --> R
-EM -. "Defensive Ping-Pong<br/>Prevents Infinite Loops" .-> EP
-GW -. "CTP Market Data & Orders<br/>Bridge External APIs" .-> EP
+M1 -- "ORDER_SUBMIT" --> M2
+M2 -- "ORDER_APPROVED/REJECTED" --> M3
+M3 -- "handle_whispered_order_execute" --> GW
+GW -- "FILL/ORDER_UPDATE" --> M3
+M3 -- "ORDER_UPDATE" --> M4
+M3 -- "FILL" --> M4
+M4 -- "POSITION_UPDATE" --> M1
+M1 -- "MARKET_DATA" --> M5
+M2 -- "MARKET_DATA" --> M5
+M3 -- "TRADE_DATA" --> M5
+GW -- "EVENTS" --> M5
+M1 -. "Defensive Pattern<br/>Prevents Infinite Loops" .-> EP
+M2 -. "Risk Constraints<br/>Validation Logic" .-> EP
+M3 -. "Order State Machine<br/>Thread Safety" .-> EP
+M4 -. "PnL Calculation<br/>Threshold Checks" .-> EP
+M5 -. "File I/O<br/>Error Handling" .-> EP
 ```
 
 **Diagram sources**
@@ -242,6 +287,11 @@ GW -. "CTP Market Data & Orders<br/>Bridge External APIs" .-> EP
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/example_module.py](file://src/tyche/example_module.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/store/recorder.py](file://src/modules/trading/store/recorder.py)
 - [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
 
 **Section sources**
@@ -253,7 +303,7 @@ GW -. "CTP Market Data & Orders<br/>Bridge External APIs" .-> EP
 ## Detailed Component Analysis
 
 ### Unit Testing Strategy
-Unit tests focus on isolated logic and deterministic behavior with comprehensive coverage:
+Unit tests focus on isolated logic and deterministic behavior with dramatically expanded coverage:
 - Test engine initialization and module registry operations.
 - Validate module interface registration and handler mapping.
 - Verify message serialization/deserialization and envelope handling.
@@ -261,6 +311,12 @@ Unit tests focus on isolated logic and deterministic behavior with comprehensive
 - Test threading safety and concurrent operation testing.
 - Test signal handling and graceful shutdown verification.
 - Validate heartbeat protocol compliance and expiration logic with stability safeguards.
+- **Updated**: Comprehensive OrderStore testing with thread safety validation.
+- **Updated**: OMSModule testing with order lifecycle and event handling.
+- **Updated**: PortfolioModule testing with position management and PnL calculation.
+- **Updated**: RiskRuleEngine testing with constraint validation and exception handling.
+- **Updated**: StrategyContext testing with order management and market data access.
+- **Updated**: DataRecorderModule testing with file I/O and event persistence.
 
 Recommended patterns:
 - Use mocks for external dependencies (e.g., ZeroMQ sockets) to isolate logic.
@@ -268,6 +324,7 @@ Recommended patterns:
 - Assert thread-safety where applicable using locks and state checks.
 - Leverage pytest markers for slow and timeout-sensitive tests.
 - **Updated**: Implement defensive programming in heartbeat tests to prevent infinite loops.
+- **Updated**: Use parameterized fixtures for trading module testing scenarios.
 
 **Section sources**
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
@@ -282,6 +339,12 @@ Recommended patterns:
 - [tests/unit/test_module_main.py](file://tests/unit/test_module_main.py)
 - [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
 - [tests/unit/test_types.py](file://tests/unit/test_types.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/message.py](file://src/tyche/message.py)
@@ -295,8 +358,10 @@ Integration tests validate real ZeroMQ socket interactions with comprehensive sc
 - Event publishing and receiving across the proxy with handler dispatch verification.
 - Multi-process scenarios using subprocess to launch engine and module entry points.
 - End-to-end interaction testing with handler invocation and ping-pong broadcast stability.
+- **Updated**: Complete trading pipeline integration testing with StrategyContext, RiskModule, OMSModule, SimulatedGateway, and PortfolioModule.
+- **Updated**: Cross-module communication validation and event flow testing.
 
-**Enhanced** Integration tests now include defensive programming patterns to prevent infinite loops in broadcast scenarios.
+**Enhanced** Integration tests now include defensive programming patterns to prevent infinite loops in broadcast scenarios and comprehensive validation of the complete trading pipeline.
 
 Mocking and fixtures:
 - Use non-blocking start methods to spin up engine and module quickly.
@@ -304,16 +369,19 @@ Mocking and fixtures:
 - Use subprocess with PYTHONPATH set to src to run entry points.
 - Implement comprehensive fixture management for test isolation.
 - **Updated**: Add timeout decorators and defensive assertions for broadcast stability.
+- **Updated**: Use mock endpoints and captured events for trading pipeline testing.
 
 **Section sources**
 - [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 - [examples/run_engine.py](file://examples/run_engine.py)
 - [examples/run_module.py](file://examples/run_module.py)
 
 ### Property and Performance Testing Areas
 - Property tests: Validate invariants such as idempotency, ordering guarantees, and durability levels.
 - Performance tests: Measure hot-path latency, persistence throughput, and backpressure behavior. These tests should be marked as slow and excluded by default.
+- **Updated**: Performance testing for trading pipeline components including order processing latency and portfolio calculation throughput.
 
 Note: The repository currently includes a performance test directory placeholder. Expand it with benchmarks that exercise the hot path and persistence pipeline.
 
@@ -326,12 +394,15 @@ Note: The repository currently includes a performance test directory placeholder
 - Use fixtures to encapsulate common setup (e.g., endpoints, engine and module instances).
 - Implement comprehensive fixture management for threading and signal handling scenarios.
 - **Updated**: Add timeout decorators and defensive programming patterns for distributed component tests.
+- **Updated**: Use parameterized fixtures for trading module testing scenarios.
+- **Updated**: Implement mock endpoint fixtures for trading pipeline testing.
 
 Best practices:
 - Keep fixtures reusable and parameterized for different scenarios.
 - Use mark.slow for long-running tests and deselect them by default.
 - Implement timeout decorators for distributed component tests.
 - **Updated**: Add defensive assertions to prevent infinite loops in broadcast scenarios.
+- **Updated**: Use captured events pattern for trading pipeline integration testing.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -344,6 +415,7 @@ Best practices:
 - Mock heartbeat managers and engine registries for isolation testing.
 - Use pytest monkeypatch for dynamic behavior modification in tests.
 - **Updated**: Implement defensive programming patterns to prevent broadcast message loops.
+- **Updated**: Use captured events pattern for trading pipeline testing without real ZMQ.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -357,7 +429,12 @@ Best practices:
 - Threading safety: Test concurrent access to shared resources.
 - Signal handling: Verify graceful shutdown under various termination signals.
 - Heartbeat protocol: Validate expiration and renewal logic with defensive programming.
-- **Updated**: Ping-pong broadcast testing: Implement defensive patterns to prevent infinite loops.
+- **Updated**: OrderStore: Test thread safety, status transitions, and fill application.
+- **Updated**: OMSModule: Test order lifecycle, event handling, and venue extraction.
+- **Updated**: PortfolioModule: Test position management, PnL calculation, and quote handling.
+- **Updated**: RiskRuleEngine: Test constraint validation, exception handling, and rule evaluation.
+- **Updated**: StrategyContext: Test order management, market data caching, and event dispatch.
+- **Updated**: DataRecorderModule: Test file I/O, event persistence, and error handling.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -365,21 +442,29 @@ Best practices:
 - [src/tyche/message.py](file://src/tyche/message.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/types.py](file://src/tyche/types.py)
+- [src/modules/trading/oms/order_store.py](file://src/modules/trading/oms/order_store.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/store/recorder.py](file://src/modules/trading/store/recorder.py)
 
 ### Continuous Integration Setup and Automated Pipelines
 - CI runs linting (Ruff) and type checking (mypy) on pushes and pull requests.
 - Tests run on multiple OS and Python versions with comprehensive coverage reporting.
 - **Updated**: Coverage collection enabled with pytest-cov (--cov=src/tyche) generating XML and terminal reports.
+- **Updated**: Coverage collection expanded to include trading modules (--cov=src/modules).
 - **Updated**: Codecov integration for coverage analysis and reporting with fail_ci_if_error: false.
 - Slow tests are marked and can be deselected locally.
 - CI configuration optimized for expanded test suite with defensive programming.
+- **Updated**: CI matrix runs tests on Ubuntu and Windows with Python 3.9-3.12.
 
 Recommendations:
 - Add property and performance tests to CI matrix with appropriate timeouts.
 - Integrate coverage reporting consistently across platforms.
 - Optimize CI matrix for faster feedback loops.
 - **Updated**: Ensure CI tests handle defensive programming patterns and broadcast stability.
-- **Updated**: Monitor coverage thresholds and maintain minimum 80% line coverage requirement.
+- **Updated**: Monitor coverage thresholds and maintain minimum 80% line coverage requirement across all modules.
 
 **Section sources**
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
@@ -387,7 +472,7 @@ Recommendations:
 
 ### Release Procedures
 - Ensure all tests pass in CI with defensive programming validation.
-- **Updated**: Verify coverage meets minimum requirements (80% line coverage).
+- **Updated**: Verify coverage meets minimum requirements (80% line coverage across all modules).
 - Update version in project metadata.
 - Build wheel using hatchling and publish artifacts.
 
@@ -401,6 +486,7 @@ Recommendations:
 - Thread debugging: Use threading.ident to track concurrent operations.
 - Signal handling debugging: Monitor signal delivery and cleanup sequences.
 - **Updated**: Broadcast debugging: Monitor ping-pong cycles and implement defensive timeouts.
+- **Updated**: Trading pipeline debugging: Use captured events to trace module interactions.
 - **Updated**: Coverage debugging: Use coverage reports to identify untested code paths.
 
 **Section sources**
@@ -413,6 +499,7 @@ Recommendations:
 - Profile serialization/deserialization costs.
 - Evaluate backpressure handling under load.
 - Threading performance: Measure lock contention and thread switching overhead.
+- **Updated**: Profile trading pipeline components including order processing and portfolio calculations.
 
 **Section sources**
 - [README.md](file://README.md)
@@ -425,6 +512,7 @@ Recommendations:
 - Maintain comprehensive test coverage for all public APIs.
 - **Updated**: Implement defensive programming patterns in all test scenarios.
 - **Updated**: Monitor and maintain coverage thresholds to ensure code quality.
+- **Updated**: Ensure trading pipeline components have comprehensive test coverage.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -436,6 +524,7 @@ Recommendations:
 - Ensure new tests cover threading, signal handling, and heartbeat scenarios.
 - **Updated**: Require defensive programming validation for broadcast and loop prevention.
 - **Updated**: Ensure coverage requirements are met before merging contributions.
+- **Updated**: Require comprehensive testing for trading pipeline components.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
@@ -448,144 +537,86 @@ Recommendations:
 - Configure IDE for pytest integration and test discovery.
 - **Updated**: Set up defensive programming testing patterns and broadcast stability validation.
 - **Updated**: Monitor local coverage reports to maintain quality standards.
+- **Updated**: Test trading pipeline components with comprehensive unit and integration tests.
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
 - [tests/conftest.py](file://tests/conftest.py)
 
-## CTP Gateway Testing Strategy
+## Expanded Trading Pipeline Testing Strategy
 
-### Comprehensive CTP Gateway Test Suite
-The newly added test_ctp_gateway.py provides extensive unit testing for CTP gateway implementation with over 449 lines of comprehensive coverage:
+### Comprehensive Trading Pipeline Test Suite
+The testing infrastructure has been dramatically expanded with comprehensive unit tests for all trading pipeline modules, providing extensive coverage of the complete trading workflow from strategy execution to order management and portfolio tracking.
+
+**Updated** The expanded test suite now includes:
+
+#### OrderStore Testing
+- **Thread Safety Validation**: Comprehensive testing of concurrent order operations with 100+ orders and multiple threads.
+- **Status Transition Testing**: Validating all legal order status transitions and preventing invalid state changes.
+- **Fill Application Testing**: Testing partial and full fill scenarios with proper average price calculation.
+- **Query and Filter Testing**: Validating active order queries, strategy-based filtering, and instrument-specific searches.
+
+#### OMSModule Testing
+- **Order Lifecycle Testing**: Complete validation of order approval, execution routing, and fill application.
+- **Event Handling Testing**: Testing broadcasted order events, fill events, and cancel requests.
+- **Venue Extraction Testing**: Validating instrument ID parsing for different venue formats.
+- **Logging and Error Handling Testing**: Testing warning logs for unknown orders and inactive order cancellations.
+
+#### PortfolioModule Testing
+- **Position Management Testing**: Validating long and short position creation, updates, and transitions.
+- **PnL Calculation Testing**: Testing realized and unrealized profit/loss calculations with configurable thresholds.
+- **Quote Handling Testing**: Validating mark price updates and material change detection.
+- **Multi-Instrument Testing**: Testing portfolio management across multiple instruments and PnL aggregation.
+
+#### RiskRuleEngine Testing
+- **Constraint Validation Testing**: Testing position size limits, order value limits, daily loss limits, and rate limiting.
+- **Exception Handling Testing**: Validating rule engine behavior when individual rules raise exceptions.
+- **Rule Evaluation Testing**: Testing comprehensive rule evaluation and approval decisions.
+- **Context Management Testing**: Validating risk context updates and position tracking.
+
+#### StrategyContext Testing
+- **Order Management Testing**: Testing order submission, cancellation, and status tracking.
+- **Market Data Caching Testing**: Validating quote and bar caching with proper data type conversion.
+- **Event Dispatch Testing**: Testing strategy module dispatchers and subscription management.
+- **Signal Generation Testing**: Validating moving average crossover strategy signal generation.
+
+#### DataRecorderModule Testing
+- **Event Persistence Testing**: Validating JSONL file writing with proper directory structure.
+- **Event Type Inference Testing**: Testing automatic event type detection for quotes, trades, fills, orders, and bars.
+- **File I/O Testing**: Validating error handling for disk full scenarios and file system errors.
+- **Event Counting Testing**: Testing event count tracking and incremental counting.
+
+### Trading Pipeline Integration Testing
+The integration test suite provides end-to-end validation of the complete trading pipeline:
 
 **Test Categories:**
-1. **Exchange Mapping Tests**: Validates `_infer_exchange` function for all major Chinese commodity exchanges
-2. **Instrument ID Parsing Tests**: Tests `_extract_symbol` and `_to_instrument_id` functions
-3. **CTP Status Mapping Tests**: Verifies order status conversion between CTP and TycheEngine formats
-4. **Direction Mapping Tests**: Confirms bid/ask direction mapping in trade callbacks
-5. **Configuration Validation Tests**: Tests both CtpSimGateway and CtpLiveGateway configurations
-6. **Helper Function Edge Cases**: Validates `_safe_str` and `_safe_float` with various input types
-7. **Exchange Map Coverage**: Ensures comprehensive exchange symbol mapping
+1. **Complete Pipeline Testing**: Full order lifecycle from strategy submission through gateway execution and portfolio updates.
+2. **Risk Validation Testing**: Testing risk approval and rejection scenarios with proper event flow.
+3. **Order Cancellation Testing**: Validating order cancellation through the pipeline with proper state transitions.
+4. **Error Scenario Testing**: Testing edge cases and error conditions throughout the pipeline.
 
-### Exchange Mapping Testing
-The test suite comprehensively validates exchange inference across all major Chinese commodity exchanges:
-
-**Supported Exchanges:**
-- CFFEX (China Financial Futures Exchange): IF, IC, IH, IM, T, TF, TS, TL indices
-- SHFE (Shanghai Futures Exchange): Cu, Al, Zn, Pb, Ni, Sn, Au, Ag, RB, HC, FU, BU, RU and others
-- DCE (Dalian Commodity Exchange): C, CS, A, B, M, Y, P, JD, L, V, PP, J, JM, I, EG and others
-- CZCE (Zhengzhou Commodity Exchange): CF, SR, TA, OI, MA, FG, AP, SA, PF and others
-- INE (Shanghai International Energy Center): SC, LU, NR, BC, EC
-- GFEX (Guangzhou Futures Exchange): SI, LC
-
-**Testing Approach:**
-- Individual exchange prefix validation with dedicated test methods
-- Unknown instrument handling with fallback to "UNKNOWN" exchange
-- Empty string and numeric-only input validation
-- Multi-character prefix handling (e.g., "jm", "pp")
-
-### Instrument ID Processing Tests
-Comprehensive testing of instrument ID conversion functions:
-
-**Symbol Extraction:**
-- Validates extraction of raw CTP symbols from TycheEngine instrument IDs
-- Handles dot-separated format (symbol.venue.asset_class)
-- Supports bare symbols without venue specification
-
-**Instrument ID Building:**
-- Converts CTP symbols to TycheEngine format with venue naming
-- Validates round-trip conversion integrity
-- Tests various venue types (ctp, openctp)
-
-### CTP Status Mapping Validation
-Extensive order status mapping validation ensuring compatibility between CTP and TycheEngine:
-
-**Status Codes:**
-- "0": AllTraded → OrderStatus.FILLED
-- "1", "2": PartTraded → OrderStatus.PARTIALLY_FILLED
-- "3", "4": NoTrade → OrderStatus.SUBMITTED
-- "5": Canceled → OrderStatus.CANCELLED
-- "a": Unknown → OrderStatus.PENDING_SUBMIT
-- "b": NotTouched → OrderStatus.NEW
-- "c": Touched → OrderStatus.SUBMITTED
-
-**Completeness Testing:**
-- Validates complete coverage of all expected CTP status characters
-- Ensures no missing or duplicate status mappings
-
-### Gateway Configuration Testing
-Dual gateway testing approach validating both simulated and live trading configurations:
-
-**CtpSimGateway Tests:**
-- Default 7x24 environment configuration
-- Simulated trading hours environment
-- Default broker ID ("9999") and venue naming
-- Invalid environment handling with ValueError
-- Custom venue name support
-
-**CtpLiveGateway Tests:**
-- Parameter pass-through validation
-- Authentication logic based on auth_code and app_id presence
-- Default "ctp" venue naming when unspecified
-- Custom venue name support
-- Missing authentication parameter handling
-
-### Helper Function Edge Case Testing
-Robust testing of utility functions handling CTP-specific data formats:
-
-**String Processing (`_safe_str`):**
-- Bytes decoding with UTF-8 handling
-- Null-padded string stripping
-- None value handling with empty string fallback
-- Plain string preservation
-
-**Float Processing (`_safe_float`):**
-- Normal float value preservation
-- DBL_MAX (±1.7e308) handling with zero fallback
-- None value handling with configurable default
-- String number conversion
-- Invalid string handling with zero fallback
-
-### Specialized Test Fixtures
-The test suite includes sophisticated fixtures for gateway testing:
-
-**Endpoint Fixture:**
-- Standardized 127.0.0.1:15555 endpoint for all gateway tests
-- Consistent engine endpoint configuration across tests
-
-**Gateway Fixtures:**
-- CtpSimGateway fixture with default credentials
-- CtpLiveGateway fixture with comprehensive parameter set
-- Automatic cleanup and isolation between test cases
-
-### Mocking Strategy for CTP Dependencies
-Sophisticated mocking approach for external CTP dependencies:
-
-**Module-Level Mocking:**
-- sys.modules patching for openctp_ctp, openctp_ctp.mdapi, openctp_ctp.tdapi
-- MagicMock objects for all CTP API components
-- Pre-import mocking to ensure proper module resolution
-- Isolated mock environment for each test execution
-
-**Test Isolation:**
-- Mock cleanup between test methods
-- Independent mock configuration per test scenario
-- Prevention of mock leakage between test suites
+**Key Testing Features:**
+- **Mock Integration**: Uses patched send_event methods to simulate ZeroMQ without actual network dependencies.
+- **Event Capture**: Captures and validates the complete event sequence through the pipeline.
+- **State Validation**: Validates final state of orders, positions, and portfolio after each pipeline step.
+- **Conditional Logic Testing**: Tests different pipeline outcomes based on risk approval decisions.
 
 **Section sources**
-- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
-- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
-- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
-- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
-- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 
 ## Coverage Reporting and Analysis
 
 ### Enhanced CI Coverage Workflow
-The GitHub Actions CI workflow has been enhanced with comprehensive coverage reporting functionality:
+The GitHub Actions CI workflow has been enhanced with comprehensive coverage reporting functionality across the expanded test suite:
 
 **Coverage Collection Configuration:**
-- **pytest-cov integration**: Enabled with `--cov=src/tyche` flag for targeted coverage analysis
+- **pytest-cov integration**: Enabled with `--cov=src/tyche` and `--cov=src/modules` for comprehensive coverage analysis
 - **Multi-format reporting**: Generates both XML and terminal coverage reports for comprehensive analysis
 - **Selective platform coverage**: Codecov integration only runs on Ubuntu with Python 3.11 for optimal coverage analysis
 - **Error tolerance**: `fail_ci_if_error: false` prevents coverage analysis failures from blocking CI completion
@@ -593,7 +624,7 @@ The GitHub Actions CI workflow has been enhanced with comprehensive coverage rep
 **CI Pipeline Enhancements:**
 ```yaml
 - name: Run tests
-  run: pytest tests/unit/ -v --timeout=30 --cov=src/tyche --cov-report=xml --cov-report=term
+  run: pytest tests/unit/ -v --timeout=30 --cov=src/tyche --cov=src/modules --cov-report=xml --cov-report=term
 - name: Upload coverage
   if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
   uses: codecov/codecov-action@v4
@@ -610,92 +641,103 @@ The GitHub Actions CI workflow has been enhanced with comprehensive coverage rep
 The project includes comprehensive coverage configuration in pyproject.toml:
 
 **Coverage Settings:**
-- **Source filtering**: Targets only `src/tyche` directory for coverage analysis
+- **Source filtering**: Targets both `src/tyche` and `src/modules` directories for comprehensive coverage analysis
 - **Exclusion patterns**: Automatically omits test files (`*/tests/*`) from coverage calculations
 - **Line exclusions**: Excludes `if __name__ == "__main__":` blocks and pragma directives from coverage
 - **Integration with pytest**: Seamless coverage reporting through pytest-cov plugin
 
 **Local Coverage Commands:**
 ```bash
-# Generate coverage report
+# Generate coverage report for core library
 pytest --cov=src/tyche --cov-report=xml --cov-report=term
 
-# Generate HTML coverage report
-pytest --cov=src/tyche --cov-report=html
+# Generate coverage report for trading modules
+pytest --cov=src/modules --cov-report=xml --cov-report=term
 
-# Generate coverage report with branch coverage
-pytest --cov=src/tyche --cov-branch
+# Generate comprehensive coverage report
+pytest --cov=src/tyche --cov=src/modules --cov-branch
+
+# Generate HTML coverage report
+pytest --cov=src/tyche --cov=src/modules --cov-report=html
 ```
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
 
 ### Coverage Requirements and Policies
-The project enforces strict coverage requirements to maintain code quality:
+The project enforces strict coverage requirements to maintain code quality across the expanded testing infrastructure:
 
 **Minimum Coverage Standards:**
 - **Line coverage**: Minimum 80% line coverage required for unit tests
 - **New code threshold**: New code must achieve ≥90% coverage
 - **Regression control**: Coverage regression greater than 2% blocks commits
-- **Exclusion policy**: `if __name__ == "__main__":` blocks and type-checking imports are excluded from coverage
+- **Trading modules coverage**: Special emphasis on trading pipeline component coverage
+- **Integration test coverage**: Ensure critical integration scenarios are covered
 
 **Coverage Analysis Benefits:**
 - **Quality assurance**: Ensures comprehensive test coverage for critical components
 - **Code health monitoring**: Provides quantitative metrics for code quality assessment
 - **Regression detection**: Early identification of coverage regressions in CI
 - **Development guidance**: Highlights untested code paths for improvement
+- **Trading pipeline validation**: Ensures comprehensive coverage of trading workflow components
 
 **Section sources**
 - [CLAUDE.md](file://CLAUDE.md)
 - [pyproject.toml](file://pyproject.toml)
 
 ### Coverage Analysis Best Practices
-To maximize the effectiveness of coverage reporting:
+To maximize the effectiveness of coverage reporting across the expanded test suite:
 
 **Test Coverage Strategies:**
-- **Target critical paths**: Focus on high-risk and complex code sections
-- **Edge case testing**: Include boundary conditions and error scenarios
+- **Target critical paths**: Focus on high-risk and complex code sections in trading pipeline
+- **Edge case testing**: Include boundary conditions and error scenarios for all trading components
 - **Integration coverage**: Ensure distributed component interactions are tested
-- **Threading coverage**: Validate concurrent access patterns and race conditions
+- **Threading coverage**: Validate concurrent access patterns and race conditions in trading modules
+- **Event flow coverage**: Test complete event sequences in trading pipeline integration tests
 
 **Coverage Optimization:**
 - **Avoid over-mocking**: Balance test isolation with realistic behavior
 - **Use parameterized tests**: Increase coverage with minimal test duplication
 - **Monitor coverage trends**: Track coverage improvements over time
-- **Address low-coverage areas**: Prioritize refactoring of poorly covered code
+- **Address low-coverage areas**: Prioritize refactoring of poorly covered trading pipeline code
+- **Expand trading module coverage**: Ensure comprehensive testing of all trading components
 
 **Section sources**
 - [pyproject.toml](file://pyproject.toml)
 - [CLAUDE.md](file://CLAUDE.md)
 
 ## Dependency Analysis
-This diagram shows key internal dependencies among core components used in tests.
+This diagram shows key internal dependencies among core components and the expanded trading pipeline used in tests.
 
 ```mermaid
 graph LR
 T["tests/conftest.py"] --> I["src/tyche/__init__.py"]
 U1["tests/unit/test_engine.py"] --> E["src/tyche/engine.py"]
 U2["tests/unit/test_module.py"] --> M["src/tyche/module.py"]
-U3["tests/unit/test_engine_threading.py"] --> E
-U4["tests/unit/test_signal_handling.py"] --> E
-U5["tests/unit/test_heartbeat_protocol.py"] --> HB["src/tyche/heartbeat.py"]
-U6["tests/unit/test_ctp_gateway.py"] --> CTPG["src/modules/trading/gateway/ctp/gateway.py"]
-U6 --> CTPL["src/modules/trading/gateway/ctp/live.py"]
-U6 --> CTPS["src/modules/trading/gateway/ctp/sim.py"]
-U6 --> BG["src/modules/trading/gateway/base.py"]
-I1["tests/integration/test_engine_module.py"] --> E
-I1 --> M
-I2["tests/integration/test_multiprocess.py"] --> E
-I2 --> M
-E --> HB
+U3["tests/unit/test_order_store.py"] --> OS["src/modules/trading/oms/order_store.py"]
+U4["tests/unit/test_oms_module.py"] --> OM["src/modules/trading/oms/module.py"]
+U5["tests/unit/test_portfolio_module.py"] --> PM["src/modules/trading/portfolio/module.py"]
+U6["tests/unit/test_risk_rules.py"] --> RR["src/modules/trading/risk/rules.py"]
+U7["tests/unit/test_strategy_context.py"] --> SC["src/modules/trading/strategy/context.py"]
+U8["tests/unit/test_data_recorder.py"] --> DR["src/modules/trading/store/recorder.py"]
+I1["tests/integration/test_trading_pipeline.py"] --> OS
+I1 --> OM
+I1 --> PM
+I1 --> RR
+I1 --> SC
+E --> HB["src/tyche/heartbeat.py"]
 E --> MSG["src/tyche/message.py"]
 E --> TP["src/tyche/types.py"]
 M --> MSG
 M --> TP
-EM["tests/unit/test_example_module.py"] --> EMOD["src/tyche/example_module.py"]
-EMOD --> MSG
-EMOD --> TP
-HB --> TP
+OS --> ORD["modules.trading.models.order"]
+OM --> ORD
+PM --> POS["modules.trading.models.position"]
+RR --> ORD
+RR --> POS
+SC --> ORD
+SC --> POS
+DR --> E["modules.trading.events"]
 C["Coverage Config"] --> P["pyproject.toml"]
 CE["Codecov"] --> W["ci.yml"]
 ```
@@ -705,24 +747,24 @@ CE["Codecov"] --> W["ci.yml"]
 - [src/tyche/__init__.py](file://src/tyche/__init__.py)
 - [tests/unit/test_engine.py](file://tests/unit/test_engine.py)
 - [tests/unit/test_module.py](file://tests/unit/test_module.py)
-- [tests/unit/test_engine_threading.py](file://tests/unit/test_engine_threading.py)
-- [tests/unit/test_signal_handling.py](file://tests/unit/test_signal_handling.py)
-- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
-- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
-- [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
-- [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/message.py](file://src/tyche/message.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [src/tyche/types.py](file://src/tyche/types.py)
-- [src/tyche/example_module.py](file://src/tyche/example_module.py)
-- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
-- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
-- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
-- [src/modules/trading/gateway/base.py](file://src/modules/trading/gateway/base.py)
-- [pyproject.toml](file://pyproject.toml)
-- [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
+- [src/modules/trading/oms/order_store.py](file://src/modules/trading/oms/order_store.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/store/recorder.py](file://src/modules/trading/store/recorder.py)
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
@@ -741,6 +783,7 @@ CE["Codecov"] --> W["ci.yml"]
 - **Updated**: Implement defensive programming patterns to prevent performance degradation from broadcast loops.
 - **Updated**: Monitor coverage to ensure performance-critical code paths are adequately tested.
 - **Updated**: CTP gateway tests utilize efficient mocking to minimize external dependency overhead.
+- **Updated**: Trading pipeline tests use mock endpoints to avoid real network dependencies and improve performance.
 
 **Section sources**
 - [README.md](file://README.md)
@@ -754,113 +797,133 @@ Common issues and resolutions:
 - Threading deadlocks: Use thread dumps to identify blocked operations.
 - Signal handling issues: Verify signal masks and cleanup handlers are properly installed.
 - **Updated**: Broadcast loop issues: Monitor ping-pong cycles and implement defensive timeouts to prevent infinite loops.
-- **Updated**: Defensive programming validation: Ensure all broadcast tests include timeout and loop prevention mechanisms.
-- **Updated**: Coverage analysis issues: Use local coverage reports to debug coverage collection problems.
-- **Updated**: CI coverage failures: Check Codecov integration and ensure proper token configuration.
-- **Updated**: CTP gateway test failures: Verify mock setup and ensure proper sys.modules patching for external dependencies.
+- **Updated**: Trading pipeline issues: Use captured events to trace module interactions and identify bottlenecks.
+- **Updated**: OrderStore concurrency issues: Validate thread safety patterns and proper locking mechanisms.
+- **Updated**: Portfolio calculation errors: Check PnL calculation logic and position state consistency.
+- **Updated**: Risk rule validation failures: Verify constraint values and rule evaluation logic.
+- **Updated**: Data recorder file I/O errors: Check disk space and file permissions for event persistence.
 
 **Section sources**
 - [src/tyche/engine.py](file://src/tyche/engine.py)
 - [src/tyche/module.py](file://src/tyche/module.py)
 - [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
 - [tests/integration/test_multiprocess.py](file://tests/integration/test_multiprocess.py)
-- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
 
 ## Conclusion
-Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests with enhanced defensive programming approaches. The expanded test infrastructure with over 449 lines of comprehensive CTP gateway tests provides extensive coverage of exchange mapping, instrument parsing, and gateway configuration validation. 
+Tyche Engine's testing and development guidelines emphasize a robust multi-layered strategy combining unit, integration, and process-level tests with enhanced defensive programming approaches. The dramatically expanded testing infrastructure now includes comprehensive unit tests for all trading pipeline modules, providing extensive coverage of order management, portfolio tracking, risk validation, strategy context, and data persistence functionality.
 
-**Updated enhancements** include comprehensive coverage reporting through pytest-cov and Codecov integration, establishing quantitative metrics for code quality assurance. The CI pipeline now automatically generates XML and terminal coverage reports, with Codecov providing detailed analysis and trend monitoring. Strict coverage requirements (80% minimum line coverage, 90% for new code) ensure maintainable and well-tested code.
+**Updated enhancements** include comprehensive coverage reporting through pytest-cov and Codecov integration, establishing quantitative metrics for code quality assurance across the expanded test suite. The CI pipeline now automatically generates XML and terminal coverage reports, with Codecov providing detailed analysis and trend monitoring across both core library and trading modules. Strict coverage requirements (80% minimum line coverage, 90% for new code) ensure maintainable and well-tested code.
 
-The addition of specialized CTP gateway testing infrastructure demonstrates the project's commitment to comprehensive testing of trading components. The test suite validates critical functionality including exchange mapping across all major Chinese commodity exchanges, instrument ID processing, order status conversion, and gateway configuration management. Sophisticated mocking strategies ensure reliable testing without external dependencies.
+The addition of specialized test suites for OrderStore, OMSModule, PortfolioModule, RiskRuleEngine, StrategyContext, and DataRecorderModule demonstrates the project's commitment to comprehensive testing of trading components. The test suites validate critical functionality including thread safety in order management, complete order lifecycle validation, position tracking and PnL calculation, risk constraint enforcement, strategy order management, and event persistence to file storage.
 
-By leveraging deterministic fixtures, controlled timing, defensive programming patterns, structured CI pipelines with coverage reporting, and comprehensive quality metrics, contributors can maintain high-quality, reliable distributed components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization. The enhanced coverage reporting infrastructure provides continuous visibility into code quality and test effectiveness.
+The expanded trading pipeline integration testing provides end-to-end validation of the complete workflow from strategy execution through order management to portfolio updates, with comprehensive event flow validation and state consistency checks. Sophisticated mocking strategies using captured events enable reliable testing without external dependencies.
 
-The comprehensive CTP gateway testing strategy serves as a model for testing complex trading integrations, demonstrating best practices for mocking external dependencies, validating data transformations, and ensuring configuration correctness across different trading environments.
+By leveraging deterministic fixtures, controlled timing, defensive programming patterns, structured CI pipelines with comprehensive coverage reporting, and thorough testing of trading pipeline components, contributors can maintain high-quality, reliable distributed trading components. Adhering to linting and type-checking standards ensures code consistency, while clear debugging and profiling practices support ongoing performance optimization. The enhanced coverage reporting infrastructure provides continuous visibility into code quality and test effectiveness across the entire codebase.
+
+The comprehensive trading pipeline testing strategy serves as a model for testing complex distributed trading systems, demonstrating best practices for mocking external dependencies, validating data transformations, ensuring configuration correctness, and maintaining comprehensive test coverage across all trading components.
 
 ## Appendices
 
-### API/Service Component Sequence: Registration and Heartbeat
+### API/Service Component Sequence: Trading Pipeline Integration
 ```mermaid
 sequenceDiagram
-participant Mod as "TycheModule"
-participant Eng as "TycheEngine"
-participant HB as "Heartbeat Manager"
-Mod->>Eng : "REQ REGISTER"
-Eng-->>Mod : "ACK with ports"
-Mod->>Eng : "SUBSCRIBE topics"
-loop Every HEARTBEAT_INTERVAL
-Mod->>Eng : "DEALER HEARTBEAT"
-Eng->>HB : "update(sender)"
+participant Strat as "StrategyContext"
+participant Risk as "RiskRuleEngine"
+participant OMS as "OMSModule"
+participant GW as "SimulatedGateway"
+participant Port as "PortfolioModule"
+Strat->>Risk : "ORDER_SUBMIT"
+Risk-->>Strat : "ORDER_APPROVED/REJECTED"
+alt Order Approved
+Strat->>OMS : "ORDER_APPROVED"
+OMS->>GW : "handle_whispered_order_execute"
+GW-->>OMS : "FILL/ORDER_UPDATE"
+OMS->>Port : "FILL/ORDER_UPDATE"
+Port-->>Strat : "POSITION_UPDATE"
+else Order Rejected
+Strat->>Strat : "No further action"
 end
-HB-->>Eng : "tick_all()"
-Eng->>Eng : "unregister expired modules"
 ```
 
 **Diagram sources**
-- [src/tyche/module.py](file://src/tyche/module.py)
-- [src/tyche/engine.py](file://src/tyche/engine.py)
-- [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
-- [src/tyche/types.py](file://src/tyche/types.py)
+- [src/modules/trading/strategy/context.py](file://src/modules/trading/strategy/context.py)
+- [src/modules/trading/risk/rules.py](file://src/modules/trading/risk/rules.py)
+- [src/modules/trading/oms/module.py](file://src/modules/trading/oms/module.py)
+- [src/modules/trading/portfolio/module.py](file://src/modules/trading/portfolio/module.py)
+- [src/modules/trading/gateway/simulated.py](file://src/modules/trading/gateway/simulated.py)
 
-### Defensive Programming Patterns for Broadcast Stability
-**Updated** Enhanced defensive programming approaches to prevent test instability:
+### Defensive Programming Patterns for Trading Pipeline Stability
+**Updated** Enhanced defensive programming approaches to prevent test instability in trading scenarios:
 
 #### Key Defensive Patterns:
-1. **Timeout-Based Assertions**: Use pytest-timeout markers to prevent infinite waits
-2. **Broadcast Loop Prevention**: Implement upper bounds on broadcast message counts
-3. **Graceful Degradation**: Allow tests to continue even if broadcast loops occur
-4. **Resource Cleanup**: Ensure proper cleanup of timers and threads in defensive scenarios
+1. **Timeout-Based Assertions**: Use pytest-timeout markers to prevent infinite waits in trading pipeline tests
+2. **Event Flow Validation**: Implement comprehensive event sequence validation to prevent pipeline deadlocks
+3. **State Machine Guards**: Add validation checks for order status transitions and position state consistency
+4. **Resource Cleanup**: Ensure proper cleanup of timers, threads, and mock objects in trading pipeline scenarios
 
 #### Implementation Examples:
-- Ping-pong broadcast tests should include maximum iteration limits
-- Heartbeat tests use controlled timing to prevent premature expiration
-- Integration tests implement timeout decorators for distributed operations
-- Defensive assertions prevent infinite loops in automated testing environments
+- Trading pipeline tests use captured events pattern to prevent infinite loops
+- OrderStore tests validate thread safety with concurrent access patterns
+- PortfolioModule tests include defensive PnL calculation validation
+- RiskRuleEngine tests handle rule exceptions gracefully
+- StrategyContext tests validate event dispatch patterns
 
 **Section sources**
-- [tests/unit/test_example_module.py](file://tests/unit/test_example_module.py)
-- [tests/unit/test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
-- [tests/integration/test_engine_module.py](file://tests/integration/test_engine_module.py)
-- [src/tyche/example_module.py](file://src/tyche/example_module.py)
-- [src/tyche/heartbeat.py](file://src/tyche/heartbeat.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 
-### CTP Gateway Testing Infrastructure
-**Updated** Comprehensive CTP gateway testing setup:
+### Expanded Trading Pipeline Testing Infrastructure
+**Updated** Comprehensive testing setup for all trading pipeline components:
 
 #### Test Categories and Coverage:
-- **Exchange Mapping**: 18+ test methods covering all major exchanges
-- **Instrument Processing**: Symbol extraction and ID building validation
-- **Status Mapping**: Complete order status conversion testing
-- **Configuration**: Both simulated and live gateway parameter validation
-- **Helper Functions**: Edge case testing for string and float processing
-- **Mock Strategy**: Sophisticated external dependency mocking
+- **OrderStore**: 273 lines of comprehensive thread-safe order management testing
+- **OMSModule**: Complete order lifecycle and event handling validation
+- **PortfolioModule**: Position management, PnL calculation, and quote handling testing
+- **RiskRuleEngine**: Constraint validation, exception handling, and rule evaluation
+- **StrategyContext**: Order management, market data caching, and event dispatch testing
+- **DataRecorderModule**: File I/O, event persistence, and error handling validation
+- **Integration Tests**: Complete trading pipeline validation with mock endpoints
 
 #### Testing Best Practices:
-- **Isolated Mocking**: sys.modules patching for external CTP dependencies
-- **Parameterized Fixtures**: Reusable gateway configuration across test scenarios
-- **Edge Case Coverage**: Comprehensive validation of boundary conditions
-- **Round-trip Testing**: Verification of data transformation integrity
+- **Isolated Mocking**: Use captured events pattern to simulate ZeroMQ without external dependencies
+- **Parameterized Fixtures**: Reusable trading module configuration across test scenarios
+- **Thread Safety Validation**: Comprehensive concurrent access testing for trading components
+- **State Validation**: Validate final state consistency across all trading pipeline components
+- **Event Flow Testing**: Comprehensive validation of complete event sequences
 
 **Section sources**
-- [tests/unit/test_ctp_gateway.py](file://tests/unit/test_ctp_gateway.py)
-- [src/modules/trading/gateway/ctp/gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
-- [src/modules/trading/gateway/ctp/live.py](file://src/modules/trading/gateway/ctp/live.py)
-- [src/modules/trading/gateway/ctp/sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [tests/unit/test_order_store.py](file://tests/unit/test_order_store.py)
+- [tests/unit/test_oms_module.py](file://tests/unit/test_oms_module.py)
+- [tests/unit/test_portfolio_module.py](file://tests/unit/test_portfolio_module.py)
+- [tests/unit/test_risk_rules.py](file://tests/unit/test_risk_rules.py)
+- [tests/unit/test_strategy_context.py](file://tests/unit/test_strategy_context.py)
+- [tests/unit/test_data_recorder.py](file://tests/unit/test_data_recorder.py)
+- [tests/integration/test_trading_pipeline.py](file://tests/integration/test_trading_pipeline.py)
 
-### Coverage Reporting Configuration
-**Updated** Comprehensive coverage reporting setup:
+### Enhanced Coverage Reporting Configuration
+**Updated** Comprehensive coverage reporting setup across expanded test suite:
 
 #### CI Coverage Configuration:
-- **Targeted coverage**: `--cov=src/tyche` focuses analysis on core library
+- **Targeted coverage**: `--cov=src/tyche --cov=src/modules` focuses analysis on core library and trading modules
 - **Multi-format reports**: XML for Codecov integration, terminal for developer feedback
 - **Platform-specific execution**: Runs on Ubuntu with Python 3.11 for optimal coverage analysis
 - **Error tolerance**: `fail_ci_if_error: false` prevents coverage failures from blocking CI
 
 #### Local Coverage Setup:
-- **Source filtering**: `source = ["src/tyche"]` in pyproject.toml
+- **Source filtering**: `source = ["src/tyche", "src/modules"]` in pyproject.toml
 - **Exclusion patterns**: `omit = ["*/tests/*"]` prevents test files from coverage
 - **Line exclusions**: Automatic exclusion of `if __name__ == "__main__":` blocks
-- **Integration**: Seamless pytest-cov plugin integration
+- **Integration**: Seamless pytest-cov plugin integration across all test categories
 
 **Section sources**
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)

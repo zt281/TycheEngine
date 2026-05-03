@@ -194,6 +194,7 @@ Temporary Items
 data/
 backtests/
 research/
+docker/clickhouse-data/
 
 # Node.js / npm
 node_modules/
