@@ -181,6 +181,7 @@ class TycheEngine:
         """Receive registration requests and enqueue to typed queue."""
         assert self.context is not None
         self._registration_socket = self.context.socket(zmq.ROUTER)
+        assert self._registration_socket is not None
         self._registration_socket.setsockopt(zmq.LINGER, 0)
         try:
             self._registration_socket.bind(str(self.registration_endpoint))
@@ -363,14 +364,15 @@ class TycheEngine:
                         self._egress_wakeup.put(None)
                     elif msg.msg_type == MessageType.RESPONSE:
                         correlation_id = msg.payload.get("_correlation_id")
-                        with self._ack_lock:
-                            caller_identity = self._ack_correlations.pop(
-                                correlation_id, None
-                            )
-                        if caller_identity is not None:
-                            router.send_multipart(
-                                [caller_identity, b"", serialize(msg)]
-                            )
+                        if correlation_id is not None:
+                            with self._ack_lock:
+                                caller_identity = self._ack_correlations.pop(
+                                    str(correlation_id), None
+                                )
+                            if caller_identity is not None:
+                                router.send_multipart(
+                                    [caller_identity, b"", serialize(msg)]
+                                )
                 except zmq.error.Again:
                     continue
                 except Exception as e:
@@ -395,10 +397,12 @@ class TycheEngine:
         assert self.context is not None
 
         self._xpub_socket = self.context.socket(zmq.XPUB)
+        assert self._xpub_socket is not None
         self._xpub_socket.setsockopt(zmq.LINGER, 0)
         self._xpub_socket.setsockopt(zmq.SNDHWM, 10000)
         self._xpub_socket.setsockopt(zmq.RCVHWM, 10000)
         self._xsub_socket = self.context.socket(zmq.XSUB)
+        assert self._xsub_socket is not None
         self._xsub_socket.setsockopt(zmq.LINGER, 0)
         self._xsub_socket.setsockopt(zmq.SNDHWM, 10000)
         self._xsub_socket.setsockopt(zmq.RCVHWM, 10000)

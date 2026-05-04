@@ -85,7 +85,7 @@ def build_gateway(config_path: Optional[str], cli_overrides: Dict[str, Any]) -> 
     heartbeat_endpoint = Endpoint(cfg.engine_host, cfg.engine_heartbeat_port)
     heartbeat_receive_endpoint = Endpoint(cfg.engine_host, cfg.engine_heartbeat_port + 1)
 
-    kwargs = {
+    kwargs: Dict[str, Any] = {
         "engine_endpoint": engine_endpoint,
         "heartbeat_endpoint": heartbeat_endpoint,
         "heartbeat_receive_endpoint": heartbeat_receive_endpoint,
