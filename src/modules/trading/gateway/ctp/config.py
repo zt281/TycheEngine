@@ -40,7 +40,7 @@ class GatewayConfig:
     reconnect_base_delay_ms: int = 1000
     reconnect_max_delay_ms: int = 30000
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.gateway_type == GatewayType.LIVE:
             if not self.live_td_front or not self.live_md_front:
                 raise ValueError("live gateway requires 'live_td_front' and 'live_md_front'")

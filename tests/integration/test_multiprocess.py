@@ -43,9 +43,9 @@ def test_engine_and_module_in_same_process():
         def on_test(payload: dict) -> None:
             received.append(payload)
 
-        module.add_interface("on_test", on_test)
+        module._register_handler("on_test", on_test)
 
-        module.start_nonblocking()
+        module.start()
         time.sleep(0.5)
 
         assert "test_module_001" in engine.modules

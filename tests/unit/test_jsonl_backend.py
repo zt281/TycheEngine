@@ -3,13 +3,9 @@
 import base64
 import json
 import time
-from pathlib import Path
 
-import pytest
-
-from modules.trading.persistence.backend import InsertResult, PersistenceBackend, QueryResult
+from modules.trading.persistence.backend import PersistenceBackend
 from modules.trading.persistence.jsonl_backend import JsonlBackend
-
 
 # --- Construction / subclass tests ---
 
@@ -30,7 +26,7 @@ def test_jsonl_backend_init_defaults(tmp_path):
 def test_jsonl_backend_init_creates_nested_dir(tmp_path):
     """JsonlBackend creates nested directories."""
     data_dir = tmp_path / "a" / "b" / "recorded"
-    backend = JsonlBackend(data_dir=str(data_dir))
+    JsonlBackend(data_dir=str(data_dir))
     assert data_dir.exists()
 
 

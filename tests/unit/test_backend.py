@@ -10,7 +10,6 @@ from modules.trading.persistence.backend import (
     QueryResult,
 )
 
-
 # --- InsertResult tests ---
 
 def test_insert_result_defaults():

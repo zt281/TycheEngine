@@ -9,6 +9,7 @@
 - [gateway.py](file://src/modules/trading/gateway/ctp/gateway.py)
 - [live.py](file://src/modules/trading/gateway/ctp/live.py)
 - [sim.py](file://src/modules/trading/gateway/ctp/sim.py)
+- [state_machine.py](file://src/modules/trading/gateway/ctp/state_machine.py)
 - [__init__.py](file://src/modules/trading/gateway/ctp/__init__.py)
 - [recorder.py](file://src/modules/trading/store/recorder.py)
 - [replay.py](file://src/modules/trading/store/replay.py)
@@ -27,16 +28,21 @@
 - [module.py](file://src/modules/trading/risk/module.py)
 - [module.py](file://src/modules/trading/oms/module.py)
 - [module.py](file://src/modules/trading/portfolio/module.py)
+- [backend.py](file://src/modules/trading/persistence/backend.py)
+- [clickhouse_backend.py](file://src/modules/trading/persistence/clickhouse_backend.py)
+- [jsonl_backend.py](file://src/modules/trading/persistence/jsonl_backend.py)
+- [schema.py](file://src/modules/trading/persistence/schema.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated directory structure reference from src/tyche/trading/ to src/modules/trading/
-- Added comprehensive CTP (China Trading Platform) gateway implementation with live trading and simulation capabilities
-- Enhanced store module with recording and replay functionality for backtesting
-- Updated gateway integration section to include CTP gateway architecture
-- Added new sections for CTP gateway implementation and data recording/replay functionality
-- Updated trading domain models to reflect new market data types and enhanced order management
+- Enhanced CTP gateway with sophisticated connection state machine featuring exponential backoff and auto-reconnect
+- Added advanced order types including STOP and STOP_LIMIT with comprehensive CTP protocol mapping
+- Integrated Offset enum support for precise position management (OPEN/CLOSE/CLOSE_TODAY/CLOSE_YESTERDAY)
+- Implemented comprehensive error event publishing system for better observability
+- Added new persistence layer with ClickHouse and JSONL backends for event storage
+- Improved position handling with accumulator-based aggregation for better performance
+- Enhanced order submission with full CTP protocol compliance including time-in-force mapping
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -50,18 +56,20 @@
 9. [Portfolio Management](#portfolio-management)
 10. [Gateway Integration](#gateway-integration)
 11. [CTP Gateway Implementation](#ctp-gateway-implementation)
-12. [Data Recording and Replay](#data-recording-and-replay)
-13. [Performance Considerations](#performance-considerations)
-14. [Deployment and Operations](#deployment-and-operations)
-15. [Conclusion](#conclusion)
+12. [Advanced Order Management](#advanced-order-management)
+13. [Connection State Management](#connection-state-management)
+14. [Error Handling and Observability](#error-handling-and-observability)
+15. [Event Persistence Layer](#event-persistence-layer)
+16. [Data Recording and Replay](#data-recording-and-replay)
+17. [Performance Considerations](#performance-considerations)
+18. [Deployment and Operations](#deployment-and-operations)
+19. [Conclusion](#conclusion)
 
 ## Introduction
 
 The Multi-Asset Trading System is a high-performance distributed event-driven framework built on ZeroMQ for real-time automated trading. It provides a comprehensive infrastructure for multi-asset trading with support for live trading, backtesting, and research workflows. The system is designed around a central engine that orchestrates multiple specialized modules for order management, risk control, portfolio tracking, and market data processing.
 
-The framework follows a modular architecture where each component operates as an independent module that communicates through a standardized event bus. This design enables fault isolation, scalability, and easy integration of new trading venues and strategies.
-
-**Updated** The system now includes comprehensive support for China Trading Platform (CTP) with both live trading and simulation capabilities, along with enhanced data recording and replay functionality for backtesting and research workflows.
+**Updated** The system now includes comprehensive support for China Trading Platform (CTP) with sophisticated connection state management, advanced order types, comprehensive error handling, and a complete event persistence layer for production-grade trading infrastructure.
 
 ## Project Structure
 
@@ -84,11 +92,13 @@ Portfolio[Portfolio Module]
 Gateway[Gateway Base]
 Clock[Time Abstraction]
 Store[Recording & Replay]
+Persistence[Persistence Layer]
 end
 subgraph "CTP Integration"
 CTPBase[CTP Gateway Base]
 CTPLive[Live CTP Gateway]
 CTPSim[Simulated CTP Gateway]
+StateMachine[Connection State Machine]
 end
 subgraph "Infrastructure"
 Examples[Examples]
@@ -103,9 +113,11 @@ Portfolio --> Events
 Gateway --> Events
 Clock --> Events
 Store --> Events
+Persistence --> Events
 CTPBase --> Gateway
 CTPLive --> CTPBase
 CTPSim --> CTPBase
+StateMachine --> CTPBase
 Models --> Strategy
 Models --> Risk
 Models --> OMS
@@ -185,13 +197,15 @@ STRATEGIES[Trading Strategies]
 CTP_GATEWAY[CTP Gateways]
 RECORDERS[Data Recorders]
 REPLAYS[Backtest Replay]
-end
+PERSISTENCE[Persistence Backends]
+END
 REG_REQ --> REG_ROUTER
 REG_ROUTER --> ENGINE
 ENGINE --> MODULES
 ENGINE --> CTP_GATEWAY
 ENGINE --> RECORDERS
 ENGINE --> REPLAYS
+ENGINE --> PERSISTENCE
 XPUB --> PROXY
 PROXY --> XSUB
 PROXY --> MODULES
@@ -204,6 +218,7 @@ MODULES --> STRATEGIES
 CTP_GATEWAY --> MODULES
 RECORDERS --> MODULES
 REPLAYS --> MODULES
+PERSISTENCE --> MODULES
 ```
 
 **Diagram sources**
@@ -393,9 +408,9 @@ OrderBook --> OrderBookLevel : "contains"
 **Section sources**
 - [tick.py:1-184](file://src/modules/trading/models/tick.py#L1-L184)
 
-### Order Lifecycle Management
+### Advanced Order Lifecycle Management
 
-The trading system models orders with comprehensive lifecycle tracking supporting various order types and execution states.
+The trading system models orders with comprehensive lifecycle tracking supporting various order types and execution states, including the new STOP and STOP_LIMIT capabilities.
 
 ```mermaid
 classDiagram
@@ -407,6 +422,7 @@ class Order {
 +Decimal? price
 +Decimal? stop_price
 +TimeInForce time_in_force
++Offset offset
 +OrderStatus status
 +String order_id
 +String? venue_order_id
@@ -451,7 +467,7 @@ Order --> OrderUpdate : "produces"
 
 ### Position and Account Tracking
 
-Portfolio management encompasses position tracking and account state management with comprehensive P&L calculations.
+Portfolio management encompasses position tracking and account state management with comprehensive P&L calculations, enhanced with sophisticated position accumulation.
 
 ```mermaid
 classDiagram
@@ -543,7 +559,7 @@ Instrument --> InstrumentId : "uses"
 
 ## Trading Workflow
 
-The complete trading workflow demonstrates the end-to-end flow from strategy generation to order execution and position management.
+The complete trading workflow demonstrates the end-to-end flow from strategy generation to order execution and position management, now enhanced with advanced order types and comprehensive error handling.
 
 ```mermaid
 sequenceDiagram
@@ -554,21 +570,22 @@ participant Gateway as Exchange Gateway
 participant Portfolio as Portfolio Module
 Note over Strategy : Market Data Analysis
 Strategy->>Strategy : Generate Trading Signal
-Note over Strategy : Order Submission
-Strategy->>Risk : order.submit (ack_)
+Note over Strategy : Order Submission with Advanced Types
+Strategy->>Risk : order.submit (STOP/STOP_LIMIT)
 Risk->>Risk : Evaluate Risk Rules
 alt Risk Approved
 Risk->>OMS : order.approved
 OMS->>OMS : Store Order State
-OMS->>Gateway : order.execute (ack_)
-Note over Gateway : Exchange Execution
-Gateway->>Gateway : Submit to Exchange
+OMS->>Gateway : order.execute (with CTP mapping)
+Note over Gateway : Exchange Execution with State Machine
+Gateway->>Gateway : State Machine Monitoring
+Gateway->>Gateway : Error Event Publishing
 Gateway-->>OMS : fill events
 Note over OMS : Order Processing
 OMS->>OMS : Update Order State
 OMS->>Strategy : order.update events
 OMS->>Portfolio : fill events
-Note over Portfolio : Position Management
+Note over Portfolio : Position Management with Accumulation
 Portfolio->>Portfolio : Update Positions
 Portfolio->>Strategy : position.update events
 else Risk Rejected
@@ -605,7 +622,7 @@ Key features:
 
 ## Portfolio Management
 
-The portfolio module provides comprehensive position tracking and P&L calculation across all instruments and venues.
+The portfolio module provides comprehensive position tracking and P&L calculation across all instruments and venues, enhanced with sophisticated position accumulation for better performance.
 
 ### Position Management
 
@@ -614,6 +631,7 @@ Positions are tracked at the instrument level with support for:
 - **Real-time P&L Calculation**: Mark-to-market valuation using mid-prices
 - **Commission Tracking**: Accurate cost accounting for all trades
 - **Cross-asset Support**: Unified tracking across equities, futures, and crypto
+- **Accumulation Optimization**: Efficient position aggregation for large datasets
 
 ### Account Management
 
@@ -668,7 +686,7 @@ BaseGateway <|-- CustomGateway
 
 ## CTP Gateway Implementation
 
-The CTP (China Trading Platform) gateway provides comprehensive support for both live trading and simulation environments with full CTP protocol compatibility.
+The CTP (China Trading Platform) gateway provides comprehensive support for both live trading and simulation environments with full CTP protocol compatibility and sophisticated state management.
 
 ### CTP Gateway Architecture
 
@@ -685,6 +703,8 @@ class CtpGateway {
 +Dict _order_ref_map
 +Dict _order_id_map
 +Dict _order_sys_map
++ConnectionStateMachine state_machine
++Dict _position_accumulator
 +connect()
 +disconnect()
 +subscribe_market_data(instrument_ids)
@@ -697,6 +717,14 @@ class CtpLiveGateway {
 class CtpSimGateway {
 +ENVS
 +__init__(engine_endpoint, user_id, password, env, broker_id, venue_name, module_id)
+}
+class ConnectionStateMachine {
++ConnectionState state
++int retry_count
++transition(new_state) bool
++next_backoff_ms() int
++max_retries_exceeded() bool
++to_payload(reason) Dict
 }
 class LiveClockModule {
 +start_nonblocking()
@@ -712,6 +740,7 @@ class SimulatedClock {
 CtpGateway --|> GatewayModule
 CtpLiveGateway --|> CtpGateway
 CtpSimGateway --|> CtpGateway
+ConnectionStateMachine --> CtpGateway : "manages"
 LiveClockModule --> CtpGateway : "uses"
 SimulatedClock --> ReplayModule : "drives"
 ```
@@ -720,6 +749,7 @@ SimulatedClock --> ReplayModule : "drives"
 - [gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
 - [live.py:13-60](file://src/modules/trading/gateway/ctp/live.py#L13-L60)
 - [sim.py:13-68](file://src/modules/trading/gateway/ctp/sim.py#L13-L68)
+- [state_machine.py:35-96](file://src/modules/trading/gateway/ctp/state_machine.py#L35-L96)
 - [clock.py:20-107](file://src/modules/trading/clock/clock.py#L20-L107)
 
 ### CTP Market Data Integration
@@ -731,25 +761,258 @@ The CTP gateway provides comprehensive market data handling with automatic quote
 - **Trade Generation**: Volume-based trade detection and Trade object creation
 - **Order Reference Management**: Bidirectional mapping between order IDs and CTP order references
 - **Account Query**: Real-time account balance and position retrieval
+- **Position Accumulation**: Efficient aggregation of position data for better performance
 
 ### CTP Order Management
 
-Full order lifecycle management with CTP protocol compliance:
-- **Order Submission**: Complete mapping of TycheEngine orders to CTP InputOrderField
+Full order lifecycle management with CTP protocol compliance and advanced order types:
+- **Order Submission**: Complete mapping of TycheEngine orders to CTP InputOrderField with STOP/STOP_LIMIT support
 - **Order Status Updates**: Real-time status tracking with proper state transitions
 - **Fill Processing**: Comprehensive fill event generation with venue identifiers
 - **Order Cancellation**: Support for both order reference and system ID cancellation
 - **Authentication**: Optional broker authentication for live trading environments
+- **Offset Support**: OPEN/CLOSE/CLOSE_TODAY/CLOSE_YESTERDAY positioning options
 
 **Section sources**
 - [gateway.py:1-840](file://src/modules/trading/gateway/ctp/gateway.py#L1-L840)
 - [live.py:1-60](file://src/modules/trading/gateway/ctp/live.py#L1-L60)
 - [sim.py:1-68](file://src/modules/trading/gateway/ctp/sim.py#L1-L68)
+- [state_machine.py:1-96](file://src/modules/trading/gateway/ctp/state_machine.py#L1-L96)
 - [clock.py:1-107](file://src/modules/trading/clock/clock.py#L1-L107)
+
+## Advanced Order Management
+
+The CTP gateway now supports sophisticated order types with comprehensive CTP protocol mapping and advanced position management capabilities.
+
+### Order Type Mapping
+
+The system provides comprehensive mapping between TycheEngine order types and CTP protocol specifications:
+
+```mermaid
+flowchart TD
+A[Order Received] --> B{Order Type}
+B --> |LIMIT| C[LIMIT Price Type]
+B --> |STOP| D[ANY Price + Stop Price]
+B --> |STOP_LIMIT| E[LIMIT Price + Stop Price]
+B --> |MARKET| F[ANY Price Type]
+C --> G[Contingent Condition: Immediately]
+D --> H[Contingent Condition: Touch]
+E --> I[Contingent Condition: Touch]
+F --> G
+G --> J[Submit to CTP]
+H --> J
+I --> J
+J --> K[Track Order Ref Mapping]
+K --> L[Monitor Status Updates]
+```
+
+**Diagram sources**
+- [gateway.py:804-908](file://src/modules/trading/gateway/ctp/gateway.py#L804-L908)
+
+### Time-In-Force Mapping
+
+Comprehensive mapping of order time conditions to CTP protocol equivalents:
+- **IOC**: Immediate Or Cancel (THOST_FTDC_TC_IOC + THOST_FTDC_VC_AV/CV)
+- **FOK**: Fill Or Kill (THOST_FTDC_TC_IOC + THOST_FTDC_VC_CV)
+- **GTD**: Good Till Date (THOST_FTDC_TC_GFS approximation)
+- **GTC/DAY**: Good For Day (THOST_FTDC_TC_GFD)
+
+### Offset Management
+
+Advanced position management with four offset types:
+- **OPEN**: Open new position
+- **CLOSE**: Close existing position (any day)
+- **CLOSE_TODAY**: Close today's positions
+- **CLOSE_YESTERDAY**: Close positions from previous trading day
+
+**Section sources**
+- [gateway.py:804-908](file://src/modules/trading/gateway/ctp/gateway.py#L804-L908)
+- [enums.py:67-73](file://src/modules/trading/models/enums.py#L67-L73)
+
+## Connection State Management
+
+The CTP gateway implements a sophisticated connection state machine with exponential backoff and comprehensive auto-reconnect capabilities.
+
+### State Machine Architecture
+
+```mermaid
+stateDiagram-v2
+[*] --> IDLE
+IDLE --> CONNECTING : connect()
+CONNECTING --> CONNECTED : login success
+CONNECTING --> DISCONNECTED : login timeout/error
+CONNECTED --> RECONNECTING : disconnect() with should_reconnect
+CONNECTED --> DISCONNECTED : disconnect() without reconnect
+RECONNECTING --> CONNECTING : retry attempt
+RECONNECTING --> DISCONNECTED : max retries exceeded
+CONNECTING --> CONNECTED : reconnect success
+DISCONNECTED --> CONNECTING : manual connect
+```
+
+**Diagram sources**
+- [state_machine.py:8-32](file://src/modules/trading/gateway/ctp/state_machine.py#L8-L32)
+
+### Auto-Reconnect Algorithm
+
+The state machine implements exponential backoff with jitter for resilient connectivity:
+
+- **Base Delay**: 1 second initial delay
+- **Exponential Growth**: 2x multiplier per retry
+- **Maximum Delay**: 30 seconds cap
+- **Retry Limit**: 10 attempts maximum
+- **Jitter**: Random variation to prevent thundering herd effects
+
+### State Transition Management
+
+The system publishes comprehensive state change events with detailed context:
+- **Venue Information**: Identifies the trading venue
+- **Previous State**: Tracks state transitions
+- **Retry Count**: Monitors connection attempts
+- **Next Retry**: Predicts timing for next attempt
+- **Reason Codes**: Provides context for state changes
+
+**Section sources**
+- [state_machine.py:1-96](file://src/modules/trading/gateway/ctp/state_machine.py#L1-L96)
+- [gateway.py:999-1081](file://src/modules/trading/gateway/ctp/gateway.py#L999-L1081)
+
+## Error Handling and Observability
+
+The CTP gateway implements comprehensive error handling with dedicated error event publishing for better observability and debugging.
+
+### Error Event Publishing
+
+The system provides structured error reporting through dedicated gateway.error events:
+
+```mermaid
+sequenceDiagram
+participant Gateway as CTP Gateway
+participant ErrorHandler as Error Handler
+participant EventBus as Event Bus
+Gateway->>Gateway : OnRspError callback
+Gateway->>ErrorHandler : _publish_error()
+ErrorHandler->>EventBus : send_event("gateway.error")
+EventBus-->>ErrorHandler : event published
+ErrorHandler->>ErrorHandler : log error details
+```
+
+**Diagram sources**
+- [gateway.py:574-592](file://src/modules/trading/gateway/ctp/gateway.py#L574-L592)
+
+### Error Event Structure
+
+Each error event contains comprehensive context:
+- **Venue Identification**: Specifies the trading venue
+- **Source Information**: Indicates error source (td_api/md_api)
+- **Error Code**: Numeric error identifier
+- **Error Message**: Human-readable description
+- **Context Details**: Additional operational context
+
+### Comprehensive Error Coverage
+
+The error handling system covers multiple error scenarios:
+- **API Response Errors**: CTP API error responses
+- **Login Failures**: Authentication and authorization issues
+- **Network Disconnections**: Connectivity problems
+- **Order Submission Errors**: Exchange rejection reasons
+- **Position Query Errors**: Data retrieval failures
+
+**Section sources**
+- [gateway.py:574-592](file://src/modules/trading/gateway/ctp/gateway.py#L574-L592)
+- [gateway.py:1088-1102](file://src/modules/trading/gateway/ctp/gateway.py#L1088-L1102)
+
+## Event Persistence Layer
+
+The system now includes a comprehensive event persistence layer with multiple backend implementations for production-grade event storage and retrieval.
+
+### Persistence Backend Architecture
+
+```mermaid
+classDiagram
+class PersistenceBackend {
+<<abstract>>
++insert_batch(rows) InsertResult
++query(start_ts, end_ts, event_type, instrument_id, module_id, limit, offset) QueryResult
++health() Dict~String, Any~
++close() void
++ensure_schema() bool
+}
+class InsertResult {
++bool success
++int rows_inserted
++String? error
++to_dict() Dict
++from_dict(d) InsertResult
+}
+class QueryResult {
++bool success
++Dict[] rows
++String? error
++to_dict() Dict
++from_dict(d) QueryResult
+}
+class ClickHouseBackend {
++__init__(host, port, database, user, password, secure)
++insert_batch(rows) InsertResult
++query(filters) QueryResult
++health() Dict
++close() void
++ensure_schema() bool
+}
+class JsonlBackend {
++__init__(data_dir)
++insert_batch(rows) InsertResult
++query(filters) QueryResult
++health() Dict
++close() void
++ensure_schema() bool
+}
+PersistenceBackend <|-- ClickHouseBackend
+PersistenceBackend <|-- JsonlBackend
+```
+
+**Diagram sources**
+- [backend.py:80-162](file://src/modules/trading/persistence/backend.py#L80-L162)
+- [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
+- [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
+
+### ClickHouse Backend
+
+The ClickHouse backend provides production-grade event storage with:
+
+- **High-Performance Storage**: Optimized for analytical workloads
+- **Automatic Partitioning**: Daily partitioning for efficient querying
+- **Connection Pooling**: Resource-efficient database connections
+- **Base64 Encoding**: Secure payload storage
+- **Schema Management**: Automated table creation and versioning
+
+### JSONL Backend
+
+The JSONL backend serves as a development and testing alternative:
+
+- **File-Based Storage**: Simple text-based event storage
+- **Date Partitioning**: Automatic organization by date
+- **Base64 Encoding**: Secure payload handling
+- **Flexible Querying**: Pattern-based filtering and sorting
+- **Easy Debugging**: Human-readable event format
+
+### Schema Management
+
+The persistence layer includes comprehensive schema management:
+
+- **Version Control**: Track schema evolution
+- **Idempotent Creation**: Safe table initialization
+- **Migration Support**: Handle schema upgrades
+- **Health Monitoring**: Database connectivity verification
+
+**Section sources**
+- [backend.py:1-162](file://src/modules/trading/persistence/backend.py#L1-L162)
+- [clickhouse_backend.py:1-231](file://src/modules/trading/persistence/clickhouse_backend.py#L1-L231)
+- [jsonl_backend.py:1-155](file://src/modules/trading/persistence/jsonl_backend.py#L1-L155)
+- [schema.py:1-107](file://src/modules/trading/persistence/schema.py#L1-L107)
 
 ## Data Recording and Replay
 
-The enhanced store module provides comprehensive data recording and replay capabilities for backtesting and research workflows.
+The enhanced store module provides comprehensive data recording and replay capabilities for backtesting and research workflows, now integrated with the new persistence layer.
 
 ### Data Recording System
 
@@ -823,7 +1086,7 @@ The replay system enables sophisticated backtesting workflows:
 
 ## Performance Considerations
 
-The system is optimized for high-frequency trading with several performance-critical design decisions:
+The system is optimized for high-frequency trading with several performance-critical design decisions, enhanced by the new persistence layer and state management improvements.
 
 ### Async Persistence Architecture
 
@@ -868,6 +1131,16 @@ The CTP gateway implements several optimizations for high-frequency trading:
 - **Efficient Order Mapping**: Minimal overhead in order reference translation
 - **Batch Account Queries**: Cached account information to reduce network round-trips
 - **Smart Trade Generation**: Volume-based detection minimizes unnecessary trade events
+- **Position Accumulation**: Efficient aggregation reduces memory footprint
+- **State Machine Optimization**: Minimal overhead in state transitions
+
+### Persistence Layer Performance
+
+The new persistence layer provides:
+- **Asynchronous Writing**: Non-blocking event storage operations
+- **Batch Processing**: Efficient bulk data insertion
+- **Connection Pooling**: Reduced database connection overhead
+- **Schema Optimization**: ClickHouse columnar storage for analytical queries
 
 **Section sources**
 - [README.md:197-205](file://README.md#L197-L205)
@@ -904,7 +1177,7 @@ START --> STATUS
 
 ### Module Lifecycle Management
 
-The system implements comprehensive module lifecycle management with automatic recovery and monitoring:
+The system implements comprehensive module lifecycle management with automatic recovery and monitoring, enhanced by the new state machine:
 
 ```mermaid
 stateDiagram-v2
@@ -926,17 +1199,20 @@ FAILED --> [*] : Manual Intervention
 
 ### CTP Gateway Deployment
 
-The CTP gateway supports both development and production deployment scenarios:
+The CTP gateway supports both development and production deployment scenarios with enhanced reliability:
 
 **Development Environment**:
 - OpenCTP simulation servers for paper trading
 - Automatic environment configuration
 - Simplified authentication requirements
+- Comprehensive error logging
 
 **Production Environment**:
 - Direct broker connections with authentication
 - High-availability front-end configuration
-- Comprehensive error handling and recovery
+- Sophisticated auto-reconnect with exponential backoff
+- Production-grade error handling and recovery
+- ClickHouse persistence for event storage
 
 **Section sources**
 - [run_engine.py:1-59](file://examples/run_engine.py#L1-L59)
@@ -944,30 +1220,30 @@ The CTP gateway supports both development and production deployment scenarios:
 
 ## Conclusion
 
-The Multi-Asset Trading System represents a sophisticated, production-ready framework for automated trading with several key strengths:
+The Multi-Asset Trading System represents a sophisticated, production-ready framework for automated trading with several key strengths, significantly enhanced by recent improvements:
 
 ### Architectural Excellence
 
 The system demonstrates exceptional architectural design with clear separation of concerns, robust error handling, and comprehensive monitoring capabilities. The modular approach enables easy extension and maintenance while maintaining system stability.
 
-**Updated** The system now includes comprehensive CTP integration with both live trading and simulation capabilities, making it suitable for Chinese futures markets and providing a complete trading infrastructure.
+**Updated** The system now includes comprehensive CTP integration with sophisticated connection state management, advanced order types, comprehensive error handling, and a complete event persistence layer, making it suitable for production Chinese futures trading.
 
 ### Performance Optimization
 
 Through careful selection of ZeroMQ socket patterns and implementation of async persistence, the system achieves sub-microsecond latency for critical operations while maintaining full data durability and recovery capabilities.
 
-**Enhanced** The CTP gateway adds high-performance connectivity to Chinese trading venues with optimized event processing and minimal overhead.
+**Enhanced** The CTP gateway adds high-performance connectivity to Chinese trading venues with optimized event processing, minimal overhead, and sophisticated state management with exponential backoff.
 
 ### Scalability and Reliability
 
-The framework supports horizontal scaling across multiple engines and venues, with built-in fault tolerance and automatic recovery mechanisms. The Paranoid Pirate heartbeat pattern ensures reliable operation even under adverse network conditions.
+The framework supports horizontal scaling across multiple engines and venues, with built-in fault tolerance and automatic recovery mechanisms. The sophisticated state machine ensures reliable operation even under adverse network conditions with intelligent auto-reconnect capabilities.
 
-**Expanded** The addition of recording and replay functionality enables scalable backtesting and research workflows without impacting production systems.
+**Expanded** The addition of the persistence layer enables scalable event storage and retrieval without impacting production systems, while the new error handling system provides comprehensive observability.
 
 ### Comprehensive Trading Infrastructure
 
-From basic market data handling to advanced risk management, portfolio tracking, and now CTP gateway integration, the system provides a complete trading infrastructure suitable for both live trading and research/backtesting workflows.
+From basic market data handling to advanced risk management, portfolio tracking, sophisticated CTP gateway integration, comprehensive error handling, and now a complete event persistence layer, the system provides a complete trading infrastructure suitable for both live trading and research/backtesting workflows.
 
-**Enhanced** The data recording and replay system enables sophisticated research workflows, algorithm development, and comprehensive performance analysis.
+**Enhanced** The new persistence layer enables sophisticated research workflows, algorithm development, comprehensive performance analysis, and production-grade event storage with ClickHouse integration.
 
-The modular design, extensive documentation, and comprehensive testing suite make this framework an excellent foundation for building sophisticated trading systems with confidence in reliability and performance.
+The modular design, extensive documentation, and comprehensive testing suite make this framework an excellent foundation for building sophisticated trading systems with confidence in reliability, performance, and production readiness.

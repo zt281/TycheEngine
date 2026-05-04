@@ -117,23 +117,23 @@ def _run_pipeline_order_submit(
 
     # Extract the ORDER_SUBMIT event and feed it to Risk
     submit_event = next(e for e in captured_events if e["event"] == events.ORDER_SUBMIT)
-    risk_result = risk_module._handle_order_submit(submit_event["payload"])
+    risk_result = risk_module.handle_broadcasted_order_submit(submit_event["payload"])
 
     # If approved, feed ORDER_APPROVED to OMS
     if risk_result.get("approved"):
         approved_event = next(e for e in captured_events if e["event"] == events.ORDER_APPROVED)
-        oms_module._handle_order_approved(approved_event["payload"])
+        oms_module.on_broadcasted_order_approved(approved_event["payload"])
 
-        # OMS sends ack_order_execute_simulated -> gateway handles it
-        execute_event = next(e for e in captured_events if e["event"] == "ack_order_execute_simulated")
-        gateway._handle_order_execute(execute_event["payload"])
+        # OMS sends handle_whispered_order_execute -> gateway handles it
+        execute_event = next(e for e in captured_events if e["event"] == "handle_whispered_order_execute")
+        gateway.handle_whispered_order_execute(execute_event["payload"])
 
         # Gateway publishes fill and order update
         # Fill is captured in events; feed it to OMS and Portfolio
         fill_events = [e for e in captured_events if e["event"] == events.fill_event(instrument_id)]
         for fe in fill_events:
-            oms_module._handle_fill(fe["payload"])
-            portfolio_module._handle_fill(fe["payload"])
+            oms_module.on_broadcasted_fill(fe["payload"])
+            portfolio_module.on_broadcasted_fill(fe["payload"])
 
     return order
 
@@ -178,7 +178,7 @@ class TestFullPipelineSingleOrder:
         event_names = [e["event"] for e in captured_events]
         assert events.ORDER_SUBMIT in event_names
         assert events.ORDER_APPROVED in event_names
-        assert "ack_order_execute_simulated" in event_names
+        assert "handle_whispered_order_execute" in event_names
         assert events.fill_event("BTCUSDT.simulated.crypto") in event_names
         assert events.ORDER_UPDATE in event_names
         assert events.POSITION_UPDATE in event_names
@@ -210,7 +210,7 @@ class TestPipelineRiskRejects:
         )
 
         submit_event = next(e for e in captured_events if e["event"] == events.ORDER_SUBMIT)
-        risk_result = restrictive_risk._handle_order_submit(submit_event["payload"])
+        risk_result = restrictive_risk.handle_broadcasted_order_submit(submit_event["payload"])
 
         assert risk_result["approved"] is False
 
@@ -254,21 +254,21 @@ class TestPipelineCancel:
 
         # Run through risk and oms (gateway will fill)
         submit_event = next(e for e in captured_events if e["event"] == events.ORDER_SUBMIT)
-        risk_result = risk_module._handle_order_submit(submit_event["payload"])
+        risk_result = risk_module.handle_broadcasted_order_submit(submit_event["payload"])
         assert risk_result["approved"] is True
 
         approved_event = next(e for e in captured_events if e["event"] == events.ORDER_APPROVED)
-        oms_module._handle_order_approved(approved_event["payload"])
+        oms_module.on_broadcasted_order_approved(approved_event["payload"])
 
         # Simulate gateway execution (full fill for simplicity)
-        execute_event = next(e for e in captured_events if e["event"] == "ack_order_execute_simulated")
-        gateway._handle_order_execute(execute_event["payload"])
+        execute_event = next(e for e in captured_events if e["event"] == "handle_whispered_order_execute")
+        gateway.handle_whispered_order_execute(execute_event["payload"])
 
         # Feed fill to OMS and Portfolio
         fill_events = [e for e in captured_events if e["event"] == events.fill_event("BTCUSDT.simulated.crypto")]
         for fe in fill_events:
-            oms_module._handle_fill(fe["payload"])
-            portfolio_module._handle_fill(fe["payload"])
+            oms_module.on_broadcasted_fill(fe["payload"])
+            portfolio_module.on_broadcasted_fill(fe["payload"])
 
         # At this point the order is FILLED; reset to SUBMITTED for cancel test
         oms_order = oms_module.order_store.get_order(order.order_id)
@@ -280,15 +280,15 @@ class TestPipelineCancel:
         strategy_context.cancel_order(order.order_id, order.instrument_id)
 
         cancel_event = next(e for e in captured_events if e["event"] == events.ORDER_CANCEL)
-        oms_module._handle_cancel_request(cancel_event["payload"])
+        oms_module.on_broadcasted_order_cancel(cancel_event["payload"])
 
         # OMS should have routed cancel to gateway
-        cancel_topic = "ack_order_cancel_simulated"
+        cancel_topic = "handle_whispered_order_cancel"
         cancel_to_gateway = [e for e in captured_events if e["event"] == cancel_topic]
         assert len(cancel_to_gateway) >= 1
 
         # Simulate gateway handling the cancel
-        gateway._handle_order_cancel(cancel_to_gateway[-1]["payload"])
+        gateway.handle_whispered_order_cancel(cancel_to_gateway[-1]["payload"])
 
         # Verify OMS updated status to pending cancel (OMS sets this before routing)
         updated_oms_order = oms_module.order_store.get_order(order.order_id)
@@ -326,7 +326,7 @@ class TestPipelineCancel:
 
         cancel_event = next(e for e in captured_events if e["event"] == events.ORDER_CANCEL)
         # OMS should ignore because order is not active
-        oms_module._handle_cancel_request(cancel_event["payload"])
+        oms_module.on_broadcasted_order_cancel(cancel_event["payload"])
 
         # Status should remain FILLED
         assert oms_module.order_store.get_order(order.order_id).status == OrderStatus.FILLED

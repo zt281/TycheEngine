@@ -7,10 +7,17 @@ Event naming convention:
     - Portfolio: position.update, account.update
     - Risk: risk.alert
     - System: system.clock, system.shutdown
+
+Interface pattern mapping (v2):
+    - Market data events: on_streaming_{event} (subscribed by Strategy, Portfolio, Recorder)
+    - Order flow commands: handle_broadcasted_{event} (Risk checks, Gateway executes)
+    - Order flow responses: on_broadcasted_{event} (OMS publishes, Strategy receives)
+    - Broadcast updates: on_broadcasted_{event} (Portfolio, Risk, Strategy receive)
+    - System events: on_broadcasted_{event} (all modules receive)
 """
 
 
-# --- Market Data Events (published by Gateway, on_ pattern) ---
+# --- Market Data Events (published by Gateway, on_streaming pattern) ---
 
 QUOTE = "quote"  # quote.{instrument_id}
 TRADE = "trade"  # trade.{instrument_id}
@@ -20,31 +27,31 @@ ORDER_BOOK = "orderbook"  # orderbook.{instrument_id}
 
 # --- Order Flow Events ---
 
-ORDER_SUBMIT = "order.submit"  # Strategy -> Risk (ack_ pattern)
-ORDER_APPROVED = "order.approved"  # Risk -> OMS (on_ pattern)
-ORDER_REJECTED = "order.rejected"  # Risk -> Strategy (on_ pattern)
-ORDER_EXECUTE = "order.execute"  # OMS -> Gateway (ack_ pattern)
-ORDER_CANCEL = "order.cancel"  # Strategy/OMS -> Gateway (ack_ pattern)
-ORDER_UPDATE = "order.update"  # OMS -> Strategy, Portfolio (on_ pattern)
+ORDER_SUBMIT = "order.submit"  # Strategy -> Risk (handle_broadcasted pattern)
+ORDER_APPROVED = "order.approved"  # Risk -> OMS (on_broadcasted pattern)
+ORDER_REJECTED = "order.rejected"  # Risk -> Strategy (on_broadcasted pattern)
+ORDER_EXECUTE = "order.execute"  # OMS -> Gateway (handle_whispered pattern)
+ORDER_CANCEL = "order.cancel"  # Strategy/OMS -> Gateway (handle_whispered pattern)
+ORDER_UPDATE = "order.update"  # OMS -> Strategy, Portfolio (on_broadcasted pattern)
 
 
 # --- Fill Events ---
 
-FILL = "fill"  # fill.{instrument_id} - Gateway -> OMS, Portfolio
+FILL = "fill"  # fill.{instrument_id} - Gateway -> OMS, Portfolio (on_broadcasted)
 
 
-# --- Portfolio Events (on_common_ broadcast pattern) ---
+# --- Portfolio Events (on_broadcasted broadcast pattern) ---
 
 POSITION_UPDATE = "position.update"  # Portfolio -> Strategy, Risk
 ACCOUNT_UPDATE = "account.update"  # Portfolio -> Strategy, Risk
 
 
-# --- Risk Events (on_common_ broadcast pattern) ---
+# --- Risk Events (on_broadcasted broadcast pattern) ---
 
 RISK_ALERT = "risk.alert"  # Risk -> Strategy, OMS
 
 
-# --- System Events (on_common_ broadcast pattern) ---
+# --- System Events (on_broadcasted broadcast pattern) ---
 
 SYSTEM_CLOCK = "system.clock"  # Clock -> All
 SYSTEM_SHUTDOWN = "system.shutdown"  # Engine -> All

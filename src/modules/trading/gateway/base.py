@@ -14,7 +14,7 @@ from modules.trading.models.enums import OrderStatus
 from modules.trading.models.order import Fill, Order, OrderUpdate
 from modules.trading.models.tick import Bar, Quote, Trade
 from tyche.module import TycheModule
-from tyche.types import DurabilityLevel, Endpoint, InterfacePattern
+from tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +43,6 @@ class GatewayModule(TycheModule):
         self.venue_name = venue_name
         self._subscribed_instruments: List[str] = []
         self._connected = False
-
-        # Register standard order handling interfaces
-        self.add_interface(
-            name=f"ack_order_execute_{venue_name}",
-            handler=self._handle_order_execute,
-            pattern=InterfacePattern.ACK,
-            durability=DurabilityLevel.ASYNC_FLUSH,
-        )
-        self.add_interface(
-            name=f"ack_order_cancel_{venue_name}",
-            handler=self._handle_order_cancel,
-            pattern=InterfacePattern.ACK,
-            durability=DurabilityLevel.ASYNC_FLUSH,
-        )
 
     # --- Abstract methods (venue-specific implementation) ---
 
@@ -117,23 +103,19 @@ class GatewayModule(TycheModule):
 
     def publish_quote(self, quote: Quote) -> None:
         """Publish a quote event to the engine."""
-        topic = events.quote_event(quote.instrument_id)
-        self.send_event(topic, quote.to_dict())
+        self.send_event(events.quote_event(quote.instrument_id), quote.to_dict())
 
     def publish_trade(self, trade: Trade) -> None:
         """Publish a trade event to the engine."""
-        topic = events.trade_event(trade.instrument_id)
-        self.send_event(topic, trade.to_dict())
+        self.send_event(events.trade_event(trade.instrument_id), trade.to_dict())
 
     def publish_bar(self, bar: Bar) -> None:
         """Publish a bar event to the engine."""
-        topic = events.bar_event(bar.instrument_id, bar.timeframe)
-        self.send_event(topic, bar.to_dict())
+        self.send_event(events.bar_event(bar.instrument_id, bar.timeframe), bar.to_dict())
 
     def publish_fill(self, fill: Fill) -> None:
         """Publish a fill event to the engine."""
-        topic = events.fill_event(fill.instrument_id)
-        self.send_event(topic, fill.to_dict())
+        self.send_event(events.fill_event(fill.instrument_id), fill.to_dict())
 
     def publish_order_update(self, update: OrderUpdate) -> None:
         """Publish an order update event."""
@@ -141,11 +123,14 @@ class GatewayModule(TycheModule):
 
     # --- Internal order handling ---
 
-    def _handle_order_execute(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle incoming order execution request (ack_ pattern).
+    def handle_whispered_order_execute(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle incoming order execution request (handle_whispered pattern).
 
-        Called by engine when OMS sends order.execute targeted at this gateway.
+        All gateways receive this event; only the matching venue processes it.
         """
+        if payload.get("venue") != self.venue_name:
+            return {"status": "ignored", "reason": "venue_mismatch"}
+
         order = Order.from_dict(payload)
         logger.info(
             "Gateway %s executing order: %s %s %s @ %s",
@@ -168,8 +153,14 @@ class GatewayModule(TycheModule):
                 reason=str(e),
             ).to_dict()
 
-    def _handle_order_cancel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle incoming order cancellation request (ack_ pattern)."""
+    def handle_whispered_order_cancel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle incoming order cancellation request (handle_whispered pattern).
+
+        All gateways receive this event; only the matching venue processes it.
+        """
+        if payload.get("venue") != self.venue_name:
+            return {"status": "ignored", "reason": "venue_mismatch"}
+
         order_id = payload["order_id"]
         instrument_id = payload["instrument_id"]
         logger.info(

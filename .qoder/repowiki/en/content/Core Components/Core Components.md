@@ -10,6 +10,11 @@
 - [types.py](file://src/tyche/types.py)
 - [engine_main.py](file://src/tyche/engine_main.py)
 - [module_main.py](file://src/tyche/module_main.py)
+- [backend.py](file://src/modules/trading/persistence/backend.py)
+- [clickhouse_backend.py](file://src/modules/trading/persistence/clickhouse_backend.py)
+- [jsonl_backend.py](file://src/modules/trading/persistence/jsonl_backend.py)
+- [schema.py](file://src/modules/trading/persistence/schema.py)
+- [state_machine.py](file://src/modules/trading/gateway/ctp/state_machine.py)
 - [process-manager.ts](file://tui/src/process-manager.ts)
 - [state.ts](file://tui/src/state.ts)
 - [event-log.ts](file://tui/src/components/event-log.ts)
@@ -32,15 +37,17 @@
 - [test_message.py](file://tests/unit/test_message.py)
 - [test_heartbeat.py](file://tests/unit/test_heartbeat.py)
 - [test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
+- [test_backend.py](file://tests/unit/test_backend.py)
+- [test_ctp_state_machine.py](file://tests/unit/test_ctp_state_machine.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced core components documentation with new process management system integration
-- Improved event logging with microsecond precision display in TUI
-- Expanded module management capabilities with automated process orchestration
-- Added comprehensive TUI process management and monitoring features
-- Updated administrative endpoint documentation with new configuration options
+- Added comprehensive event persistence layer with new backend abstraction
+- Enhanced CTP gateway with sophisticated connection state machine and auto-reconnect
+- Improved module interface system with enhanced pattern recognition
+- Expanded testing infrastructure with comprehensive unit and integration tests
+- Updated core component documentation to cover new backend implementations and state management
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -49,27 +56,33 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Trading System Integration](#trading-system-integration)
-7. [Process Management System](#process-management-system)
-8. [Enhanced Event Logging](#enhanced-event-logging)
-9. [Dependency Analysis](#dependency-analysis)
-10. [Performance Considerations](#performance-considerations)
-11. [Troubleshooting Guide](#troubleshooting-guide)
-12. [Conclusion](#conclusion)
-13. [Appendices](#appendices)
+7. [Event Persistence Layer](#event-persistence-layer)
+8. [Enhanced CTP Gateway State Machine](#enhanced-ctp-gateway-state-machine)
+9. [Improved Module Interface System](#improved-module-interface-system)
+10. [Comprehensive Testing Infrastructure](#comprehensive-testing-infrastructure)
+11. [Process Management System](#process-management-system)
+12. [Enhanced Event Logging](#enhanced-event-logging)
+13. [Dependency Analysis](#dependency-analysis)
+14. [Performance Considerations](#performance-considerations)
+15. [Troubleshooting Guide](#troubleshooting-guide)
+16. [Conclusion](#conclusion)
+17. [Appendices](#appendices)
 
 ## Introduction
 This document explains the core components of Tyche Engine: TycheEngine as the central broker, TycheModule as the base class for distributed modules, the Message system for serialization, HeartbeatManager for peer monitoring, and the type definitions. It covers component responsibilities, relationships, lifecycle management, APIs, parameters, return values, practical usage patterns, configuration options, and error handling strategies.
 
-**Updated** Enhanced with new administrative capabilities, XPUB/XSUB event proxy functionality, thread-safe operations, improved heartbeat management, comprehensive multi-asset trading system integration including CTP gateway support, integrated process management system for multi-process orchestration, and enhanced event logging with microsecond precision.
+**Updated** Enhanced with new event persistence layer implementation, comprehensive backend abstraction, sophisticated CTP gateway state machine with auto-reconnect, improved module interface system with enhanced pattern recognition, expanded testing infrastructure, and integrated process management system for multi-process orchestration.
 
 ## Project Structure
-Tyche Engine organizes its core logic under src/tyche with clear separation of concerns, plus a new modules.trading package for enhanced multi-asset trading capabilities, and a TUI (Terminal User Interface) for process management and monitoring:
-- Broker engine: TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative queries.
-- Module base: ModuleBase defines the interface for modules; TycheModule provides a concrete implementation.
+Tyche Engine organizes its core logic under src/tyche with clear separation of concerns, plus enhanced modules.trading package for comprehensive trading infrastructure, new persistence layer for event storage, sophisticated CTP gateway state management, and a TUI (Terminal User Interface) for process management and monitoring:
+- Broker engine: TycheEngine orchestrates registration, event routing, heartbeat monitoring, administrative queries, and event persistence.
+- Module base: ModuleBase defines the interface for modules; TycheModule provides a concrete implementation with enhanced interface discovery.
 - Messaging: Message and Envelope define the serialized message format and ZeroMQ framing.
 - Heartbeat: HeartbeatManager tracks peer liveness using a Paranoid Pirate pattern.
 - Types: Shared enums, dataclasses, and constants for endpoints, interfaces, and durability.
-- Trading domain: New modules.trading package provides comprehensive trading infrastructure including CTP gateway integration.
+- Trading domain: Enhanced modules.trading package provides comprehensive trading infrastructure including CTP gateway integration with state machine.
+- Persistence layer: New backend abstraction with ClickHouse and JSONL implementations for event storage.
+- Testing infrastructure: Comprehensive unit and integration tests covering all major components.
 - Process management: TUI-based process manager for multi-process orchestration and monitoring.
 - Event logging: Enhanced logging system with microsecond precision timestamp formatting.
 
@@ -83,39 +96,32 @@ Types["Types<br/>Enums/Dataclasses"]
 Admin["Admin Worker<br/>State Queries"]
 EventProxy["Event Proxy<br/>XPUB/XSUB"]
 MainProc["Process Manager<br/>CLI Entry Points"]
+Persist["Persistence Layer<br/>Backend Abstraction"]
+EndPoints["Endpoints<br/>Engine/Heartbeat/Admin"]
 end
 subgraph "Tyche Module"
 ModBase["ModuleBase<br/>Abstract"]
-TycheMod["TycheModule<br/>Concrete Module"]
+TycheMod["TycheModule<br/>Concrete Module<br/>Enhanced Interface Discovery"]
 ExMod["ExampleModule<br/>Demo"]
-EndPoints["Endpoints<br/>Engine/Heartbeat/Admin"]
 end
 subgraph "Trading Domain"
 GatewayBase["GatewayModule<br/>Abstract Base"]
-CTPGateway["CtpGateway<br/>CTP Bridge"]
+CTPGateway["CtpGateway<br/>Enhanced State Machine"]
 CTPSim["CtpSimGateway<br/>Simulated Trading"]
 CTPLive["CtpLiveGateway<br/>Live Trading"]
 Events["Trading Events<br/>Event Definitions"]
 Models["Trading Models<br/>Enums/Classes"]
 Strategies["Trading Strategies<br/>EMA Crossover"]
 end
-subgraph "Process Management"
-ProcMgr["ProcessManager<br/>Bun Runtime"]
-StateMgr["StateManager<br/>TUI State"]
-EventLog["EventLogger<br/>Microsecond Precision"]
-ProcConfig["Process Config<br/>JSON Definition"]
-end
-Engine --> HBMgr
-Engine --> Msg
-Engine --> Types
-Engine --> Admin
-Engine --> EventProxy
-Engine --> MainProc
-TycheMod --> ModBase
-TycheMod --> Msg
-TycheMod --> Types
-TycheMod --> EndPoints
-ExMod --> TycheMod
+subgraph "Persistence Backends"
+ClickHouse["ClickHouseBackend<br/>Production Storage"]
+Jsonl["JsonlBackend<br/>Development Storage"]
+SchemaMgr["SchemaManager<br/>DDL Management"]
+EndPoints --> Engine
+Persist --> ClickHouse
+Persist --> Jsonl
+Persist --> SchemaMgr
+Engine --> Persist
 GatewayBase --> TycheMod
 CTPGateway --> GatewayBase
 CTPSim --> CtpGateway
@@ -123,34 +129,57 @@ CTPLive --> CtpGateway
 Events --> GatewayBase
 Models --> GatewayBase
 Strategies --> GatewayBase
-ProcMgr --> StateMgr
-StateMgr --> EventLog
-ProcMgr --> ProcConfig
+EndPoints --> Engine
+EndPoints --> Persist
+EndPoints --> GatewayBase
+EndPoints --> TycheMod
+EndPoints --> ModBase
+EndPoints --> Msg
+EndPoints --> HBMgr
+EndPoints --> Types
+EndPoints --> Admin
+EndPoints --> EventProxy
+EndPoints --> MainProc
+EndPoints --> ProcessManager
+EndPoints --> StateManager
+EndPoints --> EventLogger
+EndPoints --> ProcessConfig
+end
 ```
 
 **Diagram sources**
-- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [engine.py:25-677](file://src/tyche/engine.py#L25-L677)
+- [module.py:28-498](file://src/tyche/module.py#L28-L498)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
 - [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+- [backend.py:80-162](file://src/modules/trading/persistence/backend.py#L80-L162)
+- [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
+- [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
+- [schema.py:35-107](file://src/modules/trading/persistence/schema.py#L35-L107)
+- [state_machine.py:35-96](file://src/modules/trading/gateway/ctp/state_machine.py#L35-L96)
 - [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
 - [state.ts:44-326](file://tui/src/state.ts#L44-L326)
 - [event-log.ts:59-87](file://tui/src/components/event-log.ts#L59-L87)
 - [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 **Section sources**
-- [engine.py:1-456](file://src/tyche/engine.py#L1-L456)
-- [module.py:1-401](file://src/tyche/module.py#L1-L401)
+- [engine.py:1-677](file://src/tyche/engine.py#L1-L677)
+- [module.py:1-498](file://src/tyche/module.py#L1-L498)
 - [module_base.py:1-120](file://src/tyche/module_base.py#L1-L120)
 - [message.py:1-168](file://src/tyche/message.py#L1-L168)
 - [heartbeat.py:1-153](file://src/tyche/heartbeat.py#L1-L153)
 - [types.py:1-105](file://src/tyche/types.py#L1-L105)
 - [engine_main.py:1-57](file://src/tyche/engine_main.py#L1-L57)
 - [module_main.py:1-47](file://src/tyche/module_main.py#L1-L47)
+- [backend.py:1-162](file://src/modules/trading/persistence/backend.py#L1-L162)
+- [clickhouse_backend.py:1-231](file://src/modules/trading/persistence/clickhouse_backend.py#L1-L231)
+- [jsonl_backend.py:1-155](file://src/modules/trading/persistence/jsonl_backend.py#L1-L155)
+- [schema.py:1-107](file://src/modules/trading/persistence/schema.py#L1-L107)
+- [state_machine.py:1-96](file://src/modules/trading/gateway/ctp/state_machine.py#L1-L96)
 - [process-manager.ts:1-296](file://tui/src/process-manager.ts#L1-L296)
 - [state.ts:1-326](file://tui/src/state.ts#L1-L326)
 - [event-log.ts:1-87](file://tui/src/components/event-log.ts#L1-L87)
@@ -160,18 +189,18 @@ ProcMgr --> ProcConfig
 This section documents the primary building blocks and their responsibilities.
 
 - TycheEngine
-  - Central broker managing module registration, event routing via XPUB/XSUB proxy, heartbeat monitoring, and administrative queries.
+  - Central broker managing module registration, event routing via XPUB/XSUB proxy, heartbeat monitoring, administrative queries, and event persistence.
   - Exposes lifecycle methods run(), start_nonblocking(), and stop().
   - Manages internal registry of modules and their interfaces with thread-safe operations.
-  - Provides endpoints for registration, event publishing/subscribing, heartbeat exchange, and administrative state queries.
-  - **Updated**: Now includes administrative worker for engine state queries and enhanced XPUB/XSUB proxy with separate event endpoints.
+  - Provides endpoints for registration, event publishing/subscribing, heartbeat exchange, administrative state queries, and event persistence.
+  - **Updated**: Now includes administrative worker for engine state queries, enhanced XPUB/XSUB proxy with separate event endpoints, and integrated persistence layer.
 
 - TycheModule
   - Base class for distributed modules; inherits from ModuleBase.
   - Handles registration handshake, event subscription/publishing, and heartbeat sending.
-  - Supports interface patterns: on_, ack_, whisper_, on_common_, broadcast_.
+  - Supports enhanced interface patterns: on_, ack_, whisper_, on_common_, broadcast_ with improved pattern recognition.
   - Provides send_event() and call_ack() helpers for event-driven communication.
-  - **Updated**: Enhanced with improved heartbeat management and administrative endpoint support.
+  - **Updated**: Enhanced with improved heartbeat management, administrative endpoint support, and sophisticated interface discovery system.
 
 - Message
   - Defines the Message dataclass and Envelope for ZeroMQ routing.
@@ -189,6 +218,29 @@ This section documents the primary building blocks and their responsibilities.
   - Exposes constants for heartbeat timing and administrative endpoint defaults.
   - **Updated**: Added ADMIN_PORT_DEFAULT constant for administrative endpoint configuration.
 
+- **Updated** Event Persistence Layer
+  - PersistenceBackend: Abstract base class defining the contract for insert, query, health, schema, and lifecycle operations.
+  - ClickHouseBackend: Production backend using clickhouse-connect with connection pooling, daily partitioning, and schema management.
+  - JsonlBackend: Development/test fallback backend writing events to date-partitioned JSONL files.
+  - SchemaManager: Manages ClickHouse schema creation and version tracking with idempotent DDL operations.
+  - Result dataclasses: InsertResult and QueryResult with explicit serialization for reliable round-trips.
+
+- **Updated** Enhanced CTP Gateway State Machine
+  - ConnectionStateMachine: Manages gateway connection state with validated transitions and exponential backoff with jitter.
+  - ConnectionState: Enum defining gateway lifecycle states (IDLE, CONNECTING, CONNECTED, RECONNECTING, DISCONNECTED).
+  - ReconnectConfig: Configuration for auto-reconnect behavior with retry limits and delay bounds.
+  - Sophisticated error handling and state event publishing for monitoring and debugging.
+
+- **Updated** Improved Module Interface System
+  - Enhanced interface pattern recognition supporting new naming conventions: handle_broadcasted_, on_broadcasted_, handle_whispered_, on_whispered_, handle_streaming_, on_streaming_.
+  - Automatic interface discovery from method names with improved pattern matching.
+  - Thread-safe handler registration and subscription management.
+
+- **Updated** Comprehensive Testing Infrastructure
+  - Unit tests: Coverage for backend abstraction, state machine, persistence operations, and core engine functionality.
+  - Integration tests: End-to-end testing for ClickHouse backend round-trip operations and schema management.
+  - Test patterns: Request-response testing, fixture-based setup, and comprehensive error scenario coverage.
+
 - **Updated** Process Management System
   - ProcessManager: Manages multi-process lifecycle with dependency resolution, platform-aware termination, and state tracking.
   - StateManager: Integrates with TUI for real-time process monitoring, event logging, and interactive controls.
@@ -202,7 +254,7 @@ This section documents the primary building blocks and their responsibilities.
 
 - **Updated** Trading Domain Components
   - GatewayModule: Abstract base class for exchange/venue gateway modules extending TycheModule with standardized event publishing and order handling.
-  - CtpGateway: Base CTP gateway bridging CTP async SPI callbacks with TycheEngine events, supporting both simulated and live trading.
+  - CtpGateway: Base CTP gateway bridging CTP async SPI callbacks with TycheEngine events, supporting both simulated and live trading with enhanced state management.
   - CtpSimGateway: OpenCTP simulated trading gateway with pre-configured public server addresses for testing and development.
   - CtpLiveGateway: Real CTP broker gateway requiring authentication with live broker front addresses.
   - Trading Events: Comprehensive event name constants and helpers for market data, order flow, fills, portfolio, risk, and system events.
@@ -210,12 +262,17 @@ This section documents the primary building blocks and their responsibilities.
   - Trading Strategies: Example strategy implementations demonstrating EMA crossover logic and position management.
 
 **Section sources**
-- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [engine.py:25-677](file://src/tyche/engine.py#L25-L677)
+- [module.py:28-498](file://src/tyche/module.py#L28-L498)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
+- [backend.py:80-162](file://src/modules/trading/persistence/backend.py#L80-L162)
+- [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
+- [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
+- [schema.py:35-107](file://src/modules/trading/persistence/schema.py#L35-L107)
+- [state_machine.py:35-96](file://src/modules/trading/gateway/ctp/state_machine.py#L35-L96)
 - [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
 - [state.ts:44-326](file://tui/src/state.ts#L44-L326)
 - [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
@@ -229,7 +286,7 @@ This section documents the primary building blocks and their responsibilities.
 - [trading/strategy/example_ma_cross.py:22-72](file://src/modules/trading/strategy/example_ma_cross.py#L22-L72)
 
 ## Architecture Overview
-Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, administrative state queries, comprehensive multi-asset trading integration, and integrated process management for multi-process orchestration.
+Tyche Engine uses ZeroMQ sockets to implement a brokered pub-sub model with REQ/REP registration, heartbeat monitoring, administrative state queries, comprehensive multi-asset trading integration, integrated process management for multi-process orchestration, and sophisticated event persistence layer with backend abstraction.
 
 ```mermaid
 sequenceDiagram
@@ -237,6 +294,7 @@ participant ProcMgr as "ProcessManager"
 participant StateMgr as "StateManager"
 participant Mod as "TycheModule"
 participant Eng as "TycheEngine"
+participant Persist as "Persistence Layer"
 participant ZREG as "ZMQ ROUTER"
 participant ZXPUB as "ZMQ XPUB"
 participant ZXSUB as "ZMQ XSUB"
@@ -256,6 +314,8 @@ Mod->>Eng : Connect to event endpoints
 Note over Mod,Eng : Event Distribution
 Mod->>Eng : PUB event to XSUB
 Eng->>Eng : XPUB/XSUB proxy forwards
+Eng->>Persist : Store event via backend
+Persist-->>Eng : InsertResult/QueryResult
 Eng-->>Mod : SUB receives event
 Note over Mod,Eng : Heartbeat Monitoring
 Mod->>HBIN : DEALER heartbeat
@@ -277,10 +337,13 @@ Trading->>Eng : Portfolio/account updates
 - [engine.py:121-177](file://src/tyche/engine.py#L121-L177)
 - [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
 - [engine.py:281-349](file://src/tyche/engine.py#L281-L349)
-- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
+- [engine.py:382-677](file://src/tyche/engine.py#L382-L677)
 - [module.py:200-254](file://src/tyche/module.py#L200-L254)
 - [module.py:301-330](file://src/tyche/module.py#L301-L330)
-- [module.py:376-401](file://src/tyche/module.py#L376-L401)
+- [module.py:376-498](file://src/tyche/module.py#L376-L498)
+- [backend.py:88-162](file://src/modules/trading/persistence/backend.py#L88-L162)
+- [clickhouse_backend.py:88-231](file://src/modules/trading/persistence/clickhouse_backend.py#L88-L231)
+- [jsonl_backend.py:44-155](file://src/modules/trading/persistence/jsonl_backend.py#L44-L155)
 - [process-manager.ts:45-105](file://tui/src/process-manager.ts#L45-L105)
 - [state.ts:76-87](file://tui/src/state.ts#L76-L87)
 - [trading/gateway/base.py:118-192](file://src/modules/trading/gateway/base.py#L118-L192)
@@ -294,6 +357,7 @@ Responsibilities:
 - Monitor peer liveness via heartbeat workers and HeartbeatManager.
 - Provide lifecycle control: run(), start_nonblocking(), stop().
 - **Updated**: Handle administrative queries via ROUTER socket for engine state monitoring.
+- **Updated**: Integrate with persistence layer for event storage and retrieval.
 
 Key APIs and behaviors:
 - Constructor parameters:
@@ -320,9 +384,12 @@ Key APIs and behaviors:
 - **Updated**: Admin worker:
   - Handles administrative queries via ROUTER socket.
   - Supports STATUS, MODULES, and STATS queries with thread-safe responses.
+- **Updated**: Persistence integration:
+  - Coordinates with backend implementations for event storage and retrieval.
+  - Manages schema creation and version tracking for persistent storage.
 
 Practical usage:
-- Start the engine as a standalone process with distinct endpoints for registration, events, heartbeats, and administration.
+- Start the engine as a standalone process with distinct endpoints for registration, events, heartbeats, administration, and persistence.
 - Use examples/run_engine.py to launch the engine with administrative capabilities.
 
 Integration patterns:
@@ -330,14 +397,16 @@ Integration patterns:
 - Modules publish events to the engine's XSUB endpoint and subscribe via the engine's XPUB endpoint.
 - Modules send heartbeats to the engine's heartbeat receive endpoint.
 - **Updated**: Administrative clients can query engine state via the admin endpoint.
+- **Updated**: Persistence layer integrates seamlessly with event distribution pipeline.
 
 Error handling:
 - Graceful logging of errors in workers; exceptions are caught and logged without crashing the engine when still running.
 - Proper socket closure and context destruction on stop().
 - **Updated**: Thread-safe operations protect registry and state queries.
+- **Updated**: Backend operations return structured results instead of raising exceptions.
 
 **Section sources**
-- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
+- [engine.py:25-677](file://src/tyche/engine.py#L25-L677)
 - [run_engine.py:21-59](file://examples/run_engine.py#L21-L59)
 
 ### TycheModule
@@ -345,18 +414,16 @@ Responsibilities:
 - Connect to TycheEngine, register interfaces, subscribe to events, and dispatch messages to handlers.
 - Send events via the engine's event proxy and request acknowledgments via call_ack().
 - Send periodic heartbeats to keep the engine informed of liveness.
-- **Updated**: Enhanced with improved heartbeat management and administrative endpoint support.
+- **Updated**: Enhanced with improved heartbeat management, administrative endpoint support, and sophisticated interface discovery system.
 
 Key APIs and behaviors:
 - Constructor parameters:
   - engine_endpoint: Endpoint for registration REQ/REP.
   - module_id: Optional explicit module ID; otherwise auto-generated.
-  - event_endpoint: Optional event endpoint override.
-  - heartbeat_endpoint: Optional heartbeat endpoint override.
   - heartbeat_receive_endpoint: Endpoint for inbound heartbeat ROUTER.
 - Interface management:
   - add_interface(name, handler, pattern, durability): Registers handler and creates Interface entry.
-  - discover_interfaces(): Auto-detects interfaces from method names using naming conventions.
+  - discover_interfaces(): Auto-detects interfaces from method names using enhanced naming conventions.
 - Lifecycle:
   - run(): Starts worker threads and blocks until stop().
   - start_nonblocking(): Starts worker threads without blocking.
@@ -364,7 +431,7 @@ Key APIs and behaviors:
 - Registration:
   - _register(): Sends REGISTER message with interfaces and metadata; receives ACK with event ports.
 - Event handling:
-  - _subscribe_to_interfaces(): Subscribes to topics matching handler names.
+  - _subscribe_to_interfaces(): Subscribes to topics matching handler names using enhanced pattern matching.
   - _event_receiver(): Receives events from XPUB, deserializes, and dispatches to handlers.
   - _dispatch(): Calls handler with payload; logs exceptions.
 - Event publishing:
@@ -373,9 +440,10 @@ Key APIs and behaviors:
 - Heartbeat:
   - _send_heartbeats(): Sends periodic HEARTBEAT messages to engine's heartbeat receive endpoint.
 - **Updated**: Enhanced heartbeat management with improved timing and error handling.
+- **Updated**: Sophisticated interface discovery supporting new naming patterns.
 
 Practical usage:
-- Extend TycheModule and implement handler methods following naming conventions.
+- Extend TycheModule and implement handler methods following enhanced naming conventions.
 - Use add_interface() or rely on discover_interfaces() to declare capabilities.
 - Call send_event() and call_ack() for event-driven communication.
 
@@ -388,7 +456,7 @@ Error handling:
 - Event receive errors are logged; dispatch exceptions are caught and logged.
 
 **Section sources**
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [module.py:28-498](file://src/tyche/module.py#L28-L498)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 
@@ -474,12 +542,12 @@ Key definitions:
 - Enums:
   - ModuleId: Generates deity-prefixed module IDs.
   - EventType: Event categories.
-  - InterfacePattern: Naming patterns for handlers.
+  - InterfacePattern: Enhanced naming patterns for handlers.
   - DurabilityLevel: Persistence guarantees.
   - MessageType: Internal message types.
 - Dataclasses:
   - Endpoint: Network address with host/port.
-  - Interface: Handler capability definition.
+  - Interface: Handler capability definition with enhanced pattern support.
   - ModuleInfo: Registration metadata.
 - Constants:
   - HEARTBEAT_INTERVAL: Seconds between heartbeats.
@@ -494,6 +562,170 @@ Practical usage:
 
 **Section sources**
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
+
+### **Updated** Event Persistence Layer
+
+#### PersistenceBackend
+Responsibilities:
+- Abstract base class defining the contract for all persistence backend implementations.
+- Provides unified interface for insert, query, health, schema, and lifecycle operations.
+- Ensures consistent result handling through structured dataclasses.
+
+Key APIs and behaviors:
+- Abstract methods:
+  - insert_batch(rows: List[Dict[str, Any]]) -> InsertResult: Insert batch of event rows.
+  - query(**filters) -> QueryResult: Query events with various filter parameters.
+  - health() -> Dict[str, Any]: Return backend health status.
+  - close() -> None: Release backend resources.
+  - ensure_schema() -> bool: Ensure required schema exists.
+- Result dataclasses:
+  - InsertResult: Success flag, row count, and optional error message.
+  - QueryResult: Success flag, row list, and optional error message.
+- All operations return structured results instead of raising exceptions.
+
+#### ClickHouseBackend
+Responsibilities:
+- Production-grade backend using clickhouse-connect with connection pooling.
+- Implements daily partitioning for optimal query performance.
+- Provides comprehensive schema management and version tracking.
+
+Key APIs and behaviors:
+- Constructor parameters:
+  - host, port, database, user, password, secure: Connection configuration.
+- Operations:
+  - ensure_schema(): Creates events table and schema_meta table with idempotent DDL.
+  - insert_batch(): Inserts events with base64-encoded payload storage.
+  - query(): Supports timestamp range, event_type, instrument_id, module_id filters.
+  - health(): Returns connection status with backend metadata.
+  - close(): Safely releases client resources.
+- Integration:
+  - Uses SchemaManager for DDL operations.
+  - Implements lazy client initialization with connection pooling.
+
+#### JsonlBackend
+Responsibilities:
+- Development and testing fallback backend using date-partitioned JSONL files.
+- Simple file-based storage for local development and debugging.
+- Provides query functionality by scanning JSONL files.
+
+Key APIs and behaviors:
+- Constructor parameters:
+  - data_dir: Root directory for JSONL files.
+- Operations:
+  - ensure_schema(): No-op for file-based backend.
+  - insert_batch(): Groups events by date and writes to JSONL files.
+  - query(): Scans all JSONL files, applies filters, sorts by timestamp.
+  - health(): Returns file system status with event count.
+  - close(): Marks backend as closed for resource management.
+
+#### SchemaManager
+Responsibilities:
+- Manages ClickHouse schema creation and version tracking.
+- Provides idempotent DDL operations for table creation.
+- Maintains schema version history in schema_meta table.
+
+Key APIs and behaviors:
+- ensure_schema(client): Creates events and schema_meta tables if not exists.
+- get_version(client): Returns current schema version from schema_meta.
+- All operations are idempotent and handle duck-typed client interfaces.
+
+**Section sources**
+- [backend.py:80-162](file://src/modules/trading/persistence/backend.py#L80-L162)
+- [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
+- [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
+- [schema.py:35-107](file://src/modules/trading/persistence/schema.py#L35-L107)
+
+### **Updated** Enhanced CTP Gateway State Machine
+
+#### ConnectionStateMachine
+Responsibilities:
+- Manages CTP gateway connection lifecycle with sophisticated state transitions.
+- Implements exponential backoff with jitter for auto-reconnect functionality.
+- Provides comprehensive state tracking and monitoring capabilities.
+
+Key APIs and behaviors:
+- States:
+  - IDLE: Initial state before connection attempts.
+  - CONNECTING: Attempting to establish connection to CTP servers.
+  - CONNECTED: Successfully connected and operational.
+  - RECONNECTING: Attempting to restore connection after failure.
+  - DISCONNECTED: No active connection to CTP servers.
+- Configuration:
+  - ReconnectConfig: Controls retry behavior with enabled flag, max retries, base delay, and max delay.
+- Operations:
+  - transition(new_state): Validates and performs state transitions.
+  - next_backoff_ms(): Calculates delay with exponential backoff and jitter.
+  - max_retries_exceeded(): Checks if retry limit has been reached.
+  - to_payload(reason): Builds state event payload for monitoring.
+- Error handling:
+  - Validates all state transitions against allowed transitions.
+  - Tracks retry count and prevents infinite reconnection loops.
+
+#### State Transitions and Validation
+Responsibilities:
+- Defines valid state transition matrix ensuring logical connection flow.
+- Prevents invalid state sequences that could lead to connection instability.
+- Supports graceful degradation and recovery mechanisms.
+
+**Section sources**
+- [state_machine.py:35-96](file://src/modules/trading/gateway/ctp/state_machine.py#L35-L96)
+
+### **Updated** Improved Module Interface System
+
+#### Enhanced Interface Pattern Recognition
+Responsibilities:
+- Auto-detects module interfaces from method names using sophisticated pattern matching.
+- Supports new naming conventions for different interface types.
+- Provides thread-safe handler registration and subscription management.
+
+Key APIs and behaviors:
+- Pattern recognition:
+  - handle_broadcasted_: Broadcasted message handlers.
+  - on_broadcasted_: Broadcasted event handlers.
+  - handle_whispered_: Whispered message handlers.
+  - on_whispered_: Whispered event handlers.
+  - handle_streaming_: Streaming message handlers.
+  - on_streaming_: Streaming event handlers.
+- Interface discovery:
+  - _discover_and_register_handlers(): Inspects class methods for interface patterns.
+  - _register_handler(): Registers detected interfaces with proper configuration.
+- Thread safety:
+  - Uses RLock for handler registration and subscription operations.
+  - Ensures atomic interface registration during runtime.
+
+**Section sources**
+- [module.py:95-146](file://src/tyche/module.py#L95-L146)
+
+### **Updated** Comprehensive Testing Infrastructure
+
+#### Backend Abstraction Tests
+Responsibilities:
+- Validates PersistenceBackend abstract class and result dataclasses.
+- Ensures all concrete backends implement required interface methods.
+- Tests serialization and deserialization round-trips for result objects.
+
+Key test coverage:
+- InsertResult: Default values, to_dict/from_dict roundtrip, error handling.
+- QueryResult: Default values, to_dict/from_dict roundtrip, empty rows handling.
+- PersistenceBackend: Abstract method validation, instantiation prevention, concrete implementation testing.
+
+#### CTP State Machine Tests
+Responsibilities:
+- Comprehensive validation of connection state machine behavior.
+- Tests state transitions, backoff calculations, and configuration handling.
+- Verifies retry limits and exponential backoff implementation.
+
+Key test coverage:
+- ConnectionState: Enum value validation.
+- ReconnectConfig: Default and custom configuration testing.
+- Valid transitions: All allowed state sequences.
+- Invalid transitions: Prevention of illegal state changes.
+- Backoff calculation: Exponential growth with jitter.
+- Retry tracking: Count increments and max retry enforcement.
+
+**Section sources**
+- [test_backend.py:1-148](file://tests/unit/test_backend.py#L1-L148)
+- [test_ctp_state_machine.py:1-205](file://tests/unit/test_ctp_state_machine.py#L1-L205)
 
 ### **Updated** Process Management System
 
@@ -597,7 +829,7 @@ Practical usage:
 - Support debugging and troubleshooting workflows.
 
 **Section sources**
-- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
+- [engine.py:382-677](file://src/tyche/engine.py#L382-L677)
 
 ### **Updated** Trading Domain Components
 
@@ -652,6 +884,7 @@ Responsibilities:
 - Supports both OpenCTP simulated trading and real broker live trading.
 - Handles CTP API initialization, login, market data subscription, and order routing.
 - Manages thread synchronization between CTP SPI callbacks and event dispatcher.
+- **Updated**: Enhanced with sophisticated connection state machine and auto-reconnect.
 
 Key APIs and behaviors:
 - Constructor parameters:
@@ -678,6 +911,10 @@ Key APIs and behaviors:
   - Dedicated event dispatcher thread for SPI callback bridging.
   - Thread-safe queue for CTP -> module communication.
   - Automatic conversion between CTP data formats and TycheEngine models.
+- **Updated**: State machine integration:
+  - ConnectionStateMachine for connection lifecycle management.
+  - Auto-reconnect with exponential backoff and jitter.
+  - State event publishing for monitoring and debugging.
 
 Practical usage:
 - Use CtpSimGateway or CtpLiveGateway subclasses for specific deployment modes.
@@ -692,6 +929,7 @@ Error handling:
 - Comprehensive error logging for CTP API operations.
 - Graceful handling of connection failures and authentication issues.
 - Thread-safe operations prevent race conditions in multi-threaded environment.
+- **Updated**: State machine handles connection errors and recovery automatically.
 
 **Section sources**
 - [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
@@ -748,7 +986,7 @@ Key features:
 - [trading/strategy/example_ma_cross.py:22-72](file://src/modules/trading/strategy/example_ma_cross.py#L22-L72)
 
 ## Architecture Overview
-The following diagram maps the actual code relationships among core components, including the new trading domain integration and process management system.
+The following diagram maps the actual code relationships among core components, including the new persistence layer integration, enhanced CTP gateway state machine, improved module interface system, and process management system.
 
 ```mermaid
 classDiagram
@@ -780,6 +1018,7 @@ class TycheModule {
 +stop() void
 +send_event(event, payload, recipient) void
 +call_ack(event, payload, timeout_ms) Dict
++_discover_and_register_handlers() void
 }
 class ModuleBase {
 <<abstract>>
@@ -809,11 +1048,46 @@ class CtpGateway {
 +str password
 +str td_front
 +str md_front
++ConnectionStateMachine state_machine
 +connect() void
 +disconnect() void
 +subscribe_market_data(instrument_ids) void
 +submit_order(order) OrderUpdate
 +cancel_order(order_id, instrument_id) OrderUpdate
+}
+class PersistenceBackend {
+<<abstract>>
++insert_batch(rows) InsertResult
++query(**filters) QueryResult
++health() Dict
++close() void
++ensure_schema() bool
+}
+class ClickHouseBackend {
++str host
++str port
++str database
++str user
++str password
++bool secure
++ensure_schema() bool
++insert_batch(rows) InsertResult
++query(**filters) QueryResult
++health() Dict
++close() void
+}
+class JsonlBackend {
++Path data_dir
++ensure_schema() bool
++insert_batch(rows) InsertResult
++query(**filters) QueryResult
++health() Dict
++close() void
+}
+class SchemaManager {
++str database
++ensure_schema(client) bool
++get_version(client) int
 }
 class Message {
 +MessageType msg_type
@@ -848,9 +1122,22 @@ class StateManager {
 +updateProcesses(processes) void
 +getRecentEvents(count) EventEntry[]
 }
+class ConnectionStateMachine {
++ConnectionState state
++ConnectionState previous_state
++int retry_count
++transition(newState) bool
++next_backoff_ms() int
++max_retries_exceeded() bool
++to_payload(reason) Dict
+}
 TycheModule --|> ModuleBase
 GatewayModule --|> TycheModule
 CtpGateway --|> GatewayModule
+PersistenceBackend <|-- ClickHouseBackend
+PersistenceBackend <|-- JsonlBackend
+ClickHouseBackend --> SchemaManager : "uses"
+CtpGateway --> ConnectionStateMachine : "uses"
 TycheEngine --> HeartbeatManager : "uses"
 TycheEngine --> Message : "serializes/deserializes"
 TycheModule --> Message : "serializes/deserializes"
@@ -860,15 +1147,20 @@ ProcessManager --> StateManager : "coordinates"
 ```
 
 **Diagram sources**
-- [engine.py:25-456](file://src/tyche/engine.py#L25-L456)
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [engine.py:25-677](file://src/tyche/engine.py#L25-L677)
+- [module.py:28-498](file://src/tyche/module.py#L28-L498)
 - [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
 - [trading/gateway/base.py:22-192](file://src/modules/trading/gateway/base.py#L22-L192)
 - [trading/gateway/ctp/gateway.py:127-840](file://src/modules/trading/gateway/ctp/gateway.py#L127-L840)
+- [backend.py:80-162](file://src/modules/trading/persistence/backend.py#L80-L162)
+- [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
+- [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
+- [schema.py:35-107](file://src/modules/trading/persistence/schema.py#L35-L107)
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 - [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
 - [state.ts:44-326](file://tui/src/state.ts#L44-L326)
+- [state_machine.py:35-96](file://src/modules/trading/gateway/ctp/state_machine.py#L35-L96)
 
 ## Detailed Component Analysis
 
@@ -933,12 +1225,12 @@ end
 
 **Diagram sources**
 - [engine.py:281-349](file://src/tyche/engine.py#L281-L349)
-- [module.py:376-401](file://src/tyche/module.py#L376-L401)
+- [module.py:376-498](file://src/tyche/module.py#L376-L498)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 
 **Section sources**
 - [engine.py:281-349](file://src/tyche/engine.py#L281-L349)
-- [module.py:376-401](file://src/tyche/module.py#L376-L401)
+- [module.py:376-498](file://src/tyche/module.py#L376-L498)
 - [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
 
 ### Administrative Query Flow
@@ -955,10 +1247,41 @@ AdminWorker-->>AdminClient : Response
 ```
 
 **Diagram sources**
-- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
+- [engine.py:382-677](file://src/tyche/engine.py#L382-L677)
 
 **Section sources**
-- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
+- [engine.py:382-677](file://src/tyche/engine.py#L382-L677)
+
+### **Updated** Event Persistence Flow
+```mermaid
+sequenceDiagram
+participant Engine as "TycheEngine"
+participant Persist as "Persistence Layer"
+participant ClickHouse as "ClickHouseBackend"
+participant Jsonl as "JsonlBackend"
+participant Schema as "SchemaManager"
+Note over Engine,Persist : Event Storage Integration
+Engine->>Persist : Event received via event proxy
+Persist->>ClickHouse : insert_batch() for production
+Persist->>Jsonl : insert_batch() for development
+ClickHouse->>Schema : ensure_schema() if needed
+Schema->>ClickHouse : create tables if not exists
+ClickHouse-->>Persist : InsertResult success
+Jsonl-->>Persist : InsertResult success
+Persist-->>Engine : Event stored successfully
+```
+
+**Diagram sources**
+- [backend.py:88-162](file://src/modules/trading/persistence/backend.py#L88-L162)
+- [clickhouse_backend.py:76-137](file://src/modules/trading/persistence/clickhouse_backend.py#L76-L137)
+- [jsonl_backend.py:44-82](file://src/modules/trading/persistence/jsonl_backend.py#L44-L82)
+- [schema.py:52-85](file://src/modules/trading/persistence/schema.py#L52-L85)
+
+**Section sources**
+- [backend.py:88-162](file://src/modules/trading/persistence/backend.py#L88-L162)
+- [clickhouse_backend.py:76-137](file://src/modules/trading/persistence/clickhouse_backend.py#L76-L137)
+- [jsonl_backend.py:44-82](file://src/modules/trading/persistence/jsonl_backend.py#L44-L82)
+- [schema.py:52-85](file://src/modules/trading/persistence/schema.py#L52-L85)
 
 ### **Updated** Process Management Flow
 ```mermaid
@@ -993,52 +1316,57 @@ ProcMgr->>Module : stopProcess("example-module1")
 - [state.ts:76-87](file://tui/src/state.ts#L76-L87)
 - [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
-### **Updated** CTP Gateway Integration Flow
+### **Updated** Enhanced CTP Gateway State Machine Flow
 ```mermaid
 sequenceDiagram
 participant Gateway as "CtpGateway"
-participant MdApi as "CTP Market Data API"
-participant TdApi as "CTP Trading API"
+participant StateMachine as "ConnectionStateMachine"
+participant CTP as "CTP API"
 participant Dispatcher as "Event Dispatcher Thread"
 participant Engine as "TycheEngine"
-Note over Gateway,MdApi : CTP Connection Setup
-Gateway->>MdApi : CreateFtdcMdApi()
-Gateway->>TdApi : CreateFtdcTraderApi()
-Gateway->>MdApi : RegisterSpi(MdSpi)
-Gateway->>TdApi : RegisterSpi(TdSpi)
-Gateway->>MdApi : RegisterFront(md_front)
-Gateway->>TdApi : RegisterFront(td_front)
-Gateway->>MdApi : Init()
-Gateway->>TdApi : SubscribePrivateTopic()
-Gateway->>TdApi : SubscribePublicTopic()
-Gateway->>TdApi : Init()
+Note over Gateway,StateMachine : State Management
+Gateway->>StateMachine : Initialize with ReconnectConfig
+StateMachine->>StateMachine : state = IDLE
+Note over Gateway,CTP : Connection Attempts
+Gateway->>CTP : connect() with front addresses
+StateMachine->>StateMachine : transition(CONNECTING)
+CTP-->>Gateway : connection established
+StateMachine->>StateMachine : transition(CONNECTED)
 Note over Gateway,Dispatcher : Event Processing Loop
 Gateway->>Dispatcher : Start event dispatcher thread
 loop CTP SPI Callbacks
-MdApi-->>Gateway : OnRtnDepthMarketData()
+CTP-->>Gateway : OnRtnDepthMarketData()
 Gateway->>Dispatcher : Put quote/trade event
-TdApi-->>Gateway : OnRtnOrder()/OnRtnTrade()
+CTP-->>Gateway : OnRtnOrder()/OnRtnTrade()
 Gateway->>Dispatcher : Put order_update/fill event
 end
-Note over Dispatcher,Engine : Event Forwarding
-Dispatcher->>Engine : publish_quote()/publish_trade()
-Dispatcher->>Engine : publish_order_update()/publish_fill()
+Note over Gateway,StateMachine : Error Handling
+CTP-->>Gateway : connection lost
+StateMachine->>StateMachine : transition(RECONNECTING)
+StateMachine->>StateMachine : calculate next_backoff_ms()
+Gateway->>Gateway : wait with exponential backoff
+Gateway->>CTP : reconnect()
 ```
 
 **Diagram sources**
+- [state_machine.py:61-96](file://src/modules/trading/gateway/ctp/state_machine.py#L61-L96)
 - [trading/gateway/ctp/gateway.py:600-644](file://src/modules/trading/gateway/ctp/gateway.py#L600-L644)
 - [trading/gateway/ctp/gateway.py:554-595](file://src/modules/trading/gateway/ctp/gateway.py#L554-L595)
 
 **Section sources**
+- [state_machine.py:61-96](file://src/modules/trading/gateway/ctp/state_machine.py#L61-L96)
 - [trading/gateway/ctp/gateway.py:600-644](file://src/modules/trading/gateway/ctp/gateway.py#L600-L644)
 - [trading/gateway/ctp/gateway.py:554-595](file://src/modules/trading/gateway/ctp/gateway.py#L554-L595)
 
 ## Dependency Analysis
-The core components have minimal coupling and clear boundaries, with enhanced trading domain integration and process management:
-- TycheEngine depends on HeartbeatManager, Message, and types.
-- TycheModule depends on Message, types, and ModuleBase.
+The core components have minimal coupling and clear boundaries, with enhanced trading domain integration, sophisticated persistence layer, improved module interface system, and comprehensive process management:
+- TycheEngine depends on HeartbeatManager, Message, types, and persistence layer.
+- TycheModule depends on Message, types, ModuleBase, and enhanced interface discovery.
 - GatewayModule extends TycheModule and adds trading-specific functionality.
-- CtpGateway extends GatewayModule with CTP API integration.
+- CtpGateway extends GatewayModule with CTP API integration and state machine.
+- Persistence layer provides backend abstraction with ClickHouse and JSONL implementations.
+- SchemaManager manages ClickHouse DDL operations and version tracking.
+- StateMachine provides connection lifecycle management for CTP gateway.
 - Trading domain components depend on TycheEngine types and module base classes.
 - HeartbeatManager is used by TycheEngine and can be used by modules independently.
 - Message depends on types for enums and durability levels.
@@ -1047,17 +1375,25 @@ The core components have minimal coupling and clear boundaries, with enhanced tr
 - **Updated**: Trading domain components integrate with both TycheEngine and CTP APIs.
 - **Updated**: ProcessManager coordinates with StateManager for TUI integration.
 - **Updated**: CLI entry points provide standalone process execution capabilities.
+- **Updated**: Testing infrastructure covers all major components with comprehensive test suites.
 
 ```mermaid
 graph LR
 Engine["TycheEngine"] --> HBMgr["HeartbeatManager"]
 Engine --> Msg["Message"]
 Engine --> Types["Types"]
+Engine --> Persist["Persistence Layer"]
 TycheMod["TycheModule"] --> Msg
 TycheMod --> Types
+TycheMod --> InterfaceDiscovery["Enhanced Interface Discovery"]
 ModBase["ModuleBase"] --> Types
 GatewayMod["GatewayModule"] --> TycheMod
 CtpGateway["CtpGateway"] --> GatewayMod
+CtpGateway --> StateMachine["ConnectionStateMachine"]
+Persist --> ClickHouse["ClickHouseBackend"]
+Persist --> Jsonl["JsonlBackend"]
+Persist --> SchemaMgr["SchemaManager"]
+ClickHouse --> SchemaMgr
 TradingEvents["Trading Events"] --> GatewayMod
 TradingModels["Trading Models"] --> GatewayMod
 TradingStrategies["Trading Strategies"] --> GatewayMod
@@ -1067,6 +1403,8 @@ ProcMgr["ProcessManager"] --> StateMgr["StateManager"]
 Engine --> ProcMgr
 CLIEngine["Engine Main"] --> Engine
 CLIModule["Module Main"] --> TycheMod
+TestBackend["Backend Tests"] --> BackendAPI["PersistenceBackend"]
+TestSM["State Machine Tests"] --> StateMachine
 ```
 
 **Diagram sources**
@@ -1074,6 +1412,11 @@ CLIModule["Module Main"] --> TycheMod
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
 - [message.py:10-10](file://src/tyche/message.py#L10-L10)
 - [types.py:12-23](file://src/tyche/types.py#L12-L23)
+- [backend.py:10-13](file://src/modules/trading/persistence/backend.py#L10-L13)
+- [clickhouse_backend.py:12-13](file://src/modules/trading/persistence/clickhouse_backend.py#L12-L13)
+- [jsonl_backend.py:15](file://src/modules/trading/persistence/jsonl_backend.py#L15)
+- [schema.py:7](file://src/modules/trading/persistence/schema.py#L7)
+- [state_machine.py:2](file://src/modules/trading/gateway/ctp/state_machine.py#L2)
 - [trading/gateway/base.py:16-17](file://src/modules/trading/gateway/base.py#L16-L17)
 - [trading/events.py:12-18](file://src/modules/trading/events.py#L12-L18)
 - [trading/models/enums.py:3-4](file://src/modules/trading/models/enums.py#L3-L4)
@@ -1081,12 +1424,19 @@ CLIModule["Module Main"] --> TycheMod
 - [state.ts:44-326](file://tui/src/state.ts#L44-L326)
 - [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+- [test_backend.py:7-11](file://tests/unit/test_backend.py#L7-L11)
+- [test_ctp_state_machine.py:3-5](file://tests/unit/test_ctp_state_machine.py#L3-L5)
 
 **Section sources**
 - [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
 - [message.py:10-10](file://src/tyche/message.py#L10-L10)
 - [types.py:12-23](file://src/tyche/types.py#L12-L23)
+- [backend.py:10-13](file://src/modules/trading/persistence/backend.py#L10-L13)
+- [clickhouse_backend.py:12-13](file://src/modules/trading/persistence/clickhouse_backend.py#L12-L13)
+- [jsonl_backend.py:15](file://src/modules/trading/persistence/jsonl_backend.py#L15)
+- [schema.py:7](file://src/modules/trading/persistence/schema.py#L7)
+- [state_machine.py:2](file://src/modules/trading/gateway/ctp/state_machine.py#L2)
 - [trading/gateway/base.py:16-17](file://src/modules/trading/gateway/base.py#L16-L17)
 - [trading/events.py:12-18](file://src/modules/trading/events.py#L12-L18)
 - [trading/models/enums.py:3-4](file://src/modules/trading/models/enums.py#L3-L4)
@@ -1094,6 +1444,8 @@ CLIModule["Module Main"] --> TycheMod
 - [state.ts:44-326](file://tui/src/state.ts#L44-L326)
 - [engine_main.py:13-57](file://src/tyche/engine_main.py#L13-L57)
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
+- [test_backend.py:7-11](file://tests/unit/test_backend.py#L7-L11)
+- [test_ctp_state_machine.py:3-5](file://tests/unit/test_ctp_state_machine.py#L3-L5)
 
 ## Performance Considerations
 - ZeroMQ polling and multipart frames are efficient for high-throughput event distribution.
@@ -1108,6 +1460,9 @@ CLIModule["Module Main"] --> TycheMod
 - **Updated**: ProcessManager uses topological sorting for dependency-aware process orchestration.
 - **Updated**: Platform-specific process termination strategies optimize shutdown performance.
 - **Updated**: Microsecond precision event logging reduces timestamp resolution overhead.
+- **Updated**: ClickHouse backend uses connection pooling and daily partitioning for optimal query performance.
+- **Updated**: Jsonl backend provides simple file-based storage for development and testing scenarios.
+- **Updated**: State machine implements exponential backoff with jitter to prevent thundering herd reconnection.
 
 ## Troubleshooting Guide
 Common issues and strategies:
@@ -1132,12 +1487,19 @@ Common issues and strategies:
 - **Updated**: CTP gateway connection issues:
   - Symptoms: CTP login failures, timeout errors, or authentication problems.
   - Actions: Verify CTP front addresses, authentication credentials, and network connectivity; check CTP API initialization logs.
+  - **Updated**: Monitor state machine transitions and retry counts for connection stability.
 - **Updated**: Market data subscription failures:
   - Symptoms: No quotes or trades received despite successful connection.
   - Actions: Confirm instrument ID format (<symbol>.<venue>.<asset_class>), verify subscription completion, and check CTP API response codes.
 - **Updated**: TUI state synchronization issues:
   - Symptoms: Process states not updating or event logs not displaying correctly.
   - Actions: Verify StateManager polling intervals, check connection to engine admin endpoint, and ensure event filtering settings are appropriate.
+- **Updated**: Persistence layer failures:
+  - Symptoms: Events not being stored or retrieved correctly.
+  - Actions: Verify backend configuration, check schema creation, ensure proper table permissions, and validate connection parameters.
+- **Updated**: Backend operation failures:
+  - Symptoms: InsertResult/QueryResult operations failing with error messages.
+  - Actions: Check backend health status, verify schema version, ensure sufficient disk space, and review backend-specific error logs.
 
 Validation via tests:
 - Engine registration/unregistration verified in unit tests.
@@ -1147,29 +1509,34 @@ Validation via tests:
 - **Updated**: Administrative endpoint functionality tested in heartbeat protocol tests.
 - **Updated**: ProcessManager dependency resolution and state management tested in TUI integration tests.
 - **Updated**: CTP gateway connectivity and event processing tested in trading system examples.
+- **Updated**: Backend abstraction and result dataclasses tested in comprehensive backend tests.
+- **Updated**: State machine transitions and backoff calculations tested in state machine tests.
 
 **Section sources**
 - [test_engine.py:8-51](file://tests/unit/test_engine.py#L8-L51)
 - [test_module.py:7-69](file://tests/unit/test_module.py#L7-L69)
 - [test_message.py:16-162](file://tests/unit/test_message.py#L16-L162)
 - [test_heartbeat_protocol.py:16-119](file://tests/unit/test_heartbeat_protocol.py#L16-L119)
+- [test_backend.py:1-148](file://tests/unit/test_backend.py#L1-L148)
+- [test_ctp_state_machine.py:1-205](file://tests/unit/test_ctp_state_machine.py#L1-L205)
 
 ## Conclusion
-Tyche Engine's core components form a cohesive, modular system with enhanced multi-asset trading capabilities and comprehensive process management:
-- TycheEngine orchestrates registration, event routing, heartbeat monitoring, and administrative state queries.
-- TycheModule provides a flexible, interface-driven development model with built-in helpers.
+Tyche Engine's core components form a cohesive, modular system with enhanced multi-asset trading capabilities, comprehensive event persistence layer, sophisticated state management, and robust testing infrastructure:
+- TycheEngine orchestrates registration, event routing, heartbeat monitoring, administrative state queries, and event persistence.
+- TycheModule provides a flexible, interface-driven development model with enhanced pattern recognition and sophisticated interface discovery.
 - Message and Envelope ensure robust, typed serialization across the wire.
 - HeartbeatManager enforces reliability using a proven pattern with thread-safe operations.
 - Types unify configuration and behavior across the system, including administrative endpoint defaults.
+- **Updated**: Comprehensive event persistence layer with backend abstraction supports both production ClickHouse and development JSONL storage.
+- **Updated**: Sophisticated CTP gateway state machine provides reliable connection management with auto-reconnect and exponential backoff.
 - **Updated**: Enhanced administrative capabilities provide real-time monitoring and state inspection.
 - **Updated**: Comprehensive trading domain integration enables multi-asset, multi-venue trading with standardized event formats.
-- **Updated**: CTP gateway support provides seamless integration with China's futures trading ecosystem.
-- **Updated**: GatewayModule abstract base class enables extensible venue connectivity with consistent event handling.
 - **Updated**: Integrated ProcessManager provides robust multi-process orchestration with dependency resolution and platform-aware termination.
 - **Updated**: TUI StateManager offers real-time monitoring and interactive control of the entire system.
+- **Updated**: Comprehensive testing infrastructure ensures reliability and quality across all major components.
 - **Updated**: Enhanced CLI entry points simplify standalone process execution and configuration.
 
-Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, comprehensive trading infrastructure, robust process management, real-time monitoring capabilities, and straightforward integration patterns.
+Together, these components enable scalable, resilient distributed systems with clear lifecycles, strong error handling, thread-safe operations, comprehensive trading infrastructure, robust process management, real-time monitoring capabilities, sophisticated state management, reliable event persistence, and straightforward integration patterns.
 
 ## Appendices
 
@@ -1182,7 +1549,7 @@ Together, these components enable scalable, resilient distributed systems with c
     - ack_endpoint: Optional[Endpoint]
     - heartbeat_receive_endpoint: Optional[Endpoint]
     - **Updated**: admin_endpoint: str (default: ADMIN_PORT_DEFAULT)
-  - Behavior: Stores endpoints, initializes registry, and prepares HeartbeatManager.
+  - Behavior: Stores endpoints, initializes registry, and prepares HeartbeatManager and persistence layer.
 - Methods:
   - run(): Start workers and block until stop().
   - start_nonblocking(): Start workers without blocking.
@@ -1199,25 +1566,24 @@ Together, these components enable scalable, resilient distributed systems with c
 - [engine.py:200-234](file://src/tyche/engine.py#L200-L234)
 - [engine.py:255-297](file://src/tyche/engine.py#L255-L297)
 - [engine.py:300-371](file://src/tyche/engine.py#L300-L371)
-- [engine.py:382-456](file://src/tyche/engine.py#L382-L456)
+- [engine.py:382-677](file://src/tyche/engine.py#L382-L677)
 
 ### API Reference: TycheModule
 - Constructor
   - Parameters:
     - engine_endpoint: Endpoint
     - module_id: Optional[str]
-    - event_endpoint: Optional[Endpoint]
-    - heartbeat_endpoint: Optional[Endpoint]
     - heartbeat_receive_endpoint: Optional[Endpoint]
-  - Behavior: Initializes handlers, interfaces, and connection state.
+  - Behavior: Initializes handlers, interfaces, and connection state with enhanced interface discovery.
 - Methods:
   - add_interface(name, handler, pattern, durability): Register handler and interface.
   - run()/start_nonblocking(): Start workers and block or return immediately.
   - stop(): Stop workers and clean up sockets.
   - send_event(event, payload, recipient): Publish event via engine.
   - call_ack(event, payload, timeout_ms): Request-response with ACK.
-  - discover_interfaces(): Auto-detect interfaces from method names.
+  - discover_interfaces(): Auto-detect interfaces from method names using enhanced patterns.
   - **Updated**: Enhanced heartbeat management with improved timing.
+  - **Updated**: Sophisticated interface discovery supporting new naming conventions.
 
 **Section sources**
 - [module.py:41-197](file://src/tyche/module.py#L41-L197)
@@ -1267,6 +1633,100 @@ Together, these components enable scalable, resilient distributed systems with c
 
 **Section sources**
 - [types.py:14-105](file://src/tyche/types.py#L14-L105)
+
+### **Updated** API Reference: Event Persistence Layer
+
+#### PersistenceBackend
+- Abstract methods:
+  - insert_batch(rows: List[Dict[str, Any]]) -> InsertResult
+  - query(**filters) -> QueryResult
+  - health() -> Dict[str, Any]
+  - close() -> None
+  - ensure_schema() -> bool
+- Result dataclasses:
+  - InsertResult(success: bool, rows_inserted: int = 0, error: Optional[str] = None)
+  - QueryResult(success: bool, rows: List[Dict[str, Any]] = [], error: Optional[str] = None)
+
+#### ClickHouseBackend
+- Constructor parameters:
+  - host: str = "localhost"
+  - port: int = 8123
+  - database: str = "tyche"
+  - user: str = "default"
+  - password: str = ""
+  - secure: bool = False
+- Methods:
+  - ensure_schema() -> bool
+  - insert_batch(rows: List[Dict[str, Any]]) -> InsertResult
+  - query(**filters) -> QueryResult
+  - health() -> Dict[str, Any]
+  - close() -> None
+
+#### JsonlBackend
+- Constructor parameters:
+  - data_dir: str = "./data/recorded"
+- Methods:
+  - ensure_schema() -> bool
+  - insert_batch(rows: List[Dict[str, Any]]) -> InsertResult
+  - query(**filters) -> QueryResult
+  - health() -> Dict[str, Any]
+  - close() -> None
+
+#### SchemaManager
+- Constructor parameters:
+  - database: str = "tyche"
+- Methods:
+  - ensure_schema(client) -> bool
+  - get_version(client) -> int
+
+**Section sources**
+- [backend.py:80-162](file://src/modules/trading/persistence/backend.py#L80-L162)
+- [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
+- [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
+- [schema.py:35-107](file://src/modules/trading/persistence/schema.py#L35-L107)
+
+### **Updated** API Reference: Enhanced CTP Gateway State Machine
+
+#### ConnectionStateMachine
+- Constructor parameters:
+  - venue: str = "openctp"
+  - reconnect_config: Optional[ReconnectConfig] = None
+- Properties:
+  - state: ConnectionState
+  - previous_state: Optional[ConnectionState]
+  - retry_count: int
+- Methods:
+  - transition(new_state: ConnectionState) -> bool
+  - next_backoff_ms() -> int
+  - max_retries_exceeded() -> bool
+  - to_payload(reason: str = "") -> Dict[str, Any]
+
+#### ReconnectConfig
+- Fields:
+  - enabled: bool = True
+  - max_retries: int = 10
+  - base_delay_ms: int = 1000
+  - max_delay_ms: int = 30000
+
+**Section sources**
+- [state_machine.py:35-96](file://src/modules/trading/gateway/ctp/state_machine.py#L35-L96)
+
+### **Updated** API Reference: Improved Module Interface System
+
+#### Enhanced Interface Pattern Recognition
+- Pattern recognition methods:
+  - handle_broadcasted_: Broadcasted message handlers
+  - on_broadcasted_: Broadcasted event handlers
+  - handle_whispered_: Whispered message handlers
+  - on_whispered_: Whispered event handlers
+  - handle_streaming_: Streaming message handlers
+  - on_streaming_: Streaming event handlers
+- Methods:
+  - _discover_and_register_handlers(): Auto-detect interfaces from method names
+  - _register_handler(): Register detected interfaces with proper configuration
+
+**Section sources**
+- [module.py:95-146](file://src/tyche/module.py#L95-L146)
 
 ### **Updated** API Reference: Process Management System
 
@@ -1407,23 +1867,31 @@ Together, these components enable scalable, resilient distributed systems with c
 ### Practical Examples
 - Running the engine:
   - Configure endpoints and call run(); see examples/run_engine.py.
-  - **Updated**: Engine now includes administrative endpoint for state queries.
+  - **Updated**: Engine now includes administrative endpoint for state queries and persistence layer integration.
 - Running a module:
   - Instantiate ExampleModule with engine endpoint and heartbeat receive endpoint; call run(); see examples/run_module.py.
 - Implementing a custom module:
-  - Extend TycheModule, implement handlers following naming conventions, and call add_interface() or rely on discover_interfaces().
+  - Extend TycheModule, implement handlers following enhanced naming conventions, and call add_interface() or rely on discover_interfaces().
 - **Updated**: Running a complete trading system:
   - Use examples/run_trading_system.py to demonstrate multi-asset trading pipeline with simulated gateway, strategy, risk, OMS, and portfolio modules.
 - **Updated**: Running CTP gateway:
   - Use examples/run_ctp_gateway.py to connect CTP gateway (simulated via OpenCTP or live broker) as standalone process.
   - Supports both sim mode (OpenCTP 7x24 or regular-hours) and live mode (real broker) with proper authentication.
+  - **Updated**: Gateway includes sophisticated state machine with auto-reconnect and exponential backoff.
 - **Updated**: Administrative queries:
   - Use admin endpoint to query engine status, modules, and statistics.
 - **Updated**: Process management:
   - Use ProcessManager with tyche-processes.json configuration for multi-process orchestration.
   - Integrate with TUI StateManager for real-time monitoring and control.
+- **Updated**: Persistence layer usage:
+  - Configure ClickHouseBackend for production event storage with connection pooling.
+  - Use JsonlBackend for development and testing with date-partitioned JSONL files.
+  - Implement custom PersistenceBackend for specialized storage requirements.
 - **Updated**: CLI entry points:
   - Use engine_main.py and module_main.py for standalone process execution with argument parsing.
+- **Updated**: Testing infrastructure:
+  - Run comprehensive test suites using pytest for backend abstraction, state machine, and integration tests.
+  - Validate persistence layer operations with ClickHouse integration tests.
 
 **Section sources**
 - [run_engine.py:21-59](file://examples/run_engine.py#L21-L59)
@@ -1437,3 +1905,5 @@ Together, these components enable scalable, resilient distributed systems with c
 - [state.ts:76-87](file://tui/src/state.ts#L76-L87)
 - [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 - [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
+- [test_backend.py:1-148](file://tests/unit/test_backend.py#L1-L148)
+- [test_ctp_state_machine.py:1-205](file://tests/unit/test_ctp_state_machine.py#L1-L205)

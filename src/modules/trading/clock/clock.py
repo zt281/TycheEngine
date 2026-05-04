@@ -34,9 +34,9 @@ class LiveClockModule(TycheModule):
         self._interval = interval
         self._clock_thread: Optional[threading.Thread] = None
 
-    def start_nonblocking(self) -> None:
+    def start(self) -> None:
         """Start the module and clock broadcasting thread."""
-        super().start_nonblocking()
+        super().start()
         self._clock_thread = threading.Thread(
             target=self._clock_loop, daemon=True, name="live-clock"
         )

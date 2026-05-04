@@ -24,7 +24,8 @@ def _noop_init(self, engine_endpoint, **kwargs):
     self._interfaces: List[Interface] = []
     self._running = False
     self._stop_event = MagicMock()
-    self._instruments: List[str] = []
+    self._instruments: List[str] = kwargs.get("instruments", [])
+    self._bar_subscriptions: set[str] = set()
 
 
 class TestStrategyContext:
@@ -122,7 +123,7 @@ class DummyStrategy(StrategyModule):
         self.on_quote_calls: List[Quote] = []
         self.on_position_calls: List[Position] = []
 
-    def add_interface(self, name, handler, pattern=InterfacePattern.ON, durability=1):
+    def add_interface(self, name, handler, pattern=InterfacePattern.ON_STREAMING, durability=1):
         self._handlers[name] = handler
         self._interfaces.append(Interface(name=name, pattern=pattern, event_type=name, durability=durability))
 
@@ -141,7 +142,7 @@ class TestStrategyModule:
 
     def test_dispatch_quote_parses_and_calls_on_quote(self):
         strat = self._strat()
-        strat._dispatch_quote({"instrument_id": "BTCUSDT.simulated.crypto", "bid": "64000.00", "ask": "64100.00", "bid_size": "1.0", "ask_size": "0.5", "timestamp": 1234567890.0})
+        strat.on_streaming_quote({"instrument_id": "BTCUSDT.simulated.crypto", "bid": "64000.00", "ask": "64100.00", "bid_size": "1.0", "ask_size": "0.5", "timestamp": 1234567890.0})
         assert len(strat.on_quote_calls) == 1
         quote = strat.on_quote_calls[0]
         assert quote.instrument_id == "BTCUSDT.simulated.crypto"
@@ -152,7 +153,7 @@ class TestStrategyModule:
 
     def test_dispatch_position_update_parses_and_calls_callback(self):
         strat = self._strat()
-        strat._dispatch_position_update({"instrument_id": "BTCUSDT.simulated.crypto", "side": "LONG", "quantity": "2.5", "avg_entry_price": "63000.00", "realized_pnl": "0", "unrealized_pnl": "100.00", "commission": "5.00", "last_price": "64000.00"})
+        strat.on_broadcasted_position_update({"instrument_id": "BTCUSDT.simulated.crypto", "side": "LONG", "quantity": "2.5", "avg_entry_price": "63000.00", "realized_pnl": "0", "unrealized_pnl": "100.00", "commission": "5.00", "last_price": "64000.00"})
         assert len(strat.on_position_calls) == 1
         pos = strat.on_position_calls[0]
         assert pos.side == PositionSide.LONG
@@ -161,11 +162,10 @@ class TestStrategyModule:
         assert cached.side == PositionSide.LONG
         assert cached.quantity == Decimal("2.5")
 
-    def test_subscribe_instrument_adds_instrument_and_interfaces(self):
+    def test_subscribe_instrument_adds_instrument(self):
         strat = self._strat()
         strat.subscribe_instrument("ETHUSDT.simulated.crypto")
         assert "ETHUSDT.simulated.crypto" in strat._instruments
-        assert any("ETHUSDT.simulated.crypto" in name for name in strat._handlers.keys())
 
 
 class TestMovingAverageCrossStrategy:

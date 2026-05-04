@@ -1,43 +1,8 @@
-"""Tests for ModuleBase abstract class."""
+"""Tests for ModuleBase protocol."""
 
 import pytest
 
 from tyche.module_base import ModuleBase
-from tyche.types import InterfacePattern
-
-
-class ConcreteModule(ModuleBase):
-    """Concrete test implementation of ModuleBase."""
-
-    def __init__(self) -> None:
-        self._id = "test_mod"
-        self.started = False
-
-    @property
-    def module_id(self) -> str:
-        return self._id
-
-    @property
-    def interfaces(self):  # type: ignore[override]
-        return []
-
-    def start(self) -> None:
-        self.started = True
-
-    def stop(self) -> None:
-        self.started = False
-
-    def on_data(self, payload: dict) -> None:
-        pass
-
-    def ack_order(self, payload: dict) -> dict:
-        return {"confirmed": True, "id": payload.get("id")}
-
-    def on_common_alert(self, payload: dict) -> None:
-        pass
-
-    def whisper_target_msg(self, payload: dict) -> None:
-        pass
 
 
 def test_module_base_is_abstract():
@@ -48,52 +13,98 @@ def test_module_base_is_abstract():
 
 def test_concrete_module_can_instantiate():
     """A properly-implemented subclass can be instantiated."""
+
+    class ConcreteModule(ModuleBase):
+        def __init__(self) -> None:
+            self._id = "test_mod"
+
+        @property
+        def module_id(self) -> str:
+            return self._id
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
     mod = ConcreteModule()
     assert mod.module_id == "test_mod"
 
 
-def test_interface_discovery_all_patterns():
-    """discover_interfaces finds on_, ack_, on_common_, and whisper_ methods."""
-    mod = ConcreteModule()
-    interfaces = mod.discover_interfaces()
-    patterns = {i.name: i.pattern for i in interfaces}
+def test_concrete_module_lifecycle():
+    """Concrete module implements start/stop lifecycle."""
 
-    assert patterns["on_data"] == InterfacePattern.ON
-    assert patterns["ack_order"] == InterfacePattern.ACK
-    assert patterns["on_common_alert"] == InterfacePattern.ON_COMMON
-    assert patterns["whisper_target_msg"] == InterfacePattern.WHISPER
+    class LifecycleModule(ModuleBase):
+        def __init__(self) -> None:
+            self._id = "lifecycle_mod"
+            self.running = False
 
+        @property
+        def module_id(self) -> str:
+            return self._id
 
-def test_get_handler_returns_callable():
-    """get_handler returns the handler method for a known event."""
-    mod = ConcreteModule()
-    handler = mod.get_handler("on_data")
-    assert handler is not None
-    assert callable(handler)
+        def start(self) -> None:
+            self.running = True
 
+        def stop(self) -> None:
+            self.running = False
 
-def test_get_handler_returns_none_for_unknown():
-    """get_handler returns None for an unregistered event name."""
-    mod = ConcreteModule()
-    assert mod.get_handler("on_nonexistent") is None
-
-
-def test_handle_event_on_pattern():
-    """handle_event for on_ pattern calls handler and returns None."""
-    mod = ConcreteModule()
-    result = mod.handle_event("on_data", {"key": "val"})
-    assert result is None
+    mod = LifecycleModule()
+    assert not mod.running
+    mod.start()
+    assert mod.running
+    mod.stop()
+    assert not mod.running
 
 
-def test_handle_event_ack_pattern():
-    """handle_event for ack_ pattern returns handler's return value."""
-    mod = ConcreteModule()
-    result = mod.handle_event("ack_order", {"id": "42"})
-    assert result == {"confirmed": True, "id": "42"}
+def test_protocol_structural_subtyping():
+    """ModuleBase supports structural subtyping via Protocol."""
+
+    class DuckModule:
+        def __init__(self) -> None:
+            self._id = "duck_mod"
+
+        @property
+        def module_id(self) -> str:
+            return self._id
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    mod = DuckModule()
+    assert isinstance(mod, ModuleBase)
 
 
-def test_handle_event_unknown_raises():
-    """handle_event raises ValueError for unknown events."""
-    mod = ConcreteModule()
-    with pytest.raises(ValueError, match="No handler for event"):
-        mod.handle_event("unknown_event", {})
+def test_protocol_rejects_incomplete_class():
+    """A class missing protocol methods is not an instance of ModuleBase."""
+
+    class IncompleteModule:
+        def __init__(self) -> None:
+            self._id = "incomplete"
+
+        @property
+        def module_id(self) -> str:
+            return self._id
+
+        # missing start() and stop()
+
+    mod = IncompleteModule()
+    assert not isinstance(mod, ModuleBase)
+
+
+def test_module_base_has_no_concrete_methods():
+    """ModuleBase provides only protocol methods — no dispatch logic."""
+    # __protocol_attrs__ is only available on Python 3.12+
+    protocol_attrs = getattr(ModuleBase, "__protocol_attrs__", None)
+    if protocol_attrs is not None:
+        assert "module_id" in protocol_attrs
+        assert "start" in protocol_attrs
+        assert "stop" in protocol_attrs
+    # Concrete methods from old design are gone
+    assert not hasattr(ModuleBase, "discover_interfaces")
+    assert not hasattr(ModuleBase, "get_handler")
+    assert not hasattr(ModuleBase, "handle_event")

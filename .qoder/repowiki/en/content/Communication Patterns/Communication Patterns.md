@@ -13,6 +13,14 @@
 - [run_module.py](file://examples/run_module.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Complete redesign of module interface system from v1 to v2 communication patterns
+- Replaced old `on_*`, `ack_*`, `whisper_*` patterns with new `broadcasted`, `whispered`, and `streaming` categories
+- Updated interface discovery mechanism to use new naming conventions
+- Enhanced request-response pattern with correlation-based message routing
+- Added streaming pattern for continuous data flows
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -25,34 +33,36 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-This document explains Tyche Engine’s four primary communication patterns and how ZeroMQ socket patterns implement them:
-- Fire-and-forget events (on_*)
-- Request-response (ack_*)
-- Direct P2P messaging (whisper_*)
-- Broadcast events (on_common_*)
+This document explains Tyche Engine's three primary communication patterns introduced in v2 and how ZeroMQ socket patterns implement them:
+- Broadcasted (fire-and-forget events)
+- Whispered (direct P2P messaging)
+- Streaming (continuous data streams)
 
-It covers ZeroMQ socket types, behavioral characteristics, delivery guarantees, use cases, implementation details, interface naming conventions, message flow diagrams, practical examples, performance implications, failure modes, and best practices.
+Each category provides both fire-and-forget (`on_*`) and request-response (`handle_*`) variants. It covers ZeroMQ socket types, behavioral characteristics, delivery guarantees, use cases, implementation details, interface naming conventions, message flow diagrams, practical examples, performance implications, failure modes, and best practices.
+
+**Updated** The v2 system replaces the legacy `on_*`, `ack_*`, and `whisper_*` patterns with a cleaner categorization system that groups related communication patterns together.
 
 ## Project Structure
 Tyche Engine organizes communication around a central broker (engine) and modules that connect to it. The engine exposes:
-- Registration endpoint (REQ/REP handshake)
+- Registration endpoint (ROUTER/DEALER handshake)
 - Event routing via XPUB/XSUB proxy
 - Heartbeat monitoring (Paranoid Pirate pattern)
-- Acknowledgment channel (optional separate endpoint)
+- Acknowledgment channel (separate ROUTER endpoint for request-response)
 
 Modules connect using:
 - REQ for registration
 - PUB/SUB for event exchange
-- DEALER for heartbeats
+- DEALER for heartbeats and acknowledgments
 
 ```mermaid
 graph TB
 subgraph "Tyche Engine"
-REG["Registration Endpoint<br/>REQ/REP"]
+REG["Registration ROUTER<br/>Module Registration"]
 XPUB["Event XPUB<br/>Publisher"]
 XSUB["Event XSUB<br/>Subscriber"]
 HB_OUT["Heartbeat PUB<br/>Outbound"]
 HB_IN["Heartbeat ROUTER<br/>Inbound"]
+ACK_ROUTER["ACK ROUTER<br/>Request-Response"]
 MON["Monitor Worker"]
 PROXY["Event Proxy Worker<br/>XPUB/XSUB"]
 end
@@ -60,13 +70,15 @@ subgraph "Tyche Module"
 MOD_REQ["Module REQ<br/>Registration"]
 MOD_PUB["Module PUB<br/>Events"]
 MOD_SUB["Module SUB<br/>Events"]
-MOD_DEALER["Module DEALER<br/>Heartbeats"]
+MOD_DEALER["Module DEALER<br/>Heartbeats & ACK"]
 end
 MOD_REQ --> REG
 MOD_PUB --> XSUB
 XPUB --> MOD_SUB
 MOD_DEALER --> HB_IN
 HB_OUT --> MOD_DEALER
+MOD_DEALER --> ACK_ROUTER
+ACK_ROUTER --> MOD_DEALER
 PROXY --- XPUB
 PROXY --- XSUB
 MON --> REG
@@ -74,40 +86,40 @@ MON --> HB_IN
 ```
 
 **Diagram sources**
-- [engine.py:121-143](file://src/tyche/engine.py#L121-L143)
-- [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
-- [engine.py:281-305](file://src/tyche/engine.py#L281-L305)
-- [engine.py:307-339](file://src/tyche/engine.py#L307-L339)
-- [module.py:200-254](file://src/tyche/module.py#L200-L254)
-- [module.py:138-177](file://src/tyche/module.py#L138-L177)
-- [module.py:376-400](file://src/tyche/module.py#L376-L400)
+- [engine.py:128-160](file://src/tyche/engine.py#L128-L160)
+- [engine.py:320-383](file://src/tyche/engine.py#L320-L383)
+- [engine.py:384-447](file://src/tyche/engine.py#L384-L447)
+- [engine.py:508-581](file://src/tyche/engine.py#L508-L581)
+- [module.py:156-215](file://src/tyche/module.py#L156-L215)
+- [module.py:167-194](file://src/tyche/module.py#L167-L194)
+- [module.py:408-464](file://src/tyche/module.py#L408-L464)
 
 **Section sources**
-- [engine.py:34-50](file://src/tyche/engine.py#L34-L50)
-- [module.py:41-49](file://src/tyche/module.py#L41-L49)
+- [engine.py:37-66](file://src/tyche/engine.py#L37-L66)
+- [module.py:41-82](file://src/tyche/module.py#L41-L82)
 
 ## Core Components
 - TycheEngine: Central broker managing registration, event routing, heartbeats, and module lifecycle.
 - TycheModule: Base module implementation handling registration, event subscription/publishing, request-response acknowledgments, and heartbeats.
-- ModuleBase: Defines interface discovery and naming conventions for the four patterns.
+- ModuleBase: Lightweight protocol defining the module contract (no concrete methods).
 - Message: Serialization/deserialization for ZeroMQ frames and envelopes.
-- Types: Enumerations for patterns, message types, durability, and endpoints.
+- Types: Enumerations for v2 interface patterns, message types, durability, and endpoints.
 
 Key responsibilities:
-- Registration: REQ socket handshake for module registration and interface discovery.
+- Registration: ROUTER socket handshake for module registration and interface discovery.
 - Event routing: XPUB/XSUB proxy for pub/sub event distribution.
 - Heartbeats: PUB/ROUTER pair implementing Paranoid Pirate liveness checks.
 - Messaging: MessagePack serialization and envelope framing for ZeroMQ multipart messages.
 
 **Section sources**
-- [engine.py:25-32](file://src/tyche/engine.py#L25-L32)
+- [engine.py:28-35](file://src/tyche/engine.py#L28-L35)
 - [module.py:28-39](file://src/tyche/module.py#L28-L39)
-- [module_base.py:10-30](file://src/tyche/module_base.py#L10-L30)
+- [module_base.py:6-32](file://src/tyche/module_base.py#L6-L32)
 - [message.py:13-35](file://src/tyche/message.py#L13-L35)
-- [types.py:51-74](file://src/tyche/types.py#L51-L74)
+- [types.py:54-83](file://src/tyche/types.py#L54-L83)
 
 ## Architecture Overview
-The engine exposes distinct endpoints for registration, event routing, and heartbeats. Modules connect to these endpoints and participate in the event mesh. The event proxy mirrors XPUB to XSUB frames, enabling fan-out to all subscribers.
+The engine exposes distinct endpoints for registration, event routing, and heartbeats. Modules connect to these endpoints and participate in the event mesh. The event proxy mirrors XPUB to XSUB frames, enabling fan-out to all subscribers. Request-response messages use a separate ACK endpoint with correlation-based routing.
 
 ```mermaid
 sequenceDiagram
@@ -121,25 +133,25 @@ Eng-->>Mod : "ACK with ports"
 Mod->>XSUB : "PUB events"
 XSUB-->>XPUB : "Forward frames"
 XPUB-->>Sub : "SUB events"
-Note over Mod,Sub : "Fire-and-forget events distributed via XPUB/XSUB"
+Note over Mod,Sub : "Broadcasted events distributed via XPUB/XSUB"
 ```
 
 **Diagram sources**
-- [module.py:200-254](file://src/tyche/module.py#L200-L254)
-- [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
-- [module.py:138-177](file://src/tyche/module.py#L138-L177)
+- [module.py:238-294](file://src/tyche/module.py#L238-L294)
+- [engine.py:205-252](file://src/tyche/engine.py#L205-L252)
+- [module.py:297-304](file://src/tyche/module.py#L297-L304)
 
 ## Detailed Component Analysis
 
-### Fire-and-Forget Events (on_*)
+### Broadcasted Events (on_broadcasted_*)
 Behavioral characteristics:
 - Best-effort delivery with no guaranteed acknowledgment.
 - Load-balanced distribution across subscribers.
 - Handlers return immediately; no response payload is expected.
 
 ZeroMQ socket pattern:
-- Module publishes events via PUB to engine’s XSUB.
-- Engine’s event proxy mirrors XPUB to XSUB frames.
+- Module publishes events via PUB to engine's XSUB.
+- Engine's event proxy mirrors XPUB to XSUB frames.
 - Subscribers receive events via SUB.
 
 Delivery guarantees:
@@ -148,11 +160,11 @@ Delivery guarantees:
 
 Implementation details:
 - Module publishes with topic as event name and serialized message body.
-- Engine’s proxy forwards frames unchanged.
+- Engine's proxy forwards frames unchanged.
 
 Practical example:
-- See [example_module.py:80-85](file://src/tyche/example_module.py#L80-L85) for an on_data handler.
-- See [module.py:301-329](file://src/tyche/module.py#L301-L329) for send_event implementation.
+- See [example_module.py:117-124](file://src/tyche/example_module.py#L117-L124) for an on_broadcasted_broadcast handler.
+- See [module.py:379-409](file://src/tyche/module.py#L379-L409) for send_event implementation.
 
 ```mermaid
 sequenceDiagram
@@ -161,20 +173,20 @@ participant XSUB as "Engine XSUB"
 participant Proxy as "Engine Proxy"
 participant XPUB as "Engine XPUB"
 participant Recv as "TycheModule (Subscriber)"
-Sender->>XSUB : "PUB frame [topic, message]"
+Sender->>XSUB : "PUB frame [on_broadcasted_ping, message]"
 XSUB-->>Proxy : "Forward"
 Proxy-->>XPUB : "Mirror frame"
-XPUB-->>Recv : "SUB frame [topic, message]"
+XPUB-->>Recv : "SUB frame [on_broadcasted_ping, message]"
 Recv->>Recv : "Dispatch to handler"
 ```
 
 **Diagram sources**
-- [module.py:301-329](file://src/tyche/module.py#L301-L329)
-- [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
-- [module.py:265-298](file://src/tyche/module.py#L265-L298)
+- [module.py:379-409](file://src/tyche/module.py#L379-L409)
+- [engine.py:384-447](file://src/tyche/engine.py#L384-L447)
+- [module.py:351-376](file://src/tyche/module.py#L351-L376)
 
 Best practices:
-- Use on_* for telemetry, metrics, and non-critical notifications.
+- Use on_broadcasted_* for telemetry, metrics, and non-critical notifications.
 - Keep payloads small and serializable.
 - Avoid long-running work inside handlers; offload to background tasks if needed.
 
@@ -183,19 +195,19 @@ Failure modes:
 - Subscriber overload: back-pressure via ZeroMQ; consider batching or rate limiting.
 
 **Section sources**
-- [module.py:301-329](file://src/tyche/module.py#L301-L329)
-- [module.py:265-298](file://src/tyche/module.py#L265-L298)
-- [example_module.py:80-85](file://src/tyche/example_module.py#L80-L85)
+- [module.py:379-409](file://src/tyche/module.py#L379-L409)
+- [module.py:351-376](file://src/tyche/module.py#L351-L376)
+- [example_module.py:117-124](file://src/tyche/example_module.py#L117-L124)
 
-### Request-Response (ack_*)
+### Request-Response (handle_broadcasted_*)
 Behavioral characteristics:
 - Synchronous request with required acknowledgment.
 - Module sends a command-like message and waits for a response within a timeout.
 - Handlers must return a dictionary payload.
 
 ZeroMQ socket pattern:
-- Module uses a temporary REQ socket to send a COMMAND message.
-- Engine responds with an ACK message on the same socket.
+- Module uses a DEALER socket to send a COMMAND message to engine's ACK ROUTER.
+- Engine routes COMMAND to registered handlers and replies with RESPONSE on the same socket.
 - Acknowledgment channel is separate from the event proxy.
 
 Delivery guarantees:
@@ -203,12 +215,12 @@ Delivery guarantees:
 - Timeout-based failure detection.
 
 Implementation details:
-- Module.call_ack constructs a COMMAND message and waits for ACK.
-- Engine routes COMMAND to registered handlers and replies with ACK.
+- Module.send_event_with_response constructs a COMMAND message with correlation_id and waits for RESPONSE.
+- Engine routes COMMAND to registered handlers and replies with RESPONSE.
 
 Practical example:
-- See [example_module.py:87-100](file://src/tyche/example_module.py#L87-L100) for an ack_request handler.
-- See [module.py:331-373](file://src/tyche/module.py#L331-L373) for call_ack implementation.
+- See [example_module.py:89-102](file://src/tyche/example_module.py#L89-L102) for a handle_broadcasted_request handler.
+- See [module.py:410-464](file://src/tyche/module.py#L410-L464) for send_event_with_response implementation.
 
 ```mermaid
 sequenceDiagram
@@ -216,40 +228,40 @@ participant Caller as "TycheModule (Caller)"
 participant Eng as "TycheEngine"
 participant Handler as "Handler Module"
 participant Reply as "TycheModule (Reply)"
-Caller->>Eng : "REQ COMMAND (ack_*)"
+Caller->>Eng : "DEALER COMMAND (handle_broadcasted_*)"
 Eng->>Handler : "Route to handler"
 Handler-->>Eng : "Return payload"
-Eng-->>Caller : "ACK payload"
-Note over Caller,Reply : "Timeout if no ACK within configured window"
+Eng-->>Caller : "RESPONSE payload"
+Note over Caller,Reply : "Timeout if no RESPONSE within configured window"
 ```
 
 **Diagram sources**
-- [module.py:331-373](file://src/tyche/module.py#L331-L373)
-- [engine.py:144-177](file://src/tyche/engine.py#L144-L177)
-- [module_base.py:100-119](file://src/tyche/module_base.py#L100-L119)
+- [module.py:410-464](file://src/tyche/module.py#L410-L464)
+- [engine.py:322-383](file://src/tyche/engine.py#L322-L383)
+- [module.py:119-143](file://src/tyche/module.py#L119-L143)
 
 Best practices:
-- Use ack_* for RPC-like operations requiring confirmation.
+- Use handle_broadcasted_* for RPC-like operations requiring confirmation.
 - Keep request payloads minimal and idempotent.
 - Set reasonable timeouts based on expected handler latency.
 
 Failure modes:
 - Handler crash or slow processing: caller receives timeout.
-- Network errors: REQ socket may fail; caller should retry or abort.
+- Network errors: DEALER socket may fail; caller should retry or abort.
 
 **Section sources**
-- [module.py:331-373](file://src/tyche/module.py#L331-L373)
-- [example_module.py:87-100](file://src/tyche/example_module.py#L87-L100)
-- [module_base.py:100-119](file://src/tyche/module_base.py#L100-L119)
+- [module.py:410-464](file://src/tyche/module.py#L410-L464)
+- [example_module.py:89-102](file://src/tyche/example_module.py#L89-L102)
+- [module.py:119-143](file://src/tyche/module.py#L119-L143)
 
-### Direct P2P Messaging (whisper_*)
+### Direct P2P Messaging (on_whispered_*)
 Behavioral characteristics:
 - Direct, point-to-point communication between two modules.
 - Bypasses engine event proxy; uses direct socket paths.
 - Naming convention includes target module ID in the handler name.
 
 ZeroMQ socket pattern:
-- Whisper handlers are discovered via naming convention (whisper_{target}_{event}).
+- Whisper handlers are discovered via naming convention (on_whispered_{target}_{event}).
 - Implementation relies on module auto-discovery and handler routing.
 
 Delivery guarantees:
@@ -258,28 +270,28 @@ Delivery guarantees:
 
 Implementation details:
 - ModuleBase discovers whisper interfaces automatically from method names.
-- Example module demonstrates a whisper_athena_message handler.
+- Example module demonstrates an on_whispered_message handler.
 
 Practical example:
-- See [example_module.py:102-113](file://src/tyche/example_module.py#L102-L113) for a whisper handler.
-- See [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84) for interface discovery logic.
+- See [example_module.py:104-116](file://src/tyche/example_module.py#L104-L116) for a whisper handler.
+- See [module.py:112-143](file://src/tyche/module.py#L112-L143) for interface discovery logic.
 
 ```mermaid
 flowchart TD
 Start(["Whisper Invocation"]) --> CheckTarget["Resolve Target Module"]
-CheckTarget --> BuildTopic["Build Topic: whisper_{target}_{event}"]
+CheckTarget --> BuildTopic["Build Topic: on_whispered_{target}_{event}"]
 BuildTopic --> Send["Send via Engine Event Channel"]
-Send --> Receive["Target Receives on whisper_{target}_{event}"]
+Send --> Receive["Target Receives on_whispered_{target}_{event}"]
 Receive --> Dispatch["Dispatch to Handler"]
 Dispatch --> End(["Complete"])
 ```
 
 **Diagram sources**
-- [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
-- [example_module.py:102-113](file://src/tyche/example_module.py#L102-L113)
+- [module.py:112-143](file://src/tyche/module.py#L112-L143)
+- [example_module.py:104-116](file://src/tyche/example_module.py#L104-L116)
 
 Best practices:
-- Use whisper_* for sensitive or private messages between known modules.
+- Use on_whispered_* for sensitive or private messages between known modules.
 - Ensure target module is registered and subscribed to the topic.
 - Keep whisper topics stable and documented.
 
@@ -288,73 +300,71 @@ Failure modes:
 - Network connectivity issues: delivery fails silently.
 
 **Section sources**
-- [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
-- [example_module.py:102-113](file://src/tyche/example_module.py#L102-L113)
+- [module.py:112-143](file://src/tyche/module.py#L112-L143)
+- [example_module.py:104-116](file://src/tyche/example_module.py#L104-L116)
 
-### Broadcast Events (on_common_*)
+### Streaming Data (on_streaming_*)
 Behavioral characteristics:
-- Broadcast to all subscribers of the event.
-- Fan-out across all modules subscribed to the topic.
-- Useful for announcements, global updates, and coordination signals.
+- Continuous data flow with ongoing delivery.
+- Designed for real-time data feeds and streams.
+- Supports high-frequency updates without request-response overhead.
 
 ZeroMQ socket pattern:
-- Module publishes on_common_* events via PUB to engine’s XSUB.
-- Engine’s proxy mirrors frames to all subscribers via XPUB.
-- All modules subscribed to the topic receive the broadcast.
+- Module publishes streaming data via PUB to engine's XSUB.
+- Engine's proxy mirrors frames to all subscribers via XPUB.
+- Stream consumers receive continuous updates.
 
 Delivery guarantees:
-- Best-effort broadcast; no per-subscriber acknowledgment.
-- All subscribers receive the message.
+- Best-effort streaming; no per-subscriber acknowledgment.
+- Continuous flow with potential for back-pressure.
 
 Implementation details:
-- Example module demonstrates on_common_ping/pong handlers that schedule subsequent broadcasts.
-- Module subscribes to topics matching its handler names.
+- Example module demonstrates an on_streaming_data handler for continuous data reception.
+- Module subscribes to streaming topics matching its handler names.
 
 Practical example:
-- See [example_module.py:115-122](file://src/tyche/example_module.py#L115-L122) for on_common_broadcast.
-- See [example_module.py:124-150](file://src/tyche/example_module.py#L124-L150) for on_common_ping/pong with scheduled broadcasts.
-- See [module.py:258-264](file://src/tyche/module.py#L258-L264) for subscription setup.
+- See [example_module.py:82-88](file://src/tyche/example_module.py#L82-L88) for an on_streaming_data handler.
+- See [module.py:297-304](file://src/tyche/module.py#L297-L304) for subscription setup.
 
 ```mermaid
 sequenceDiagram
-participant Sender as "TycheModule (Publisher)"
+participant Producer as "TycheModule (Producer)"
 participant XSUB as "Engine XSUB"
 participant Proxy as "Engine Proxy"
 participant XPUB as "Engine XPUB"
-participant Sub1 as "Subscriber Module 1"
-participant Sub2 as "Subscriber Module 2"
-Sender->>XSUB : "PUB frame [on_common_ping, message]"
+participant Consumer1 as "Consumer Module 1"
+participant Consumer2 as "Consumer Module 2"
+Producer->>XSUB : "PUB frame [on_streaming_data, continuous_payload]"
 XSUB-->>Proxy : "Forward"
 Proxy-->>XPUB : "Mirror frame"
-XPUB-->>Sub1 : "SUB frame [on_common_ping, message]"
-XPUB-->>Sub2 : "SUB frame [on_common_ping, message]"
-Sub1->>Sub1 : "Dispatch to on_common_ping"
-Sub2->>Sub2 : "Dispatch to on_common_ping"
+XPUB-->>Consumer1 : "SUB frame [on_streaming_data, continuous_payload]"
+XPUB-->>Consumer2 : "SUB frame [on_streaming_data, continuous_payload]"
+Consumer1->>Consumer1 : "Process streaming data"
+Consumer2->>Consumer2 : "Process streaming data"
 ```
 
 **Diagram sources**
-- [module.py:301-329](file://src/tyche/module.py#L301-L329)
-- [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
-- [module.py:258-264](file://src/tyche/module.py#L258-L264)
-- [example_module.py:124-150](file://src/tyche/example_module.py#L124-L150)
+- [module.py:379-409](file://src/tyche/module.py#L379-L409)
+- [engine.py:384-447](file://src/tyche/engine.py#L384-L447)
+- [module.py:297-304](file://src/tyche/module.py#L297-L304)
+- [example_module.py:82-88](file://src/tyche/example_module.py#L82-L88)
 
 Best practices:
-- Use on_common_* for global announcements and coordination.
-- Avoid heavy payloads; keep broadcasts lightweight.
-- Coordinate timing to prevent thundering herds of responses.
+- Use on_streaming_* for real-time data feeds and continuous updates.
+- Implement rate limiting and batching for high-frequency streams.
+- Design handlers to handle rapid-fire updates efficiently.
 
 Failure modes:
-- Network partitions: some subscribers miss broadcasts.
-- Subscriber overload: back-pressure via ZeroMQ; consider throttling.
+- Network partitions: streaming may be interrupted.
+- Consumer overload: back-pressure via ZeroMQ; consider throttling or buffering.
 
 **Section sources**
-- [example_module.py:115-122](file://src/tyche/example_module.py#L115-L122)
-- [example_module.py:124-150](file://src/tyche/example_module.py#L124-L150)
-- [module.py:258-264](file://src/tyche/module.py#L258-L264)
+- [example_module.py:82-88](file://src/tyche/example_module.py#L82-L88)
+- [module.py:297-304](file://src/tyche/module.py#L297-L304)
 
 ## Dependency Analysis
 The communication patterns rely on:
-- Interface naming conventions defined in ModuleBase.
+- Interface naming conventions defined in TycheModule's pattern detection.
 - Message types and durability levels defined in Types.
 - Serialization/deserialization in Message.
 - Engine workers for registration, event proxy, and heartbeats.
@@ -362,7 +372,7 @@ The communication patterns rely on:
 
 ```mermaid
 graph LR
-MB["ModuleBase<br/>Interface Discovery"] --> TP["Types<br/>InterfacePattern, MessageType"]
+MB["TycheModule<br/>Interface Discovery"] --> TP["Types<br/>InterfacePattern, MessageType"]
 MB --> MSG["Message<br/>Serialization"]
 MB --> MOD["TycheModule<br/>Handlers & Sockets"]
 MOD --> ENG["TycheEngine<br/>Workers"]
@@ -371,28 +381,28 @@ MOD --> EX["ExampleModule<br/>Patterns"]
 ```
 
 **Diagram sources**
-- [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
-- [types.py:51-74](file://src/tyche/types.py#L51-L74)
+- [module.py:95-143](file://src/tyche/module.py#L95-L143)
+- [types.py:54-83](file://src/tyche/types.py#L54-L83)
 - [message.py:69-111](file://src/tyche/message.py#L69-L111)
 - [module.py:28-39](file://src/tyche/module.py#L28-L39)
-- [engine.py:25-32](file://src/tyche/engine.py#L25-L32)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
-- [example_module.py:19-31](file://src/tyche/example_module.py#L19-L31)
+- [engine.py:28-35](file://src/tyche/engine.py#L28-L35)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+- [example_module.py:18-31](file://src/tyche/example_module.py#L18-L31)
 
 **Section sources**
-- [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
-- [types.py:51-74](file://src/tyche/types.py#L51-L74)
+- [module.py:95-143](file://src/tyche/module.py#L95-L143)
+- [types.py:54-83](file://src/tyche/types.py#L54-L83)
 - [message.py:69-111](file://src/tyche/message.py#L69-L111)
 - [module.py:28-39](file://src/tyche/module.py#L28-L39)
-- [engine.py:25-32](file://src/tyche/engine.py#L25-L32)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
-- [example_module.py:19-31](file://src/tyche/example_module.py#L19-L31)
+- [engine.py:28-35](file://src/tyche/engine.py#L28-L35)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+- [example_module.py:18-31](file://src/tyche/example_module.py#L18-L31)
 
 ## Performance Considerations
-- Fire-and-forget (on_*): Minimal overhead; PUB/SUB fan-out scales with subscribers. Tune subscription granularity to reduce unnecessary traffic.
-- Request-response (ack_*): Adds latency due to round-trip and serialization. Use timeouts to bound wait time; consider batching requests if feasible.
-- Direct P2P (whisper_*): Best-effort delivery; overhead equals standard event publishing. Favor whisper for sensitive or targeted messages.
-- Broadcast (on_common_*): Fan-out cost increases with subscriber count. Limit payload size and frequency; stagger broadcasts to avoid spikes.
+- Broadcasted (on_broadcasted_*): Minimal overhead; PUB/SUB fan-out scales with subscribers. Tune subscription granularity to reduce unnecessary traffic.
+- Request-Response (handle_broadcasted_*): Adds latency due to round-trip and serialization. Use timeouts to bound wait time; consider batching requests if feasible.
+- Direct P2P (on_whispered_*): Best-effort delivery; overhead equals standard event publishing. Favor whisper for sensitive or targeted messages.
+- Streaming (on_streaming_*): Continuous data flow with minimal overhead; designed for high-frequency updates. Implement rate limiting and batching for optimal performance.
 
 Failure modes and mitigations:
 - Registration timeouts: increase RCVTIMEO or retry registration.
@@ -404,13 +414,11 @@ Best practices:
 - Keep payloads small and serializable; leverage MessagePack encoding.
 - Monitor throughput and latency; adjust subscription filters and broadcast cadence.
 
-[No sources needed since this section provides general guidance]
-
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Registration failures: Verify endpoints and network connectivity; check engine logs for deserialization errors.
 - No events received: Confirm subscription topics match handler names; ensure engine proxy is running.
-- Acknowledgment timeouts: Increase timeout or optimize handler performance; verify engine routing for COMMAND/ACK.
+- Acknowledgment timeouts: Increase timeout or optimize handler performance; verify engine routing for COMMAND/RESPONSE.
 - Heartbeat anomalies: Check DEALER/PUB socket bindings; ensure heartbeat intervals align across modules.
 
 Operational tips:
@@ -419,18 +427,20 @@ Operational tips:
 - Monitor engine worker threads and socket states.
 
 **Section sources**
-- [module.py:200-254](file://src/tyche/module.py#L200-L254)
-- [engine.py:238-277](file://src/tyche/engine.py#L238-L277)
-- [module.py:331-373](file://src/tyche/module.py#L331-L373)
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
-- [run_engine.py:27-32](file://examples/run_engine.py#L27-L32)
-- [run_module.py:28-31](file://examples/run_module.py#L28-L31)
+- [module.py:238-294](file://src/tyche/module.py#L238-L294)
+- [engine.py:384-447](file://src/tyche/engine.py#L384-L447)
+- [module.py:410-464](file://src/tyche/module.py#L410-L464)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+- [run_engine.py:24-59](file://examples/run_engine.py#L24-L59)
+- [run_module.py:26-67](file://examples/run_module.py#L26-L67)
 
 ## Conclusion
-Tyche Engine’s communication patterns combine ZeroMQ socket patterns with clear naming conventions to support diverse messaging needs:
-- Fire-and-forget for scalable, best-effort distribution.
+Tyche Engine's v2 communication patterns combine ZeroMQ socket patterns with clear naming conventions to support diverse messaging needs:
+- Broadcasted for scalable, best-effort distribution.
 - Request-response for synchronous confirmations.
 - Direct P2P for private, targeted exchanges.
-- Broadcast for global coordination.
+- Streaming for continuous data flows.
 
-By leveraging the provided interfaces, serialization, and engine workers, developers can implement robust, high-performance inter-module communication tailored to their use cases.
+The new categorization system provides cleaner separation of concerns while maintaining the flexibility and performance of the underlying ZeroMQ infrastructure. By leveraging the provided interfaces, serialization, and engine workers, developers can implement robust, high-performance inter-module communication tailored to their use cases.
+
+**Updated** The v2 system represents a significant improvement over the legacy pattern system, offering clearer semantics and better organization of communication patterns.

@@ -3,8 +3,8 @@ import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import pytest
-from modules.trading.gateway.ctp.gateway_main import build_gateway, main, parse_args
+
+from modules.trading.gateway.ctp.gateway_main import build_gateway, parse_args
 
 
 def _make_mock_module(cls_name: str):

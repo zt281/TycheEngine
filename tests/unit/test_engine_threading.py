@@ -46,9 +46,9 @@ def test_engine_registration():
                 "module_id": "test_module_001",
                 "interfaces": [
                     {
-                        "name": "on_data",
-                        "pattern": "on_",
-                        "event_type": "on_data",
+                        "name": "on_streaming_data",
+                        "pattern": "on_streaming",
+                        "event_type": "on_streaming_data",
                         "durability": 1,
                     }
                 ],
@@ -99,8 +99,8 @@ def test_engine_registration_registers_interfaces():
             payload={
                 "module_id": "iface_test",
                 "interfaces": [
-                    {"name": "on_data", "pattern": "on_", "event_type": "on_data", "durability": 1},
-                    {"name": "ack_order", "pattern": "ack_", "event_type": "ack_order", "durability": 2},
+                    {"name": "on_streaming_data", "pattern": "on_streaming", "event_type": "on_streaming_data", "durability": 1},
+                    {"name": "handle_broadcasted_order", "pattern": "handle_broadcasted", "event_type": "handle_broadcasted_order", "durability": 2},
                 ],
                 "metadata": {},
             },
@@ -109,9 +109,9 @@ def test_engine_registration_registers_interfaces():
         socket.send(serialize(msg))
         socket.recv()
 
-        assert "on_data" in engine.interfaces
-        assert "ack_order" in engine.interfaces
-        assert engine.interfaces["on_data"][0][0] == "iface_test"
+        assert "on_streaming_data" in engine.interfaces
+        assert "handle_broadcasted_order" in engine.interfaces
+        assert engine.interfaces["on_streaming_data"][0][0] == "iface_test"
 
         socket.close()
         context.term()

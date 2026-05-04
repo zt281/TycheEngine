@@ -1,7 +1,8 @@
 """Unit tests for CTP gateway connection state machine."""
-import pytest
 from modules.trading.gateway.ctp.state_machine import (
-    ConnectionState, ConnectionStateMachine, ReconnectConfig,
+    ConnectionState,
+    ConnectionStateMachine,
+    ReconnectConfig,
 )
 
 

@@ -72,7 +72,7 @@ def main() -> None:
             RateLimitRule(min_interval_seconds=0.1, max_orders_per_minute=120),
         ],
     )
-    risk.start_nonblocking()
+    risk.start()
     time.sleep(0.5)
     print(f"  Risk ID: {risk.module_id}")
 
@@ -82,7 +82,7 @@ def main() -> None:
         engine_endpoint=engine_endpoint,
         heartbeat_receive_endpoint=hb_recv_endpoint,
     )
-    oms.start_nonblocking()
+    oms.start()
     time.sleep(0.5)
     print(f"  OMS ID: {oms.module_id}")
 
@@ -93,7 +93,7 @@ def main() -> None:
         heartbeat_receive_endpoint=hb_recv_endpoint,
     )
     portfolio.subscribe_quotes(INSTRUMENTS)
-    portfolio.start_nonblocking()
+    portfolio.start()
     time.sleep(0.5)
     print(f"  Portfolio ID: {portfolio.module_id}")
 
@@ -105,7 +105,7 @@ def main() -> None:
         data_dir="./data/recorded",
         instrument_ids=INSTRUMENTS,
     )
-    recorder.start_nonblocking()
+    recorder.start()
     time.sleep(0.5)
     print(f"  Recorder ID: {recorder.module_id}")
 

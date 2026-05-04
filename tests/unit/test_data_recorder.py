@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.trading import events
 from modules.trading.store.recorder import DataRecorderModule
 from tyche.types import Endpoint
 
@@ -165,16 +164,12 @@ class TestSubscribeInstrument:
         assert "ETHUSDT.simulated.crypto" in recorder._instrument_ids
 
     def test_adds_handlers(self, recorder: DataRecorderModule) -> None:
-        """subscribe_instrument registers quote and trade handlers."""
-        recorder.subscribe_instrument("ETHUSDT.simulated.crypto")
-
-        quote_handler = recorder._handlers.get(f"on_{events.quote_event('ETHUSDT.simulated.crypto')}")
-        trade_handler = recorder._handlers.get(f"on_{events.trade_event('ETHUSDT.simulated.crypto')}")
-
-        assert quote_handler is not None
-        assert trade_handler is not None
-        assert quote_handler == recorder._record_event
-        assert trade_handler == recorder._record_event
+        """Auto-discovery registers generic streaming handlers at init."""
+        # Generic handlers are auto-discovered; no per-instrument handlers needed
+        assert "on_streaming_quote" in recorder._handlers
+        assert "on_streaming_trade" in recorder._handlers
+        assert "on_streaming_bar" in recorder._handlers
+        assert recorder._handlers["on_streaming_quote"] == recorder.on_streaming_quote
 
     def test_does_not_duplicate(self, recorder: DataRecorderModule) -> None:
         """subscribe_instrument does not duplicate an existing instrument."""

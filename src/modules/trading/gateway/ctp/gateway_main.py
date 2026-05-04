@@ -85,7 +85,7 @@ def build_gateway(config_path: Optional[str], cli_overrides: Dict[str, Any]) -> 
     heartbeat_endpoint = Endpoint(cfg.engine_host, cfg.engine_heartbeat_port)
     heartbeat_receive_endpoint = Endpoint(cfg.engine_host, cfg.engine_heartbeat_port + 1)
 
-    kwargs = {
+    kwargs: Dict[str, Any] = {
         "engine_endpoint": engine_endpoint,
         "heartbeat_endpoint": heartbeat_endpoint,
         "heartbeat_receive_endpoint": heartbeat_receive_endpoint,
@@ -125,7 +125,7 @@ def main(argv: Optional[list] = None) -> int:
     venue = gateway.venue_name
     instrument_ids = [f"{sym}.{venue}.futures" for sym in gateway._subscribed_instruments or args.instruments]
     logger.info("Starting CTP gateway (venue=%s, id=%s)", gateway.venue_name, gateway.module_id)
-    gateway.start_nonblocking()
+    gateway.start()
     time.sleep(0.5)
     gateway.connect()
     if instrument_ids:
