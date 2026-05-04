@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.trading import events
 from modules.trading.store.recorder import DataRecorderModule
 from tyche.types import Endpoint
 

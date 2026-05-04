@@ -8,7 +8,6 @@ import logging
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional
 
-from modules.trading import events
 from modules.trading.models.order import Fill, OrderUpdate
 from modules.trading.models.position import Position
 from modules.trading.models.tick import Bar, Quote, Trade

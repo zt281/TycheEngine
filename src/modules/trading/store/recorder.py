@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from modules.trading import events
 from tyche.module import TycheModule
 from tyche.types import Endpoint
 

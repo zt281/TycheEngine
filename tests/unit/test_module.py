@@ -1,9 +1,8 @@
 """Tests for TycheModule core functionality (v2 interface patterns)."""
 
-from unittest.mock import MagicMock, patch
 
-from tyche.module import TycheModule
 from tyche.message import Message
+from tyche.module import TycheModule
 from tyche.types import (
     Endpoint,
     InterfacePattern,
@@ -158,6 +157,7 @@ def test_module_no_event_endpoint_param():
 def test_dynamic_register_subscribes_topic():
     """_register_handler after start subscribes SUB socket to new topic."""
     import time
+
     import zmq
 
     from tyche.message import deserialize, serialize

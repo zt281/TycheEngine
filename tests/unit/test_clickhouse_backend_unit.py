@@ -2,11 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from modules.trading.persistence.backend import InsertResult, PersistenceBackend, QueryResult
+from modules.trading.persistence.backend import PersistenceBackend
 from modules.trading.persistence.clickhouse_backend import ClickHouseBackend
-
 
 # --- Construction / subclass tests ---
 

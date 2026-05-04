@@ -2,15 +2,12 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from modules.trading.persistence.schema import (
     CURRENT_SCHEMA_VERSION,
     EVENTS_TABLE_DDL,
     SCHEMA_META_DDL,
     SchemaManager,
 )
-
 
 # --- DDL constant tests ---
 

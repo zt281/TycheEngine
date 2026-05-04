@@ -1,5 +1,4 @@
 """Connection state machine for CTP gateway with auto-reconnect backoff."""
-import random
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional

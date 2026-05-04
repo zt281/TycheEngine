@@ -1,8 +1,9 @@
 """Unit tests for CTP gateway config loader."""
 import json
-import os
 from pathlib import Path
+
 import pytest
+
 from modules.trading.gateway.ctp.config import GatewayConfig, GatewayType, load_config
 
 
