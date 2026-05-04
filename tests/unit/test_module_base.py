@@ -98,11 +98,12 @@ def test_protocol_rejects_incomplete_class():
 
 def test_module_base_has_no_concrete_methods():
     """ModuleBase provides only protocol methods — no dispatch logic."""
-    # Protocols use __protocol_attrs__ instead of __abstractmethods__
-    protocol_attrs = getattr(ModuleBase, "__protocol_attrs__", set())
-    assert "module_id" in protocol_attrs
-    assert "start" in protocol_attrs
-    assert "stop" in protocol_attrs
+    # __protocol_attrs__ is only available on Python 3.12+
+    protocol_attrs = getattr(ModuleBase, "__protocol_attrs__", None)
+    if protocol_attrs is not None:
+        assert "module_id" in protocol_attrs
+        assert "start" in protocol_attrs
+        assert "stop" in protocol_attrs
     # Concrete methods from old design are gone
     assert not hasattr(ModuleBase, "discover_interfaces")
     assert not hasattr(ModuleBase, "get_handler")
