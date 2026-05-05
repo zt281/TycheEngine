@@ -4,7 +4,7 @@ import logging
 import queue
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import msgpack
 import zmq
@@ -25,6 +25,71 @@ from tyche.types import (
 logger = logging.getLogger(__name__)
 
 
+class TopicQueue:
+    """Thread-safe queue with capacity, processed, and dropped stats."""
+
+    def __init__(self, capacity: Optional[int] = None):
+        self._items: List[List[bytes]] = []
+        self.capacity = capacity
+        self.processed = 0
+        self.dropped = 0
+        self._lock = threading.Lock()
+
+    def put(self, item: List[bytes]) -> bool:
+        with self._lock:
+            if self.capacity is not None and len(self._items) >= self.capacity:
+                self.dropped += 1
+                return False
+            self._items.append(item)
+            return True
+
+    def get(self) -> Optional[List[bytes]]:
+        with self._lock:
+            if not self._items:
+                return None
+            self.processed += 1
+            return self._items.pop()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._items)
+
+
+class TrackedQueue(queue.Queue):
+    """Standard queue with capacity, processed, and dropped stats."""
+
+    def __init__(self, maxsize: int = 0):
+        super().__init__(maxsize)
+        self.capacity = maxsize if maxsize > 0 else None
+        self.dropped = 0
+        self._processed = 0
+        self._stats_lock = threading.Lock()
+
+    def put(self, item: Any, block: bool = False, timeout: Optional[float] = None) -> None:
+        try:
+            super().put(item, block=block, timeout=timeout)
+        except queue.Full:
+            with self._stats_lock:
+                self.dropped += 1
+
+    def get(self, block: bool = True, timeout: Optional[float] = None) -> Any:
+        item = super().get(block=block, timeout=timeout)
+        with self._stats_lock:
+            self._processed += 1
+        return item
+
+    def get_nowait(self) -> Any:
+        item = super().get_nowait()
+        with self._stats_lock:
+            self._processed += 1
+        return item
+
+    @property
+    def processed(self) -> int:
+        with self._stats_lock:
+            return self._processed
+
+
 class TycheEngine:
     """Central broker for Tyche Engine - runs in standalone process.
 
@@ -41,7 +106,8 @@ class TycheEngine:
         heartbeat_endpoint: Endpoint,
         ack_endpoint: Optional[Endpoint] = None,
         heartbeat_receive_endpoint: Optional[Endpoint] = None,
-        admin_endpoint: str = f"tcp://*:{ADMIN_PORT_DEFAULT}"
+        admin_endpoint: str = f"tcp://*:{ADMIN_PORT_DEFAULT}",
+        queue_capacity: Optional[int] = 10000,
     ):
         self.registration_endpoint = registration_endpoint
         self.event_endpoint = event_endpoint
@@ -69,20 +135,26 @@ class TycheEngine:
         self._event_count = 0
         self._register_count = 0
 
+        self._queue_capacity = queue_capacity
+
+        # Topic -> queue_key mapping (queue_key = {event_type}:{pattern})
+        self._topic_event_map: Dict[str, str] = {}
+
         # Per-event topic queues (created on module registration).
         # Foundation for per-topic backpressure, prioritisation, and
         # future transport swaps (e.g. Aeron per-channel publication).
-        self._topic_queues: Dict[str, List[List[bytes]]] = {}
+        self._topic_queues: Dict[str, TopicQueue] = {}
         self._topic_queues_lock = threading.Lock()
 
         # Typed message queues for non-event paths
-        self._message_queues: Dict[MessageType, queue.Queue[List[bytes]]] = {
-            MessageType.REGISTER: queue.Queue(),
-            MessageType.RESPONSE: queue.Queue(),
-            MessageType.ACK: queue.Queue(),
+        _maxsize = queue_capacity if queue_capacity else 0
+        self._message_queues: Dict[MessageType, TrackedQueue] = {
+            MessageType.REGISTER: TrackedQueue(maxsize=_maxsize),
+            MessageType.RESPONSE: TrackedQueue(maxsize=_maxsize),
+            MessageType.ACK: TrackedQueue(maxsize=_maxsize),
         }
         # Thread-safe queue for forwarding module heartbeats to PUB socket
-        self._heartbeat_queue: queue.Queue[Message] = queue.Queue()
+        self._heartbeat_queue: TrackedQueue = TrackedQueue(maxsize=_maxsize)
 
         # Wakeup queue for the egress worker — enqueue a sentinel whenever
         # a message is added to a topic queue so the egress worker blocks
@@ -283,17 +355,20 @@ class TycheEngine:
             self.modules[module_info.module_id] = module_info
 
             for interface in module_info.interfaces:
-                event_name = interface.name
-                if event_name not in self.interfaces:
-                    self.interfaces[event_name] = []
-                self.interfaces[event_name].append(
+                topic = interface.name
+                if topic not in self.interfaces:
+                    self.interfaces[topic] = []
+                self.interfaces[topic].append(
                     (module_info.module_id, interface)
                 )
-                # Create dedicated topic queue on first registration
+                queue_key = f"{interface.event_type}:{interface.pattern.value}"
+                self._topic_event_map[topic] = queue_key
                 with self._topic_queues_lock:
-                    if event_name not in self._topic_queues:
-                        self._topic_queues[event_name] = []
-                        logger.info("Created topic queue: %s", event_name)
+                    if queue_key not in self._topic_queues:
+                        self._topic_queues[queue_key] = TopicQueue(
+                            capacity=self._queue_capacity
+                        )
+                        logger.info("Created topic queue: %s", queue_key)
 
         self.heartbeat_manager.register(module_info.module_id)
 
@@ -355,12 +430,13 @@ class TycheEngine:
                                 self._ack_correlations[correlation_id] = identity
                         # Enqueue to the dedicated topic queue
                         topic = msg.event
+                        queue_key = self._topic_event_map.get(topic, topic)
                         with self._topic_queues_lock:
-                            q = self._topic_queues.get(topic)
+                            q = self._topic_queues.get(queue_key)
                             if q is None:
-                                q = []
-                                self._topic_queues[topic] = q
-                            q.append([msg.event.encode(), serialize(msg)])
+                                q = TopicQueue(capacity=self._queue_capacity)
+                                self._topic_queues[queue_key] = q
+                            q.put([msg.event.encode(), serialize(msg)])
                         self._egress_wakeup.put(None)
                     elif msg.msg_type == MessageType.RESPONSE:
                         correlation_id = msg.payload.get("_correlation_id")
@@ -432,7 +508,15 @@ class TycheEngine:
                     while self._running:
                         try:
                             frames = self._xsub_socket.recv_multipart(zmq.NOBLOCK)
-                            self._xpub_socket.send_multipart(frames)
+                            topic = frames[0].decode()
+                            queue_key = self._topic_event_map.get(topic, topic)
+                            with self._topic_queues_lock:
+                                q = self._topic_queues.get(queue_key)
+                                if q is None:
+                                    q = TopicQueue(capacity=self._queue_capacity)
+                                    self._topic_queues[queue_key] = q
+                                q.put(frames)
+                            self._egress_wakeup.put(None)
                             batch_count += 1
                         except zmq.error.Again:
                             break
@@ -459,19 +543,20 @@ class TycheEngine:
         if len(frames) < 2:
             return
         topic = frames[0].decode()
+        queue_key = self._topic_event_map.get(topic, topic)
         # Fast path: lock-free lookup for existing queues (hot path)
-        q = self._topic_queues.get(topic)
+        q = self._topic_queues.get(queue_key)
         if q is not None:
-            q.append(frames)
+            q.put(frames)
             return
         # Slow path: create queue under lock
         with self._topic_queues_lock:
-            q = self._topic_queues.get(topic)
+            q = self._topic_queues.get(queue_key)
             if q is None:
-                q = []
-                self._topic_queues[topic] = q
-                logger.debug("Created dynamic topic queue: %s", topic)
-            q.append(frames)
+                q = TopicQueue(capacity=self._queue_capacity)
+                self._topic_queues[queue_key] = q
+                logger.debug("Created dynamic topic queue: %s", queue_key)
+            q.put(frames)
         self._egress_wakeup.put(None)
 
     def _event_egress_worker(self) -> None:
@@ -493,9 +578,8 @@ class TycheEngine:
 
             for topic, q in queues:
                 while self._running:
-                    try:
-                        frames = q.pop()
-                    except IndexError:
+                    frames = q.get()
+                    if frames is None:
                         break
 
                     if self._xpub_socket is not None:
@@ -647,6 +731,7 @@ class TycheEngine:
                         "register_count": self._register_count,
                         "topic_queue_count": len(self._topic_queues),
                         "topic_queue_sizes": topic_queue_sizes,
+                        "heartbeat_queue_size": self._heartbeat_queue.qsize(),
                         "other_queue_sizes": {
                             "register": self._message_queues[MessageType.REGISTER].qsize(),
                             "response": self._message_queues[MessageType.RESPONSE].qsize(),
@@ -659,12 +744,42 @@ class TycheEngine:
                     modules_list = []
                     for module_id, module_info in self.modules.items():
                         liveness = self.heartbeat_manager.get_liveness(module_id)
+                        last_seen = self.heartbeat_manager.get_last_seen(module_id)
                         modules_list.append({
                             "module_id": module_id,
                             "interfaces": [i.name for i in module_info.interfaces],
                             "liveness": liveness,
+                            "last_seen": last_seen,
                         })
                     response = {"modules": modules_list}
+            elif query == "QUEUES":
+                queues: List[dict] = []
+                with self._topic_queues_lock:
+                    for topic, q in self._topic_queues.items():
+                        queues.append({
+                            "name": topic,
+                            "size": len(q),
+                            "capacity": q.capacity,
+                            "processed": q.processed,
+                            "dropped": q.dropped,
+                        })
+                for mt, mq in self._message_queues.items():
+                    queues.append({
+                        "name": mt.name.lower(),
+                        "size": mq.qsize(),
+                        "capacity": mq.capacity,
+                        "processed": mq.processed,
+                        "dropped": mq.dropped,
+                    })
+                hbq = self._heartbeat_queue
+                queues.append({
+                    "name": "heartbeat",
+                    "size": hbq.qsize(),
+                    "capacity": hbq.capacity,
+                    "processed": hbq.processed,
+                    "dropped": hbq.dropped,
+                })
+                response = {"queues": queues}
             elif query == "STATS":
                 with self._lock:
                     response = {

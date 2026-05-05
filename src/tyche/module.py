@@ -48,8 +48,8 @@ class TycheModule(ModuleBase):
         self.engine_endpoint = engine_endpoint
         self.heartbeat_receive_endpoint = heartbeat_receive_endpoint
 
-        # Event handlers: event_name -> handler_function
-        self._handlers: Dict[str, Callable[..., Any]] = {}
+        # Event handlers: event_name -> (handler_function, pattern)
+        self._handlers: Dict[str, tuple[Callable[..., Any], InterfacePattern]] = {}
         self._handlers_lock = threading.RLock()
 
         # ZMQ socket locks (sockets are not thread-safe)
@@ -109,16 +109,28 @@ class TycheModule(ModuleBase):
             return InterfacePattern.ON_STREAMING
         return None
 
+    @staticmethod
+    def _event_breakdown(name: str) -> Optional[tuple[str, str]]:
+        handler_name_segmented = name.split('_')
+        if len(handler_name_segmented) >= 3:
+            return '_'.join(handler_name_segmented[1:]), '_'.join(handler_name_segmented[2:])
+        return None
+
     def _discover_and_register_handlers(self) -> None:
         """Auto-discover interfaces from method names and register handlers."""
         for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
             pattern = self._pattern_for_name(name)
             if pattern:
-                self._register_handler(name, method, pattern)
+                result = self._event_breakdown(name)
+                if result is None:
+                    continue
+                handler_name, event_name = result
+                self._register_handler(handler_name, event_name, method, pattern)
 
     def _register_handler(
         self,
-        name: str,
+        handler_name: str,
+        event_name: str,
         handler: Callable[..., Any],
         pattern: InterfacePattern = InterfacePattern.ON_STREAMING,
         durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH,
@@ -126,23 +138,24 @@ class TycheModule(ModuleBase):
         """Register an event handler interface (for internal/subclass use).
 
         Args:
-            name: Interface name (e.g., "on_streaming_data")
+            handler_name: Interface name (e.g., "broadcasted_ping")
+            event_name: Event type (e.g., "ping")
             handler: Function to handle events
             pattern: Interface pattern type
             durability: Message durability level
         """
         with self._handlers_lock:
-            self._handlers[name] = handler
+            self._handlers[handler_name] = (handler, pattern)
             self._interfaces.append(
                 Interface(
-                    name=name,
+                    name=handler_name,
                     pattern=pattern,
-                    event_type=name,
+                    event_type=event_name,
                     durability=durability,
                 )
             )
         if self._sub_socket is not None:
-            self._sub_socket.setsockopt(zmq.SUBSCRIBE, name.encode())
+            self._sub_socket.setsockopt(zmq.SUBSCRIBE, handler_name.encode())
 
     def start(self) -> None:
         """Start the module - returns once worker threads are up."""
@@ -352,16 +365,17 @@ class TycheModule(ModuleBase):
         """Route an incoming message to the correct handler.
 
         Returns:
-            Handler result for handle_* prefixes, None for on_* prefixes.
-            For handle_* topics on exception, returns {"error": ..., "type": ...}.
+            Handler result for handle_* patterns, None for on_* patterns.
+            For handle_* patterns on exception, returns {"error": ..., "type": ...}.
         """
         with self._handlers_lock:
-            handler = self._handlers.get(topic)
-        if handler is None:
+            entry = self._handlers.get(topic)
+        if entry is None:
             return None
+        handler, pattern = entry
 
         try:
-            if topic.startswith("handle_"):
+            if pattern.value.startswith("handle_"):
                 return handler(msg.payload)
             else:
                 handler(msg.payload)
@@ -370,7 +384,7 @@ class TycheModule(ModuleBase):
             logger.error(
                 "[%s] Handler %s raised: %s", self._module_id, topic, e
             )
-            if topic.startswith("handle_"):
+            if pattern.value.startswith("handle_"):
                 return {"error": str(e), "type": type(e).__name__}
             return None
 

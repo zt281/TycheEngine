@@ -166,10 +166,11 @@ class TestSubscribeInstrument:
     def test_adds_handlers(self, recorder: DataRecorderModule) -> None:
         """Auto-discovery registers generic streaming handlers at init."""
         # Generic handlers are auto-discovered; no per-instrument handlers needed
-        assert "on_streaming_quote" in recorder._handlers
-        assert "on_streaming_trade" in recorder._handlers
-        assert "on_streaming_bar" in recorder._handlers
-        assert recorder._handlers["on_streaming_quote"] == recorder.on_streaming_quote
+        assert "streaming_quote" in recorder._handlers
+        assert "streaming_trade" in recorder._handlers
+        assert "streaming_bar" in recorder._handlers
+        handler, _ = recorder._handlers["streaming_quote"]
+        assert handler == recorder.on_streaming_quote
 
     def test_does_not_duplicate(self, recorder: DataRecorderModule) -> None:
         """subscribe_instrument does not duplicate an existing instrument."""

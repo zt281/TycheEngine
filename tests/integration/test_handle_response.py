@@ -41,7 +41,7 @@ def test_handle_response_round_trip():
         time.sleep(0.3)
 
         result = caller.send_event_with_response(
-            "handle_broadcasted_query",
+            "broadcasted_query",
             {"q": "ping"},
             timeout_ms=3000,
         )

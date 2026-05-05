@@ -57,7 +57,7 @@ class TestMessageQueueThroughput:
             msg_count = 5000
             start_send = time.perf_counter()
             for i in range(msg_count):
-                sender.send_event("on_streaming_perf_event", {"seq": i})
+                sender.send_event("streaming_perf_event", {"seq": i})
 
             # Wait for all messages to propagate
             deadline = time.perf_counter() + 10.0
@@ -141,7 +141,7 @@ class TestMessageQueueThroughput:
             msg_count = 2000
             start_send = time.perf_counter()
             for i in range(msg_count):
-                sender.send_event("on_streaming_perf_event", {"seq": i})
+                sender.send_event("streaming_perf_event", {"seq": i})
 
             deadline = time.perf_counter() + 10.0
             while (
@@ -214,7 +214,7 @@ class TestMessageQueueLatency:
 
             msg_count = 1000
             for i in range(msg_count):
-                sender.send_event("on_streaming_latency_event", {"seq": i, "ts": time.perf_counter()})
+                sender.send_event("streaming_latency_event", {"seq": i, "ts": time.perf_counter()})
                 # small gap to avoid overwhelming the queue during latency test
                 if i % 100 == 0:
                     time.sleep(0.01)
