@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import msgpack
 
-from tyche.engine import TycheEngine, TopicQueue, TrackedQueue
+from tyche.engine import TopicQueue, TrackedQueue, TycheEngine
 from tyche.types import (
     DurabilityLevel,
     Endpoint,
