@@ -1,3 +1,6 @@
 [submodule "wiki"]
 	path = .qoder/repowiki/en
 	url = https://github.com/zt281/TycheEngine.wiki.git
+[submodule "tui"]
+	path = tui
+	url = https://github.com/zt281/TycheTUI.git
