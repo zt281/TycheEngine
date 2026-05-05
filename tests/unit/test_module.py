@@ -10,6 +10,15 @@ from tyche.types import (
 )
 
 
+def test_module_parse_event_name():
+    test_cases = {
+        "on_broadcasted_ping": ("broadcasted_ping", "ping"),
+        "on_handle_ping": ("handle_ping", "ping"),
+    }
+    for key, expected in test_cases.items():
+        assert TycheModule._event_breakdown(key) == expected
+
+
 def test_module_init_with_explicit_id():
     """TycheModule stores the explicit module_id and engine endpoint."""
     module = TycheModule(

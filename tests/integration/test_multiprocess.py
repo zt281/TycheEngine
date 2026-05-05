@@ -43,7 +43,7 @@ def test_engine_and_module_in_same_process():
         def on_test(payload: dict) -> None:
             received.append(payload)
 
-        module._register_handler("on_test", on_test)
+        module._register_handler("test", "test", on_test)
 
         module.start()
         time.sleep(0.5)
@@ -67,20 +67,6 @@ def test_engine_main_help():
     )
     assert result.returncode == 0
     assert "Tyche Engine" in result.stdout
-
-
-def test_module_main_help():
-    """Module entry point can show help."""
-    env = {**os.environ, "PYTHONPATH": SRC_DIR}
-    result = subprocess.run(
-        [sys.executable, "-m", "tyche.module_main", "--help"],
-        capture_output=True,
-        text=True,
-        timeout=5,
-        env=env,
-    )
-    assert result.returncode == 0
-    assert "Tyche Module" in result.stdout
 
 
 @pytest.mark.slow
@@ -149,13 +135,20 @@ def test_module_connects_to_engine_process():
     try:
         assert engine_proc.poll() is None
 
+        module_script = f"""
+import sys
+sys.path.insert(0, '{SRC_DIR}')
+from tyche.module import TycheModule
+from tyche.types import Endpoint
+module = TycheModule(
+    engine_endpoint=Endpoint("127.0.0.1", 25200),
+    heartbeat_receive_endpoint=Endpoint("127.0.0.1", 25206),
+    module_id="test_athena_001",
+)
+module.run()
+"""
         module_proc = subprocess.Popen(
-            [
-                sys.executable, "-m", "tyche.module_main",
-                "--engine-port", "25200",
-                "--heartbeat-port", "25206",
-                "--module-id", "test_athena_001",
-            ],
+            [sys.executable, "-c", module_script],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

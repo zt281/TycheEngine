@@ -48,8 +48,8 @@ class TycheModule(ModuleBase):
         self.engine_endpoint = engine_endpoint
         self.heartbeat_receive_endpoint = heartbeat_receive_endpoint
 
-        # Event handlers: event_name -> handler_function
-        self._handlers: Dict[str, Callable[..., Any]] = {}
+        # Event handlers: event_name -> (handler_function, pattern)
+        self._handlers: Dict[str, tuple[Callable[..., Any], InterfacePattern]] = {}
         self._handlers_lock = threading.RLock()
 
         # ZMQ socket locks (sockets are not thread-safe)
@@ -103,6 +103,13 @@ class TycheModule(ModuleBase):
             return InterfacePattern.SEND
         return None
 
+    @staticmethod
+    def _event_breakdown(name: str) -> Optional[tuple[str, str]]:
+        handler_name_segmented = name.split('_')
+        if len(handler_name_segmented) >= 3:
+            return '_'.join(handler_name_segmented[1:]), '_'.join(handler_name_segmented[2:])
+        return None
+
     def _discover_and_register_handlers(self) -> None:
         """Auto-discover interfaces from method names and register handlers."""
         for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
@@ -123,7 +130,8 @@ class TycheModule(ModuleBase):
 
     def _register_handler(
         self,
-        name: str,
+        handler_name: str,
+        event_name: str,
         handler: Callable[..., Any],
         pattern: InterfacePattern = InterfacePattern.ON,
         durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH,
@@ -145,14 +153,14 @@ class TycheModule(ModuleBase):
                 self._handlers[bare_name] = handler
             self._interfaces.append(
                 Interface(
-                    name=name,
+                    name=handler_name,
                     pattern=pattern,
-                    event_type=name,
+                    event_type=event_name,
                     durability=durability,
                 )
             )
         if self._sub_socket is not None:
-            self._sub_socket.setsockopt(zmq.SUBSCRIBE, name.encode())
+            self._sub_socket.setsockopt(zmq.SUBSCRIBE, handler_name.encode())
 
     def _register_producer(
         self,
@@ -363,9 +371,10 @@ class TycheModule(ModuleBase):
         All handlers are fire-and-forget; return value is always None.
         """
         with self._handlers_lock:
-            handler = self._handlers.get(topic)
-        if handler is None:
+            entry = self._handlers.get(topic)
+        if entry is None:
             return None
+        handler, pattern = entry
 
         try:
             handler(msg.payload)

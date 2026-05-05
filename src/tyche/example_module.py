@@ -108,7 +108,7 @@ class ExampleModule(TycheModule):
 
         self.ping_count += 1
         value = payload.get("value")
-        delay = random.uniform(0.1, 0.9)
+        delay = random.uniform(0.01, 0.09)
         self._schedule_timer(delay, lambda: self._broadcast_pong(value))
 
     def on_pong(self, payload: Dict[str, Any]) -> None:

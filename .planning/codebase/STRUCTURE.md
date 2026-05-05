@@ -12,8 +12,7 @@ TycheEngine/
 │   │   ├── engine_main.py        # CLI entry point for engine process
 │   │   ├── module.py             # TycheModule base class
 │   │   ├── module_base.py        # Abstract ModuleBase with interface discovery
-│   │   ├── module_main.py        # CLI entry point for module process
-│   │   ├── example_module.py     # Reference module implementation
+│   │   ├── example_module.py     # Reference module implementation (standalone runnable)
 │   │   ├── message.py            # MessagePack serialization (Message, Envelope)
 │   │   ├── heartbeat.py          # Paranoid Pirate heartbeat (Monitor, Sender, Manager)
 │   │   └── types.py              # Core types (Endpoint, Interface, ModuleId, etc.)
@@ -68,7 +67,6 @@ TycheEngine/
 │   │   ├── test_engine_threading.py
 │   │   ├── test_module.py
 │   │   ├── test_module_base.py
-│   │   ├── test_module_main.py
 │   │   ├── test_example_module.py
 │   │   ├── test_message.py
 │   │   ├── test_types.py
@@ -153,7 +151,7 @@ TycheEngine/
 
 **Entry Points:**
 - `src/tyche/engine_main.py`: Start the central broker process
-- `src/tyche/module_main.py`: Start a generic module process (uses ExampleModule)
+- `examples/run_module.py`: Start a module process (uses ExampleModule)
 - `src/modules/trading/gateway/ctp/gateway_main.py`: Start a CTP gateway process
 
 **Configuration:**
