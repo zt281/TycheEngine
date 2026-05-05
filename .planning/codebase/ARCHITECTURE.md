@@ -227,9 +227,9 @@ Modules declare handlers using naming conventions discovered by `ModuleBase.disc
 - **Responsibilities:** Parse args, create `TycheEngine`, bind sockets, run event loop, handle SIGINT/SIGTERM
 
 ### Module Entry Point
-- **Location:** `src/tyche/module_main.py`
-- **Triggers:** CLI invocation (`python -m tyche.module_main`)
-- **Responsibilities:** Parse args, create `ExampleModule`, connect to engine, run event loop
+- **Location:** `examples/run_module.py`
+- **Triggers:** CLI invocation (`python examples/run_module.py`)
+- **Responsibilities:** Create `ExampleModule`, connect to engine, run event loop
 
 ### CTP Gateway Entry Point
 - **Location:** `src/modules/trading/gateway/ctp/gateway_main.py`

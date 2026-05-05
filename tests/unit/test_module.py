@@ -10,6 +10,15 @@ from tyche.types import (
 )
 
 
+def test_module_parse_event_name():
+    test_cases = {
+        "on_broadcasted_ping": ("broadcasted_ping", "ping"),
+        "on_handle_ping": ("handle_ping", "ping"),
+    }
+    for key, expected in test_cases.items():
+        assert TycheModule._event_breakdown(key) == expected
+
+
 def test_module_init_with_explicit_id():
     """TycheModule stores the explicit module_id and engine endpoint."""
     module = TycheModule(
@@ -52,16 +61,16 @@ def test_module_auto_discovers_all_patterns():
     module = DiscoveryModule(engine_endpoint=Endpoint("127.0.0.1", 5555))
     patterns = {i.name: i.pattern for i in module.interfaces}
 
-    assert patterns["on_broadcasted_alert"] == InterfacePattern.ON_BROADCASTED
-    assert patterns["handle_broadcasted_request"] == InterfacePattern.HANDLE_BROADCASTED
-    assert patterns["on_whispered_message"] == InterfacePattern.ON_WHISPERED
-    assert patterns["handle_whispered_command"] == InterfacePattern.HANDLE_WHISPERED
-    assert patterns["on_streaming_data"] == InterfacePattern.ON_STREAMING
-    assert patterns["handle_streaming_query"] == InterfacePattern.HANDLE_STREAMING
+    assert patterns["broadcasted_alert"] == InterfacePattern.ON_BROADCASTED
+    assert patterns["broadcasted_request"] == InterfacePattern.HANDLE_BROADCASTED
+    assert patterns["whispered_message"] == InterfacePattern.ON_WHISPERED
+    assert patterns["whispered_command"] == InterfacePattern.HANDLE_WHISPERED
+    assert patterns["streaming_data"] == InterfacePattern.ON_STREAMING
+    assert patterns["streaming_query"] == InterfacePattern.HANDLE_STREAMING
 
     # Handlers are registered
-    assert "on_broadcasted_alert" in module._handlers
-    assert "handle_broadcasted_request" in module._handlers
+    assert "broadcasted_alert" in module._handlers
+    assert "broadcasted_request" in module._handlers
 
 
 def test_module_dispatch_on_prefix_returns_none():
@@ -80,7 +89,7 @@ def test_module_dispatch_on_prefix_returns_none():
         event="on_broadcasted_test",
         payload={"key": "val"},
     )
-    result = module._dispatch("on_broadcasted_test", msg)
+    result = module._dispatch("broadcasted_test", msg)
     assert result is None
     assert module.called
 
@@ -100,7 +109,7 @@ def test_module_dispatch_handle_prefix_returns_result():
         event="handle_broadcasted_test",
         payload={"key": "val"},
     )
-    result = module._dispatch("handle_broadcasted_test", msg)
+    result = module._dispatch("broadcasted_test", msg)
     assert result == {"status": "ok", "data": {"key": "val"}}
 
 
@@ -115,14 +124,15 @@ def test_module_register_handler_dynamic():
         pass
 
     module._register_handler(
-        "on_streaming_dynamic",
+        "streaming_dynamic",
+        "dynamic",
         dynamic_handler,
         InterfacePattern.ON_STREAMING,
     )
 
-    assert "on_streaming_dynamic" in module._handlers
+    assert "streaming_dynamic" in module._handlers
     assert len(module.interfaces) == 1
-    assert module.interfaces[0].name == "on_streaming_dynamic"
+    assert module.interfaces[0].name == "streaming_dynamic"
 
 
 def test_module_has_run_and_stop():
@@ -181,7 +191,7 @@ def test_dynamic_register_subscribes_topic():
         received.append(payload)
 
     # Register handler after socket exists — should auto-subscribe
-    module._register_handler("on_streaming_dynamic", handler)
+    module._register_handler("streaming_dynamic", "dynamic", handler)
 
     # ZMQ slow-joiner grace period — SUB subscription must propagate to PUB
     time.sleep(0.5)
@@ -189,7 +199,7 @@ def test_dynamic_register_subscribes_topic():
     msg = Message(
         msg_type=MessageType.EVENT,
         sender="test",
-        event="on_streaming_dynamic",
+        event="streaming_dynamic",
         payload={"key": "val"},
     )
 
@@ -197,7 +207,7 @@ def test_dynamic_register_subscribes_topic():
     module._sub_socket.setsockopt(zmq.RCVTIMEO, 500)
     frames = None
     for _ in range(10):
-        pub.send_multipart([b"on_streaming_dynamic", serialize(msg)])
+        pub.send_multipart([b"streaming_dynamic", serialize(msg)])
         try:
             frames = module._sub_socket.recv_multipart()
             break
@@ -231,7 +241,7 @@ def test_dispatch_handle_error_returns_error_dict():
         event="handle_broadcasted_test",
         payload={"key": "val"},
     )
-    result = module._dispatch("handle_broadcasted_test", msg)
+    result = module._dispatch("broadcasted_test", msg)
     assert result == {"error": "boom", "type": "ValueError"}
 
 
@@ -254,7 +264,7 @@ def test_concurrent_register_and_dispatch():
     for i in range(20):
         t = threading.Thread(
             target=module._register_handler,
-            args=(f"on_streaming_event_{i}", make_handler(i)),
+            args=(f"streaming_event_{i}", f"event_{i}", make_handler(i)),
         )
         threads.append(t)
 
@@ -266,10 +276,10 @@ def test_concurrent_register_and_dispatch():
         msg = Message(
             msg_type=MessageType.EVENT,
             sender="test",
-            event=f"on_streaming_event_{i}",
+            event=f"streaming_event_{i}",
             payload={},
         )
-        module._dispatch(f"on_streaming_event_{i}", msg)
+        module._dispatch(f"streaming_event_{i}", msg)
 
     for t in threads:
         t.join(timeout=5.0)

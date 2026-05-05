@@ -150,3 +150,14 @@ class HeartbeatManager:
             if peer_id in self.monitors:
                 return self.monitors[peer_id].liveness
             return -1
+
+    def get_last_seen(self, peer_id: str) -> float:
+        """Get last heartbeat timestamp for a peer.
+
+        Returns:
+            Unix timestamp of last heartbeat, or 0.0 if peer not found.
+        """
+        with self._lock:
+            if peer_id in self.monitors:
+                return self.monitors[peer_id].last_seen
+            return 0.0

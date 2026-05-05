@@ -62,7 +62,6 @@ tests/
 │   ├── test_signal_handling.py
 │   ├── test_engine_threading.py
 │   ├── test_engine_main.py
-│   ├── test_module_main.py
 │   ├── test_gateway_main.py
 │   ├── test_example_module.py
 │   ├── test_module_base.py

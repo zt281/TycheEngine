@@ -7,7 +7,7 @@
 **Files:**
 - Module files use `snake_case.py`: `gateway.py`, `order_store.py`, `clickhouse_backend.py`
 - Test files use `test_{module_name}.py`: `test_order_store.py`, `test_ctp_gateway.py`
-- Entry point scripts use `{module}_main.py`: `engine_main.py`, `gateway_main.py`, `module_main.py`
+- Entry point scripts use `{module}_main.py`: `engine_main.py`, `gateway_main.py`
 
 **Classes:**
 - Use `PascalCase` for all class names

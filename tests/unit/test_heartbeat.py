@@ -2,7 +2,7 @@
 import time
 from unittest.mock import Mock
 
-from tyche.heartbeat import HeartbeatMonitor, HeartbeatSender
+from tyche.heartbeat import HeartbeatManager, HeartbeatMonitor, HeartbeatSender
 from tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS
 
 
@@ -88,3 +88,33 @@ def test_heartbeat_sender_updates_next_time():
     sender.send()
 
     assert sender.next_heartbeat > old_next
+
+
+def test_heartbeat_manager_get_last_seen_after_register():
+    """get_last_seen returns recent timestamp after register."""
+    mgr = HeartbeatManager()
+    before = time.time()
+    mgr.register("zeus3f7a9c")
+    after = time.time()
+
+    last_seen = mgr.get_last_seen("zeus3f7a9c")
+    assert before <= last_seen <= after
+
+
+def test_heartbeat_manager_get_last_seen_after_update():
+    """get_last_seen reflects latest update timestamp."""
+    mgr = HeartbeatManager()
+    mgr.register("zeus3f7a9c")
+    initial = mgr.get_last_seen("zeus3f7a9c")
+
+    time.sleep(0.01)
+    mgr.update("zeus3f7a9c")
+    updated = mgr.get_last_seen("zeus3f7a9c")
+
+    assert updated > initial
+
+
+def test_heartbeat_manager_get_last_seen_missing_peer():
+    """get_last_seen returns 0.0 sentinel for unknown peer."""
+    mgr = HeartbeatManager()
+    assert mgr.get_last_seen("nonexistent") == 0.0

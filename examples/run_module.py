@@ -47,7 +47,6 @@ def main():
 
         # Wait briefly for registration to complete
         time.sleep(1)
-
         # Start the ping-pong event cycle
         print("Starting ping-pong event generation...")
         module.start_ping_pong()
