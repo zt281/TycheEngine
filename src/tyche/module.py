@@ -130,8 +130,7 @@ class TycheModule(ModuleBase):
 
     def _register_handler(
         self,
-        handler_name: str,
-        event_name: str,
+        name: str,
         handler: Callable[..., Any],
         pattern: InterfacePattern = InterfacePattern.ON,
         durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH,
@@ -145,22 +144,24 @@ class TycheModule(ModuleBase):
             durability: Message durability level
         """
         with self._handlers_lock:
-            self._handlers[name] = handler
+            self._handlers[name] = (handler, pattern)
             # v3 unified queue: also register under bare topic name so
             # producers can send_event("data", ...) and it routes to on_data.
             if name.startswith("on_"):
                 bare_name = name[3:]
-                self._handlers[bare_name] = handler
+                self._handlers[bare_name] = (handler, pattern)
             self._interfaces.append(
                 Interface(
-                    name=handler_name,
+                    name=name,
                     pattern=pattern,
-                    event_type=event_name,
+                    event_type=name,
                     durability=durability,
                 )
             )
         if self._sub_socket is not None:
-            self._sub_socket.setsockopt(zmq.SUBSCRIBE, handler_name.encode())
+            self._sub_socket.setsockopt(zmq.SUBSCRIBE, name.encode())
+            if name.startswith("on_"):
+                self._sub_socket.setsockopt(zmq.SUBSCRIBE, name[3:].encode())
 
     def _register_producer(
         self,

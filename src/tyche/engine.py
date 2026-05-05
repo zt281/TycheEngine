@@ -50,6 +50,10 @@ class TopicQueue:
             self.processed += 1
             return self._items.pop()
 
+    def popleft(self) -> List[bytes]:
+        with self._lock:
+            return self._items.pop(0)
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._items)
@@ -147,12 +151,12 @@ class TycheEngine:
         self._topic_producers: Dict[str, List[str]] = {}
         self._topic_last_access: Dict[str, float] = {}
         self._topic_queue_ttl: float = 60.0  # seconds
-        self._message_queues: Dict[MessageType, queue.Queue[List[bytes]]] = {
-            MessageType.REGISTER: queue.Queue(),
-            MessageType.ACK: queue.Queue(),
+        self._message_queues: Dict[MessageType, TrackedQueue] = {
+            MessageType.REGISTER: TrackedQueue(),
+            MessageType.ACK: TrackedQueue(),
         }
         # Thread-safe queue for forwarding module heartbeats to PUB socket
-        self._heartbeat_queue: TrackedQueue = TrackedQueue(maxsize=_maxsize)
+        self._heartbeat_queue: TrackedQueue = TrackedQueue(maxsize=10000)
 
         # Wakeup queue for the egress worker — enqueue a sentinel whenever
         # a message is added to a topic queue so the egress worker blocks
@@ -354,16 +358,16 @@ class TycheEngine:
                 queue_key = f"{interface.event_type}:{interface.pattern.value}"
                 self._topic_event_map[topic] = queue_key
                 with self._topic_queues_lock:
-                    if event_name not in self._topic_queues:
-                        self._topic_queues[event_name] = []
-                        logger.info("Created topic queue: %s", event_name)
+                    if queue_key not in self._topic_queues:
+                        self._topic_queues[queue_key] = TopicQueue()
+                        logger.info("Created topic queue: %s", queue_key)
                 # Update subscriber/producer maps (v3 unified queue)
                 if interface.pattern.value == "on":
-                    subs = self._topic_subscribers.setdefault(event_name, [])
+                    subs = self._topic_subscribers.setdefault(queue_key, [])
                     if module_info.module_id not in subs:
                         subs.append(module_info.module_id)
                 elif interface.pattern.value == "send":
-                    prods = self._topic_producers.setdefault(event_name, [])
+                    prods = self._topic_producers.setdefault(queue_key, [])
                     if module_info.module_id not in prods:
                         prods.append(module_info.module_id)
 
@@ -486,8 +490,8 @@ class TycheEngine:
         if q is not None:
             # Backpressure: drop oldest when max depth exceeded
             while len(q) >= 10000:
-                q.pop(0)
-            q.append(frames)
+                q.popleft()
+            q.put(frames)
             self._topic_last_access[topic] = time.time()
             self._egress_wakeup.put(None)
             return

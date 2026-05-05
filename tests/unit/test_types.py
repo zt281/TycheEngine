@@ -1,9 +1,9 @@
 """Tests for core type definitions."""
 
 from tyche.types import (
-    BackpressureStrategy,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_LIVENESS,
+    BackpressureStrategy,
     DurabilityLevel,
     Endpoint,
     EventType,

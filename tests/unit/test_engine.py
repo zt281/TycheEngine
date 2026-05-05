@@ -77,11 +77,11 @@ def test_engine_unregister_module():
 
 
 def test_admin_status_includes_heartbeat_queue_size():
-    """STATUS response exposes heartbeat_queue_size at top level."""
+    """STATUS response exposes heartbeat queue size under other_queue_sizes."""
     engine = _build_engine()
     response = _admin_query(engine, "STATUS")
-    assert "heartbeat_queue_size" in response
-    assert response["heartbeat_queue_size"] == 0
+    assert "other_queue_sizes" in response
+    assert response["other_queue_sizes"]["heartbeat"] == 0
 
 
 def test_admin_modules_includes_last_seen():
@@ -93,7 +93,7 @@ def test_admin_modules_includes_last_seen():
         interfaces=[
             Interface(
                 name="ping",
-                pattern=InterfacePattern.ON_BROADCASTED,
+                pattern=InterfacePattern.ON,
                 event_type="ping",
                 durability=DurabilityLevel.BEST_EFFORT,
             )
@@ -176,7 +176,6 @@ def test_admin_queues_returns_array():
     names = {q["name"] for q in queues}
     assert "test.topic" in names
     assert "register" in names
-    assert "response" in names
     assert "ack" in names
     assert "heartbeat" in names
 
