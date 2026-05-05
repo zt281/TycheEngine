@@ -69,19 +69,19 @@ def oms_module():
 class TestHandleOrderApproved:
     def test_stores_order_and_routes_to_gateway(self, oms_module):
         payload = _make_order_payload()
-        oms_module.on_broadcasted_order_approved(payload)
+        oms_module.on_order_approved(payload)
 
         stored = oms_module.order_store.get_order("order_123")
         assert stored is not None
         assert stored.status == OrderStatus.PENDING_SUBMIT
 
         oms_module.send_event.assert_any_call(
-            "handle_whispered_order_execute", {**stored.to_dict(), "venue": "binance"}
+            "order_execute", {**stored.to_dict(), "venue": "binance"}
         )
 
     def test_publishes_order_update(self, oms_module):
         payload = _make_order_payload()
-        oms_module.on_broadcasted_order_approved(payload)
+        oms_module.on_order_approved(payload)
 
         calls = [call for call in oms_module.send_event.call_args_list if call[0][0] == events.ORDER_UPDATE]
         assert len(calls) == 1
@@ -106,7 +106,7 @@ class TestHandleFill:
         oms_module.order_store.add_order(order)
 
         fill_payload = _make_fill_payload("order_123", quantity=Decimal("3"), price=Decimal("51000"))
-        oms_module.on_broadcasted_fill(fill_payload)
+        oms_module.on_fill(fill_payload)
 
         updated = oms_module.order_store.get_order("order_123")
         assert updated.filled_quantity == Decimal("3")
@@ -133,7 +133,7 @@ class TestHandleFill:
         oms_module.order_store.add_order(order)
 
         fill_payload = _make_fill_payload("order_123", quantity=Decimal("10"), price=Decimal("51000"))
-        oms_module.on_broadcasted_fill(fill_payload)
+        oms_module.on_fill(fill_payload)
 
         updated = oms_module.order_store.get_order("order_123")
         assert updated.status == OrderStatus.FILLED
@@ -146,7 +146,7 @@ class TestHandleFill:
     def test_unknown_fill_logs_warning(self, oms_module, caplog):
         fill_payload = _make_fill_payload("unknown_order", quantity=Decimal("1"), price=Decimal("100"))
         with caplog.at_level("WARNING", logger="modules.trading.oms.module"):
-            oms_module.on_broadcasted_fill(fill_payload)
+            oms_module.on_fill(fill_payload)
 
         assert "unknown order" in caplog.text.lower()
         oms_module.send_event.assert_not_called()
@@ -168,12 +168,12 @@ class TestHandleCancelRequest:
         oms_module.order_store.add_order(order)
 
         payload = {"order_id": "order_123", "instrument_id": "BTC.binance.crypto"}
-        oms_module.on_broadcasted_order_cancel(payload)
+        oms_module.on_order_cancel(payload)
 
         updated = oms_module.order_store.get_order("order_123")
         assert updated.status == OrderStatus.PENDING_CANCEL
 
-        oms_module.send_event.assert_any_call("handle_whispered_order_cancel", {**payload, "venue": "binance"})
+        oms_module.send_event.assert_any_call("order_cancel", {**payload, "venue": "binance"})
 
         calls = [call for call in oms_module.send_event.call_args_list if call[0][0] == events.ORDER_UPDATE]
         assert len(calls) == 1
@@ -183,7 +183,7 @@ class TestHandleCancelRequest:
     def test_unknown_order_logs_warning(self, oms_module, caplog):
         payload = {"order_id": "missing_order", "instrument_id": "BTC.binance.crypto"}
         with caplog.at_level("WARNING", logger="modules.trading.oms.module"):
-            oms_module.on_broadcasted_order_cancel(payload)
+            oms_module.on_order_cancel(payload)
 
         assert "unknown order" in caplog.text.lower()
         oms_module.send_event.assert_not_called()
@@ -204,7 +204,7 @@ class TestHandleCancelRequest:
 
         payload = {"order_id": "order_123", "instrument_id": "BTC.binance.crypto"}
         with caplog.at_level("WARNING", logger="modules.trading.oms.module"):
-            oms_module.on_broadcasted_order_cancel(payload)
+            oms_module.on_order_cancel(payload)
 
         assert "inactive order" in caplog.text.lower()
         oms_module.send_event.assert_not_called()

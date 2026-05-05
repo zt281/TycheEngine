@@ -44,10 +44,10 @@ class RiskModule(TycheModule):
         """Add a risk rule at runtime."""
         self._rule_engine.add_rule(rule)
 
-    def handle_broadcasted_order_submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Evaluate order against risk rules (handle_broadcasted pattern).
+    def on_order_submit(self, payload: Dict[str, Any]) -> None:
+        """Evaluate order against risk rules and publish result.
 
-        Returns response indicating approval or rejection.
+        Fire-and-forget: publishes order.approved or order.rejected event.
         """
         order = Order.from_dict(payload)
         logger.info(
@@ -69,7 +69,6 @@ class RiskModule(TycheModule):
             # Update risk context
             self._risk_context.order_count_today += 1
             self._risk_context.last_order_time = time.time()
-            return {"approved": True, "order_id": order.order_id}
         else:
             # Find first failure reason
             failed = [r for r in results if not r.passed]
@@ -86,9 +85,8 @@ class RiskModule(TycheModule):
                     "reason": reasons,
                 },
             )
-            return {"approved": False, "order_id": order.order_id, "reason": reasons}
 
-    def on_broadcasted_position_update(self, payload: Dict[str, Any]) -> None:
+    def on_position_update(self, payload: Dict[str, Any]) -> None:
         """Update risk context with latest position data."""
         position = Position.from_dict(payload)
         self._risk_context.positions[position.instrument_id] = position

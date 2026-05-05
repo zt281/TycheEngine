@@ -39,16 +39,12 @@ class TycheEngine:
         registration_endpoint: Endpoint,
         event_endpoint: Endpoint,
         heartbeat_endpoint: Endpoint,
-        ack_endpoint: Optional[Endpoint] = None,
         heartbeat_receive_endpoint: Optional[Endpoint] = None,
         admin_endpoint: str = f"tcp://*:{ADMIN_PORT_DEFAULT}"
     ):
         self.registration_endpoint = registration_endpoint
         self.event_endpoint = event_endpoint
         self.heartbeat_endpoint = heartbeat_endpoint
-        self.ack_endpoint = ack_endpoint or Endpoint(
-            event_endpoint.host, event_endpoint.port + 10
-        )
         self.heartbeat_receive_endpoint = heartbeat_receive_endpoint or Endpoint(
             heartbeat_endpoint.host, heartbeat_endpoint.port + 1
         )
@@ -75,10 +71,13 @@ class TycheEngine:
         self._topic_queues: Dict[str, List[List[bytes]]] = {}
         self._topic_queues_lock = threading.Lock()
 
-        # Typed message queues for non-event paths
+        # Topic subscriber/producer maps for unified queue routing
+        self._topic_subscribers: Dict[str, List[str]] = {}
+        self._topic_producers: Dict[str, List[str]] = {}
+        self._topic_last_access: Dict[str, float] = {}
+        self._topic_queue_ttl: float = 60.0  # seconds
         self._message_queues: Dict[MessageType, queue.Queue[List[bytes]]] = {
             MessageType.REGISTER: queue.Queue(),
-            MessageType.RESPONSE: queue.Queue(),
             MessageType.ACK: queue.Queue(),
         }
         # Thread-safe queue for forwarding module heartbeats to PUB socket
@@ -88,10 +87,6 @@ class TycheEngine:
         # a message is added to a topic queue so the egress worker blocks
         # instead of spinning.
         self._egress_wakeup: queue.Queue[None] = queue.Queue()
-
-        # Request-response correlation mapping: correlation_id -> ROUTER identity
-        self._ack_correlations: Dict[str, bytes] = {}
-        self._ack_lock = threading.Lock()
 
         # Event proxy sockets (shared between proxy ingress and egress workers)
         self._xpub_socket: Optional[zmq.Socket] = None
@@ -153,9 +148,6 @@ class TycheEngine:
             ),
             threading.Thread(
                 target=self._admin_worker, name="admin", daemon=True
-            ),
-            threading.Thread(
-                target=self._ack_worker, name="ack", daemon=True
             ),
         ]
 
@@ -239,7 +231,6 @@ class TycheEngine:
                         "module_id": module_info.module_id,
                         "event_pub_port": self.event_endpoint.port,
                         "event_sub_port": self.event_sub_endpoint.port,
-                        "ack_port": self.ack_endpoint.port,
                     },
                 )
                 if self._registration_socket is not None:
@@ -277,7 +268,7 @@ class TycheEngine:
         """Register a module and its interfaces (thread-safe).
 
         Creates a dedicated queue for every interface/topic declared by the
-        module, enabling per-topic routing and backpressure in the future.
+        module, and updates subscriber/producer maps for unified routing.
         """
         with self._lock:
             self.modules[module_info.module_id] = module_info
@@ -294,6 +285,15 @@ class TycheEngine:
                     if event_name not in self._topic_queues:
                         self._topic_queues[event_name] = []
                         logger.info("Created topic queue: %s", event_name)
+                # Update subscriber/producer maps (v3 unified queue)
+                if interface.pattern.value == "on":
+                    subs = self._topic_subscribers.setdefault(event_name, [])
+                    if module_info.module_id not in subs:
+                        subs.append(module_info.module_id)
+                elif interface.pattern.value == "send":
+                    prods = self._topic_producers.setdefault(event_name, [])
+                    if module_info.module_id not in prods:
+                        prods.append(module_info.module_id)
 
         self.heartbeat_manager.register(module_info.module_id)
 
@@ -313,75 +313,23 @@ class TycheEngine:
                         for mid, iface in self.interfaces[event_name]
                         if mid != module_id
                     ]
+                # Clean up subscriber/producer maps
+                if event_name in self._topic_subscribers:
+                    self._topic_subscribers[event_name] = [
+                        mid for mid in self._topic_subscribers[event_name]
+                        if mid != module_id
+                    ]
+                if event_name in self._topic_producers:
+                    self._topic_producers[event_name] = [
+                        mid for mid in self._topic_producers[event_name]
+                        if mid != module_id
+                    ]
 
             del self.modules[module_id]
 
         self.heartbeat_manager.unregister(module_id)
 
     # ── Event Proxy (XPUB/XSUB) ──────────────────────────────────
-
-    def _ack_worker(self) -> None:
-        """Handle request-response correlation via ROUTER socket.
-
-        Modules send requests via DEALER; we record correlation_id -> identity,
-        enqueue the request for the event egress worker to broadcast, and
-        route responses back to the original caller.
-        """
-        assert self.context is not None
-        router = self.context.socket(zmq.ROUTER)
-        router.setsockopt(zmq.LINGER, 0)
-        try:
-            router.bind(str(self.ack_endpoint))
-            router.setsockopt(zmq.RCVTIMEO, 100)
-
-            while self._running:
-                try:
-                    frames = router.recv_multipart()
-                    if len(frames) < 2:
-                        continue
-
-                    identity = frames[0]
-                    msg_data = (
-                        frames[2]
-                        if len(frames) >= 3 and frames[1] == b""
-                        else frames[1]
-                    )
-                    msg = deserialize(msg_data)
-
-                    if msg.msg_type == MessageType.COMMAND:
-                        correlation_id = msg.payload.get("_correlation_id")
-                        if correlation_id:
-                            with self._ack_lock:
-                                self._ack_correlations[correlation_id] = identity
-                        # Enqueue to the dedicated topic queue
-                        topic = msg.event
-                        with self._topic_queues_lock:
-                            q = self._topic_queues.get(topic)
-                            if q is None:
-                                q = []
-                                self._topic_queues[topic] = q
-                            q.append([msg.event.encode(), serialize(msg)])
-                        self._egress_wakeup.put(None)
-                    elif msg.msg_type == MessageType.RESPONSE:
-                        correlation_id = msg.payload.get("_correlation_id")
-                        if correlation_id is not None:
-                            with self._ack_lock:
-                                caller_identity = self._ack_correlations.pop(
-                                    str(correlation_id), None
-                                )
-                            if caller_identity is not None:
-                                router.send_multipart(
-                                    [caller_identity, b"", serialize(msg)]
-                                )
-                except zmq.error.Again:
-                    continue
-                except Exception as e:
-                    if self._running:
-                        logger.error("ACK worker error: %s", e)
-        except Exception as e:
-            logger.error("ACK worker failed to start: %s", e)
-        finally:
-            router.close()
 
     def _event_proxy_worker(self) -> None:
         """XSUB/XPUB proxy for event distribution.
@@ -390,8 +338,8 @@ class TycheEngine:
         Modules subscribe to events via the XPUB socket.
         The proxy forwards between them directly for minimum latency.
 
-        Per-topic queues are maintained for ACK messages (routed by
-        _ack_worker) and future backpressure / persistence features,
+        Per-topic queues are maintained for all events (unified queue
+        in v3) and future backpressure / persistence features,
         but the hot path bypasses them to preserve throughput.
         """
         assert self.context is not None
@@ -427,12 +375,12 @@ class TycheEngine:
                     self._xsub_socket.send_multipart(frame)
 
                 if self._xsub_socket in events:
-                    # Batch drain — amortise poll() overhead over many messages
+                    # Batch drain — enqueue all messages to topic queues
                     batch_count = 0
                     while self._running:
                         try:
                             frames = self._xsub_socket.recv_multipart(zmq.NOBLOCK)
-                            self._xpub_socket.send_multipart(frames)
+                            self._enqueue_from_xsub(frames)
                             batch_count += 1
                         except zmq.error.Again:
                             break
@@ -455,6 +403,7 @@ class TycheEngine:
         Topic is taken from frame[0]; queue is created on-demand if a module
         has not yet registered for this topic (dynamic subscription).
         Fast path avoids the dict lock when the queue already exists.
+        Backpressure defaults to DROP_OLDEST (v3 unified queue).
         """
         if len(frames) < 2:
             return
@@ -462,7 +411,12 @@ class TycheEngine:
         # Fast path: lock-free lookup for existing queues (hot path)
         q = self._topic_queues.get(topic)
         if q is not None:
+            # Backpressure: drop oldest when max depth exceeded
+            while len(q) >= 10000:
+                q.pop(0)
             q.append(frames)
+            self._topic_last_access[topic] = time.time()
+            self._egress_wakeup.put(None)
             return
         # Slow path: create queue under lock
         with self._topic_queues_lock:
@@ -475,11 +429,11 @@ class TycheEngine:
         self._egress_wakeup.put(None)
 
     def _event_egress_worker(self) -> None:
-        """Background drainer for ACK messages and catch-up under backpressure.
+        """Background drainer for all topic queues (v3 unified queue).
 
         Blocks on a wakeup queue so it does not spin.  The proxy worker
-        handles the bulk of event forwarding inline; this worker only
-        activates when ACK messages (enqueued by _ack_worker) need delivery.
+        handles ingress (enqueues all events); this worker handles egress
+        (dequeues and broadcasts via XPUB).
         """
         while self._running:
             try:
@@ -504,6 +458,7 @@ class TycheEngine:
                                 self._xpub_socket.send_multipart(frames)
                             with self._lock:
                                 self._event_count += 1
+                            self._topic_last_access[topic] = time.time()
                         except Exception as e:
                             if self._running:
                                 logger.error("Event egress error: %s", e)
@@ -584,12 +539,31 @@ class TycheEngine:
             socket.close()
 
     def _monitor_worker(self) -> None:
-        """Monitor peer health and unregister expired modules."""
+        """Monitor peer health and unregister expired modules.
+
+        Also garbage-collect topic queues that have been idle with no
+        subscribers or producers for longer than TOPIC_QUEUE_TTL_SECONDS.
+        """
         while self._running:
             expired = self.heartbeat_manager.tick_all()
             for module_id in expired:
                 logger.info("Module %s expired", module_id)
                 self.unregister_module(module_id)
+
+            # Topic queue GC
+            now = time.time()
+            with self._topic_queues_lock:
+                dead_topics = []
+                for topic, q in self._topic_queues.items():
+                    subs = self._topic_subscribers.get(topic, [])
+                    prods = self._topic_producers.get(topic, [])
+                    last_access = self._topic_last_access.get(topic, now)
+                    if not subs and not prods and (now - last_access) > self._topic_queue_ttl:
+                        dead_topics.append(topic)
+                for topic in dead_topics:
+                    del self._topic_queues[topic]
+                    self._topic_last_access.pop(topic, None)
+                    logger.debug("GC'd idle topic queue: %s", topic)
 
             time.sleep(HEARTBEAT_INTERVAL)
 
@@ -647,9 +621,14 @@ class TycheEngine:
                         "register_count": self._register_count,
                         "topic_queue_count": len(self._topic_queues),
                         "topic_queue_sizes": topic_queue_sizes,
+                        "topic_subscribers": {
+                            t: len(s) for t, s in self._topic_subscribers.items()
+                        },
+                        "topic_producers": {
+                            t: len(p) for t, p in self._topic_producers.items()
+                        },
                         "other_queue_sizes": {
                             "register": self._message_queues[MessageType.REGISTER].qsize(),
-                            "response": self._message_queues[MessageType.RESPONSE].qsize(),
                             "ack": self._message_queues[MessageType.ACK].qsize(),
                             "heartbeat": self._heartbeat_queue.qsize(),
                         },

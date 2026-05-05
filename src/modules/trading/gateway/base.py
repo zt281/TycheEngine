@@ -123,13 +123,14 @@ class GatewayModule(TycheModule):
 
     # --- Internal order handling ---
 
-    def handle_whispered_order_execute(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle incoming order execution request (handle_whispered pattern).
+    def on_order_execute(self, payload: Dict[str, Any]) -> None:
+        """Handle incoming order execution request.
 
         All gateways receive this event; only the matching venue processes it.
+        Publishes order_executed or order_execution_failed event.
         """
         if payload.get("venue") != self.venue_name:
-            return {"status": "ignored", "reason": "venue_mismatch"}
+            return
 
         order = Order.from_dict(payload)
         logger.info(
@@ -142,24 +143,28 @@ class GatewayModule(TycheModule):
         )
         try:
             result = self.submit_order(order)
-            return result.to_dict()
+            self.send_event("order_executed", result.to_dict())
         except Exception as e:
             logger.error("Order execution failed: %s", e)
-            return OrderUpdate(
-                order_id=order.order_id,
-                instrument_id=order.instrument_id,
-                status=OrderStatus.REJECTED,
-                timestamp=time.time(),
-                reason=str(e),
-            ).to_dict()
+            self.send_event(
+                "order_execution_failed",
+                OrderUpdate(
+                    order_id=order.order_id,
+                    instrument_id=order.instrument_id,
+                    status=OrderStatus.REJECTED,
+                    timestamp=time.time(),
+                    reason=str(e),
+                ).to_dict(),
+            )
 
-    def handle_whispered_order_cancel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle incoming order cancellation request (handle_whispered pattern).
+    def on_order_cancel(self, payload: Dict[str, Any]) -> None:
+        """Handle incoming order cancellation request.
 
         All gateways receive this event; only the matching venue processes it.
+        Publishes order_cancelled or order_cancel_failed event.
         """
         if payload.get("venue") != self.venue_name:
-            return {"status": "ignored", "reason": "venue_mismatch"}
+            return
 
         order_id = payload["order_id"]
         instrument_id = payload["instrument_id"]
@@ -170,13 +175,16 @@ class GatewayModule(TycheModule):
         )
         try:
             result = self.cancel_order(order_id, instrument_id)
-            return result.to_dict()
+            self.send_event("order_cancelled", result.to_dict())
         except Exception as e:
             logger.error("Order cancel failed: %s", e)
-            return OrderUpdate(
-                order_id=order_id,
-                instrument_id=instrument_id,
-                status=OrderStatus.REJECTED,
-                timestamp=time.time(),
-                reason=str(e),
-            ).to_dict()
+            self.send_event(
+                "order_cancel_failed",
+                OrderUpdate(
+                    order_id=order_id,
+                    instrument_id=instrument_id,
+                    status=OrderStatus.REJECTED,
+                    timestamp=time.time(),
+                    reason=str(e),
+                ).to_dict(),
+            )

@@ -54,7 +54,7 @@ def test_event_pubsub():
     received = []
 
     class ReceiverModule(TycheModule):
-        def on_streaming_test_event(self, payload: dict) -> None:
+        def on_test_event(self, payload: dict) -> None:
             received.append(payload)
 
     receiver = ReceiverModule(
@@ -76,7 +76,7 @@ def test_event_pubsub():
         time.sleep(0.5)
 
         # Send event through the proxy
-        sender.send_event("on_streaming_test_event", {"data": "hello"})
+        sender.send_event("on_test_event", {"data": "hello"})
         time.sleep(0.5)
 
         assert len(received) >= 1, f"Expected at least 1 event, got {len(received)}"
@@ -140,24 +140,20 @@ def test_full_two_node_interaction():
         assert module._registered
         assert "athenatest1" in engine.modules
 
-        # Interfaces are discovered
+        # Interfaces are discovered (v3 patterns: on_* and send_*)
         module_info = engine.modules["athenatest1"]
         interface_names = [i.name for i in module_info.interfaces]
-        assert "on_streaming_data" in interface_names
-        assert "handle_broadcasted_request" in interface_names
+        assert "on_data" in interface_names
+        assert "on_ping" in interface_names
+        assert "send_ping" in interface_names
 
         # Direct handler invocation works
-        module.on_streaming_data({"test": "data"})
+        module.on_data({"test": "data"})
         assert len(module.received_events) == 1
         assert module.received_events[0]["payload"]["test"] == "data"
 
-        response = module.handle_broadcasted_request({"request_id": "test123"})
-        assert response["status"] == "acknowledged"
-        assert response["request_id"] == "test123"
-
         stats = module.get_stats()
         assert stats["module_id"] == "athenatest1"
-        assert stats["request_count"] == 1
         assert stats["events_received"] == 1
     finally:
         module.stop()

@@ -52,17 +52,21 @@ class EventType(Enum):
 
 
 class InterfacePattern(Enum):
-    """Module interface naming patterns (v2).
+    """Module interface naming patterns (v3).
 
-    Three message categories, each with fire-and-forget (on_*) and
-    request-response (handle_*) variants.
+    Unified model: modules either consume events (on_*) or produce
+    events (send_*). Routing semantics (broadcast, P2P, stream) are
+    determined by subscriber configuration, not method name prefixes.
     """
-    ON_BROADCASTED = "on_broadcasted"
-    HANDLE_BROADCASTED = "handle_broadcasted"
-    ON_WHISPERED = "on_whispered"
-    HANDLE_WHISPERED = "handle_whispered"
-    ON_STREAMING = "on_streaming"
-    HANDLE_STREAMING = "handle_streaming"
+    ON = "on"
+    SEND = "send"
+
+
+class BackpressureStrategy(Enum):
+    """Queue overflow behavior when max_queue_depth is reached."""
+    DROP_OLDEST = "drop_oldest"
+    DROP_NEWEST = "drop_newest"
+    BLOCK_PRODUCER = "block_producer"
 
 
 class DurabilityLevel(Enum):
@@ -99,6 +103,8 @@ class Interface:
     pattern: InterfacePattern
     event_type: str
     durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH
+    backpressure: BackpressureStrategy = BackpressureStrategy.DROP_OLDEST
+    max_queue_depth: int = 10000
 
 
 @dataclass

@@ -18,7 +18,6 @@
 - [process-manager.ts](file://tui/src/process-manager.ts)
 - [state.ts](file://tui/src/state.ts)
 - [event-log.ts](file://tui/src/components/event-log.ts)
-- [tyche-processes.json](file://tui/tyche-processes.json)
 - [run_engine.py](file://examples/run_engine.py)
 - [run_module.py](file://examples/run_module.py)
 - [run_trading_system.py](file://examples/run_trading_system.py)
@@ -38,6 +37,7 @@
 - [test_heartbeat.py](file://tests/unit/test_heartbeat.py)
 - [test_heartbeat_protocol.py](file://tests/unit/test_heartbeat_protocol.py)
 - [test_backend.py](file://tests/unit/test_backend.py)
+- [test_clickhouse_backend.py](file://tests/integration/test_clickhouse_backend.py)
 - [test_ctp_state_machine.py](file://tests/unit/test_ctp_state_machine.py)
 </cite>
 
@@ -164,7 +164,6 @@ end
 - [process-manager.ts:15-296](file://tui/src/process-manager.ts#L15-L296)
 - [state.ts:44-326](file://tui/src/state.ts#L44-L326)
 - [event-log.ts:59-87](file://tui/src/components/event-log.ts#L59-L87)
-- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 **Section sources**
 - [engine.py:1-677](file://src/tyche/engine.py#L1-L677)
@@ -183,7 +182,6 @@ end
 - [process-manager.ts:1-296](file://tui/src/process-manager.ts#L1-L296)
 - [state.ts:1-326](file://tui/src/state.ts#L1-L326)
 - [event-log.ts:1-87](file://tui/src/components/event-log.ts#L1-L87)
-- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 ## Core Components
 This section documents the primary building blocks and their responsibilities.
@@ -723,9 +721,23 @@ Key test coverage:
 - Backoff calculation: Exponential growth with jitter.
 - Retry tracking: Count increments and max retry enforcement.
 
+#### ClickHouse Backend Integration Tests
+Responsibilities:
+- Integration tests for ClickHouseBackend with real ClickHouse database.
+- Validates schema creation, table existence, and version tracking.
+- Tests insert/query round-trips with proper payload handling.
+
+Key test coverage:
+- Health checks: Connection verification and status reporting.
+- Schema management: Table creation and version tracking.
+- Query filtering: Timestamp range, event type, instrument ID, and module ID filters.
+- Payload handling: Base64 encoding/decoding for binary payloads.
+- Limit and ordering: Pagination and timestamp-based ordering.
+
 **Section sources**
-- [test_backend.py:1-148](file://tests/unit/test_backend.py#L1-L148)
-- [test_ctp_state_machine.py:1-205](file://tests/unit/test_ctp_state_machine.py#L1-L205)
+- [test_backend.py:1-147](file://tests/unit/test_backend.py#L1-L147)
+- [test_clickhouse_backend.py:1-239](file://tests/integration/test_clickhouse_backend.py#L1-L239)
+- [test_ctp_state_machine.py:1-206](file://tests/unit/test_ctp_state_machine.py#L1-L206)
 
 ### **Updated** Process Management System
 
@@ -891,8 +903,8 @@ Key APIs and behaviors:
   - engine_endpoint: TycheEngine broker endpoint.
   - venue_name: Venue identifier (e.g., "ctp", "openctp").
   - broker_id: CTP broker ID.
-  - user_id: Trading account user ID.
-  - password: Trading account password.
+  - user_id: trading account user ID.
+  - password: trading account password.
   - td_front: Trading front address.
   - md_front: Market data front address.
   - auth_code: Broker authentication code (for live trading).
@@ -1308,13 +1320,11 @@ ProcMgr->>Module : stopProcess("example-module1")
 - [process-manager.ts:24-43](file://tui/src/process-manager.ts#L24-L43)
 - [process-manager.ts:45-105](file://tui/src/process-manager.ts#L45-L105)
 - [state.ts:76-87](file://tui/src/state.ts#L76-L87)
-- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 **Section sources**
 - [process-manager.ts:24-43](file://tui/src/process-manager.ts#L24-L43)
 - [process-manager.ts:45-105](file://tui/src/process-manager.ts#L45-L105)
 - [state.ts:76-87](file://tui/src/state.ts#L76-L87)
-- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 
 ### **Updated** Enhanced CTP Gateway State Machine Flow
 ```mermaid
@@ -1405,6 +1415,7 @@ CLIEngine["Engine Main"] --> Engine
 CLIModule["Module Main"] --> TycheMod
 TestBackend["Backend Tests"] --> BackendAPI["PersistenceBackend"]
 TestSM["State Machine Tests"] --> StateMachine
+TestClickHouse["ClickHouse Integration Tests"] --> ClickHouse
 ```
 
 **Diagram sources**
@@ -1426,6 +1437,7 @@ TestSM["State Machine Tests"] --> StateMachine
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 - [test_backend.py:7-11](file://tests/unit/test_backend.py#L7-L11)
 - [test_ctp_state_machine.py:3-5](file://tests/unit/test_ctp_state_machine.py#L3-L5)
+- [test_clickhouse_backend.py:12-13](file://tests/integration/test_clickhouse_backend.py#L12-L13)
 
 **Section sources**
 - [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
@@ -1446,6 +1458,7 @@ TestSM["State Machine Tests"] --> StateMachine
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 - [test_backend.py:7-11](file://tests/unit/test_backend.py#L7-L11)
 - [test_ctp_state_machine.py:3-5](file://tests/unit/test_ctp_state_machine.py#L3-L5)
+- [test_clickhouse_backend.py:12-13](file://tests/integration/test_clickhouse_backend.py#L12-L13)
 
 ## Performance Considerations
 - ZeroMQ polling and multipart frames are efficient for high-throughput event distribution.
@@ -1511,14 +1524,16 @@ Validation via tests:
 - **Updated**: CTP gateway connectivity and event processing tested in trading system examples.
 - **Updated**: Backend abstraction and result dataclasses tested in comprehensive backend tests.
 - **Updated**: State machine transitions and backoff calculations tested in state machine tests.
+- **Updated**: ClickHouse backend integration and schema management tested in integration tests.
 
 **Section sources**
 - [test_engine.py:8-51](file://tests/unit/test_engine.py#L8-L51)
 - [test_module.py:7-69](file://tests/unit/test_module.py#L7-L69)
 - [test_message.py:16-162](file://tests/unit/test_message.py#L16-L162)
 - [test_heartbeat_protocol.py:16-119](file://tests/unit/test_heartbeat_protocol.py#L16-L119)
-- [test_backend.py:1-148](file://tests/unit/test_backend.py#L1-L148)
-- [test_ctp_state_machine.py:1-205](file://tests/unit/test_ctp_state_machine.py#L1-L205)
+- [test_backend.py:1-147](file://tests/unit/test_backend.py#L1-L147)
+- [test_clickhouse_backend.py:1-239](file://tests/integration/test_clickhouse_backend.py#L1-L239)
+- [test_ctp_state_machine.py:1-206](file://tests/unit/test_ctp_state_machine.py#L1-L206)
 
 ## Conclusion
 Tyche Engine's core components form a cohesive, modular system with enhanced multi-asset trading capabilities, comprehensive event persistence layer, sophisticated state management, and robust testing infrastructure:
@@ -1903,7 +1918,7 @@ Together, these components enable scalable, resilient distributed systems with c
 - [module_main.py:13-47](file://src/tyche/module_main.py#L13-L47)
 - [process-manager.ts:24-43](file://tui/src/process-manager.ts#L24-L43)
 - [state.ts:76-87](file://tui/src/state.ts#L76-L87)
-- [tyche-processes.json:1-29](file://tui/tyche-processes.json#L1-L29)
 - [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
-- [test_backend.py:1-148](file://tests/unit/test_backend.py#L1-L148)
-- [test_ctp_state_machine.py:1-205](file://tests/unit/test_ctp_state_machine.py#L1-L205)
+- [test_backend.py:1-147](file://tests/unit/test_backend.py#L1-L147)
+- [test_clickhouse_backend.py:1-239](file://tests/integration/test_clickhouse_backend.py#L1-L239)
+- [test_ctp_state_machine.py:1-206](file://tests/unit/test_ctp_state_machine.py#L1-L206)

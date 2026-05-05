@@ -75,7 +75,7 @@ class PortfolioModule(TycheModule):
     def total_unrealized_pnl(self) -> Decimal:
         return sum((p.unrealized_pnl for p in self._positions.values()), Decimal("0"))
 
-    def on_broadcasted_fill(self, payload: Dict[str, Any]) -> None:
+    def on_fill(self, payload: Dict[str, Any]) -> None:
         """Process a fill and update position."""
         fill = Fill.from_dict(payload)
         position = self.get_position(fill.instrument_id)

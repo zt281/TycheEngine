@@ -38,7 +38,7 @@ class OMSModule(TycheModule):
         super().__init__(engine_endpoint, module_id=module_id, **kwargs)
         self.order_store = OrderStore()
 
-    def on_broadcasted_order_approved(self, payload: Dict[str, Any]) -> None:
+    def on_order_approved(self, payload: Dict[str, Any]) -> None:
         """Process an approved order from the risk module.
 
         Stores the order and routes execution to the appropriate gateway.
@@ -61,14 +61,14 @@ class OMSModule(TycheModule):
 
         # Send execution request to gateway (all gateways receive, filter by venue)
         self.send_event(
-            "handle_whispered_order_execute",
+            "order_execute",
             {**order.to_dict(), "venue": venue},
         )
 
         # Publish order update
         self._publish_order_update(order)
 
-    def on_broadcasted_fill(self, payload: Dict[str, Any]) -> None:
+    def on_fill(self, payload: Dict[str, Any]) -> None:
         """Process a fill from a gateway.
 
         Updates order state and publishes order update.
@@ -89,7 +89,7 @@ class OMSModule(TycheModule):
         else:
             logger.warning("Fill for unknown order: %s", fill.order_id)
 
-    def on_broadcasted_order_cancel(self, payload: Dict[str, Any]) -> None:
+    def on_order_cancel(self, payload: Dict[str, Any]) -> None:
         """Handle cancel request from strategy.
 
         Routes to appropriate gateway for cancellation.
@@ -113,7 +113,7 @@ class OMSModule(TycheModule):
         # Route cancel to gateway (all gateways receive, filter by venue)
         venue = self._extract_venue(instrument_id)
         self.send_event(
-            "handle_whispered_order_cancel",
+            "order_cancel",
             {**payload, "venue": venue},
         )
 

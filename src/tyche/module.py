@@ -54,7 +54,6 @@ class TycheModule(ModuleBase):
 
         # ZMQ socket locks (sockets are not thread-safe)
         self._pub_lock = threading.Lock()
-        self._ack_lock = threading.Lock()
 
         # Discovered interfaces
         self._interfaces: List[Interface] = []
@@ -62,13 +61,11 @@ class TycheModule(ModuleBase):
         # Ports returned by engine during registration
         self._engine_pub_port: Optional[int] = None
         self._engine_sub_port: Optional[int] = None
-        self._ack_port: Optional[int] = None
 
         # ZMQ context and sockets
         self.context: Optional[zmq.Context] = None
         self._pub_socket: Optional[zmq.Socket] = None
         self._sub_socket: Optional[zmq.Socket] = None
-        self._ack_socket: Optional[zmq.Socket] = None
         self._heartbeat_socket: Optional[zmq.Socket] = None
 
         # Threading
@@ -94,45 +91,58 @@ class TycheModule(ModuleBase):
 
     @staticmethod
     def _pattern_for_name(name: str) -> Optional[InterfacePattern]:
-        """Determine interface pattern from method name."""
-        if name.startswith("handle_broadcasted_"):
-            return InterfacePattern.HANDLE_BROADCASTED
-        if name.startswith("on_broadcasted_"):
-            return InterfacePattern.ON_BROADCASTED
-        if name.startswith("handle_whispered_"):
-            return InterfacePattern.HANDLE_WHISPERED
-        if name.startswith("on_whispered_"):
-            return InterfacePattern.ON_WHISPERED
-        if name.startswith("handle_streaming_"):
-            return InterfacePattern.HANDLE_STREAMING
-        if name.startswith("on_streaming_"):
-            return InterfacePattern.ON_STREAMING
+        """Determine interface pattern from method name (v3).
+
+        Only two prefixes are recognized:
+        - on_*   -> consumer interface
+        - send_* -> producer declaration
+        """
+        if name.startswith("on_"):
+            return InterfacePattern.ON
+        if name.startswith("send_"):
+            return InterfacePattern.SEND
         return None
 
     def _discover_and_register_handlers(self) -> None:
         """Auto-discover interfaces from method names and register handlers."""
         for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
             pattern = self._pattern_for_name(name)
-            if pattern:
+            if pattern is None:
+                continue
+            # Skip methods defined on TycheModule itself (e.g. send_event)
+            if getattr(method, "__qualname__", "").startswith("TycheModule."):
+                continue
+            # Skip abstract methods — subclasses implement these as callbacks,
+            # not as event handlers (e.g. StrategyModule.on_quote)
+            if getattr(method, "__isabstractmethod__", False):
+                continue
+            if pattern == InterfacePattern.SEND:
+                self._register_producer(name, pattern)
+            else:
                 self._register_handler(name, method, pattern)
 
     def _register_handler(
         self,
         name: str,
         handler: Callable[..., Any],
-        pattern: InterfacePattern = InterfacePattern.ON_STREAMING,
+        pattern: InterfacePattern = InterfacePattern.ON,
         durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH,
     ) -> None:
         """Register an event handler interface (for internal/subclass use).
 
         Args:
-            name: Interface name (e.g., "on_streaming_data")
+            name: Interface name (e.g., "on_data")
             handler: Function to handle events
             pattern: Interface pattern type
             durability: Message durability level
         """
         with self._handlers_lock:
             self._handlers[name] = handler
+            # v3 unified queue: also register under bare topic name so
+            # producers can send_event("data", ...) and it routes to on_data.
+            if name.startswith("on_"):
+                bare_name = name[3:]
+                self._handlers[bare_name] = handler
             self._interfaces.append(
                 Interface(
                     name=name,
@@ -143,6 +153,27 @@ class TycheModule(ModuleBase):
             )
         if self._sub_socket is not None:
             self._sub_socket.setsockopt(zmq.SUBSCRIBE, name.encode())
+
+    def _register_producer(
+        self,
+        name: str,
+        pattern: InterfacePattern = InterfacePattern.SEND,
+        durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH,
+    ) -> None:
+        """Register a producer declaration (send_* method).
+
+        Producer declarations are recorded in _interfaces but do not
+        create an inbound handler.
+        """
+        with self._handlers_lock:
+            self._interfaces.append(
+                Interface(
+                    name=name,
+                    pattern=pattern,
+                    event_type=name,
+                    durability=durability,
+                )
+            )
 
     def start(self) -> None:
         """Start the module - returns once worker threads are up."""
@@ -181,12 +212,6 @@ class TycheModule(ModuleBase):
             # Subscribe to events matching our handlers
             self._subscribe_to_interfaces()
 
-        # Set up ACK DEALER socket (request-response channel)
-        if self._ack_port is not None:
-            self._ack_socket = self.context.socket(zmq.DEALER)
-            self._ack_socket.setsockopt(zmq.LINGER, 0)
-            self._ack_socket.connect(f"tcp://{host}:{self._ack_port}")
-
         # Set up heartbeat DEALER socket
         if self.heartbeat_receive_endpoint:
             self._heartbeat_socket = self.context.socket(zmq.DEALER)
@@ -221,12 +246,11 @@ class TycheModule(ModuleBase):
         for t in self._threads:
             t.join(timeout=2.0)
 
-        for sock in [self._pub_socket, self._sub_socket, self._ack_socket, self._heartbeat_socket]:
+        for sock in [self._pub_socket, self._sub_socket, self._heartbeat_socket]:
             if sock is not None:
                 sock.close()
         self._pub_socket = None
         self._sub_socket = None
-        self._ack_socket = None
         self._heartbeat_socket = None
 
         if self.context:
@@ -279,7 +303,6 @@ class TycheModule(ModuleBase):
                 self._registered = True
                 self._engine_pub_port = reply.payload.get("event_pub_port")
                 self._engine_sub_port = reply.payload.get("event_sub_port")
-                self._ack_port = reply.payload.get("ack_port")
                 logger.info("[%s] Registered with engine", self._module_id)
                 return True
 
@@ -327,33 +350,17 @@ class TycheModule(ModuleBase):
                     # Ignore messages sent by ourselves
                     if msg.sender == self._module_id:
                         continue
-                    result = self._dispatch(topic, msg)
-                    if result is not None and self._ack_socket is not None:
-                        correlation_id = msg.payload.get("_correlation_id")
-                        if correlation_id:
-                            response = Message(
-                                msg_type=MessageType.RESPONSE,
-                                sender=self._module_id,
-                                event=topic,
-                                payload={
-                                    **(result if isinstance(result, dict) else {"result": result}),
-                                    "_correlation_id": correlation_id,
-                                },
-                            )
-                            with self._ack_lock:
-                                self._ack_socket.send(serialize(response))
+                    self._dispatch(topic, msg)
             except zmq.error.Again:
                 continue
             except Exception as e:
                 if self._running:
                     logger.error("[%s] Event receive error: %s", self._module_id, e)
 
-    def _dispatch(self, topic: str, msg: Message) -> Any:
+    def _dispatch(self, topic: str, msg: Message) -> None:
         """Route an incoming message to the correct handler.
 
-        Returns:
-            Handler result for handle_* prefixes, None for on_* prefixes.
-            For handle_* topics on exception, returns {"error": ..., "type": ...}.
+        All handlers are fire-and-forget; return value is always None.
         """
         with self._handlers_lock:
             handler = self._handlers.get(topic)
@@ -361,18 +368,12 @@ class TycheModule(ModuleBase):
             return None
 
         try:
-            if topic.startswith("handle_"):
-                return handler(msg.payload)
-            else:
-                handler(msg.payload)
-                return None
+            handler(msg.payload)
         except Exception as e:
             logger.error(
                 "[%s] Handler %s raised: %s", self._module_id, topic, e
             )
-            if topic.startswith("handle_"):
-                return {"error": str(e), "type": type(e).__name__}
-            return None
+        return None
 
     # ── Event Publishing ──────────────────────────────────────────
 
@@ -406,71 +407,6 @@ class TycheModule(ModuleBase):
 
         with self._pub_lock:
             self._pub_socket.send_multipart([event.encode(), serialize(msg)])
-
-    def send_event_with_response(
-        self,
-        event: str,
-        payload: Dict[str, Any],
-        timeout_ms: int = 5000,
-    ) -> Optional[Dict[str, Any]]:
-        """Send a request event and wait for a response via the ACK channel.
-
-        Generates a correlation_id, sends the event through the PUB socket,
-        and awaits the matching reply on the DEALER ACK socket.
-
-        Args:
-            event: Event/topic name (should match a handle_* pattern)
-            payload: Event data
-            timeout_ms: Timeout in milliseconds
-
-        Returns:
-            Response payload dict or None if timeout
-        """
-        if self._pub_socket is None or self._ack_socket is None:
-            logger.warning(
-                "[%s] Cannot send request: not connected", self._module_id
-            )
-            return None
-
-        import uuid
-
-        correlation_id = str(uuid.uuid4())
-        msg = Message(
-            msg_type=MessageType.COMMAND,
-            sender=self._module_id,
-            event=event,
-            payload={**payload, "_correlation_id": correlation_id},
-        )
-
-        # Send request via DEALER to engine's ACK router
-        with self._ack_lock:
-            self._ack_socket.send(serialize(msg))
-
-        # Wait for response on same DEALER ACK socket
-        self._ack_socket.setsockopt(zmq.RCVTIMEO, timeout_ms)
-        try:
-            reply_frames = self._ack_socket.recv_multipart()
-            # DEALER receives [b"", payload] from ROUTER
-            reply_data = reply_frames[-1] if len(reply_frames) >= 2 else reply_frames[0]
-            reply = deserialize(reply_data)
-            if reply.msg_type == MessageType.RESPONSE:
-                result = dict(reply.payload)
-                result.pop("_correlation_id", None)
-                return result
-        except zmq.error.Again:
-            logger.warning(
-                "[%s] Request %s timed out", self._module_id, correlation_id
-            )
-        return None
-
-    def call_ack(
-        self,
-        event: str,
-        payload: Dict[str, Any],
-        timeout_ms: int = 5000,
-    ) -> Optional[Dict[str, Any]]:
-        """Deprecated: use send_event_with_response instead."""
-        return self.send_event_with_response(event, payload, timeout_ms)
 
     # ── Heartbeat ─────────────────────────────────────────────────
 

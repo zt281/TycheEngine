@@ -26,12 +26,13 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for the new event persistence layer with backend abstraction system
-- Documented ClickHouseBackend and JsonlBackend implementations with their specific features and configurations
-- Added SchemaManager functionality for ClickHouse schema management and versioning
-- Documented per-topic message queue architecture and event recording/replay capabilities
+- Enhanced administrative endpoint support with dedicated admin worker and query processing
+- Improved thread-safe operations with comprehensive locking mechanisms throughout engine and module components
+- Integrated persistence layer with ClickHouse and JSONL backends for event storage and retrieval
+- Added SchemaManager for ClickHouse schema management and versioning
+- Documented per-topic message queue architecture with unified queue routing
 - Updated message lifecycle to include persistence layer integration
-- Enhanced performance considerations to include storage backend options
+- Enhanced performance considerations with storage backend options and connection pooling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -40,16 +41,18 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Event Persistence Layer](#event-persistence-layer)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+7. [Administrative Endpoint Support](#administrative-endpoint-support)
+8. [Thread-Safe Operations](#thread-safe-operations)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
+13. [Appendices](#appendices)
 
 ## Introduction
 This document describes Tyche Engine's message system, focusing on the serialization framework built on MessagePack. It covers Python native types, Decimal precision preservation, custom object serialization hooks, the Message class structure, envelope handling for ZeroMQ routing, and routing mechanisms. It also documents the message lifecycle from creation to delivery, including timestamping, event IDs, and metadata handling, along with type safety features, validation rules, error handling, and practical integration patterns. Performance characteristics, memory usage, and compatibility with external systems are addressed.
 
-**Updated** Added comprehensive coverage of the new event persistence layer with backend abstraction system, including ClickHouse and JSONL storage implementations, schema management, and event recording/replay capabilities.
+**Updated** Enhanced with administrative endpoint support for engine state monitoring, improved thread-safe operations across all components, and comprehensive integration with the persistence layer for event storage and retrieval through ClickHouse and JSONL backends.
 
 ## Project Structure
 The message system spans several modules:
@@ -97,6 +100,7 @@ subgraph "Runtime"
 ENG["TycheEngine"]
 MOD["TycheModule"]
 HB["HeartbeatManager"]
+ADM["AdminWorker<br/>ROUTER Socket"]
 end
 MSG --> SER
 ENV --> ENVSER
@@ -111,6 +115,7 @@ MOD --> SER
 MOD --> ENVSER
 MOD --> PB
 ENG --> HB
+ENG --> ADM
 MOD --> HB
 MT --> MSG
 DL --> MSG
@@ -137,16 +142,16 @@ REP --> REC
 
 **Section sources**
 - [message.py:1-168](file://src/tyche/message.py#L1-L168)
-- [types.py:1-102](file://src/tyche/types.py#L1-L102)
+- [types.py:1-117](file://src/tyche/types.py#L1-L117)
 - [backend.py:1-162](file://src/modules/trading/persistence/backend.py#L1-L162)
 - [clickhouse_backend.py:1-231](file://src/modules/trading/persistence/clickhouse_backend.py#L1-L231)
 - [jsonl_backend.py:1-155](file://src/modules/trading/persistence/jsonl_backend.py#L1-L155)
 - [schema.py:1-107](file://src/modules/trading/persistence/schema.py#L1-L107)
-- [recorder.py:1-124](file://src/modules/trading/store/recorder.py#L1-L124)
+- [recorder.py:1-123](file://src/modules/trading/store/recorder.py#L1-L123)
 - [replay.py:1-137](file://src/modules/trading/store/replay.py#L1-L137)
-- [engine.py:1-350](file://src/tyche/engine.py#L1-L350)
-- [module.py:1-401](file://src/tyche/module.py#L1-L401)
-- [heartbeat.py:1-142](file://src/tyche/heartbeat.py#L1-L142)
+- [engine.py:1-660](file://src/tyche/engine.py#L1-L660)
+- [module.py:1-434](file://src/tyche/module.py#L1-L434)
+- [heartbeat.py:1-153](file://src/tyche/heartbeat.py#L1-L153)
 
 ## Core Components
 - Message: Application-level message structure with typed fields for type, sender, event, payload, recipient, durability, timestamp, and correlation ID.
@@ -155,14 +160,17 @@ REP --> REC
 - Routing: Engine uses XPUB/XSUB proxy for event distribution and ROUTER/DEALER for registration and P2P.
 - **Persistence Backend**: Abstract interface defining storage operations with ClickHouse and JSONL implementations.
 - **Schema Manager**: Handles ClickHouse table creation and version tracking for persistence layer.
+- **Administrative Endpoint**: Dedicated ROUTER socket for engine state queries and monitoring.
+- **Thread-Safe Operations**: Comprehensive locking mechanisms throughout engine and module components.
 
 Key responsibilities:
 - Message: Define canonical message shape and metadata.
 - Envelope: Wrap messages for ZeroMQ multipart frames and preserve routing context.
 - Serializer: Preserve Python native types and Decimal precision across transport.
-- Engine: Route events, manage registration, and monitor liveness.
+- Engine: Route events, manage registration, monitor liveness, and provide administrative queries.
 - Module: Publish/subscribe to events, handle ACK patterns, send heartbeats, and integrate with persistence layer.
 - **Persistence Layer**: Provide durable event storage with configurable backends and query capabilities.
+- **Administrative Support**: Enable remote monitoring and state inspection of the engine.
 
 **Section sources**
 - [message.py:13-168](file://src/tyche/message.py#L13-L168)
@@ -178,12 +186,14 @@ The message system integrates with ZeroMQ sockets, the engine's routing infrastr
 - P2P: DEALER/ROUTER for direct module-to-module communication.
 - Heartbeat: PUB/SUB for liveness monitoring using the Paranoid Pirate pattern.
 - **Persistence**: Optional durable storage through configurable backend implementations.
+- **Administration**: Dedicated ROUTER socket for engine state queries and monitoring.
 
 ```mermaid
 sequenceDiagram
 participant Mod as "TycheModule"
 participant Eng as "TycheEngine"
 participant Pers as "PersistenceBackend"
+participant Admin as "AdminClient"
 participant ZMQ as "ZeroMQ Sockets"
 Mod->>Eng : "REQ REGISTER"
 Eng-->>Mod : "ROUTER ACK"
@@ -195,6 +205,8 @@ Mod->>Eng : "PUBLISH event"
 Eng-->>Mod : "Forward via XPUB/XSUB"
 Mod->>Eng : "DEALER heartbeat"
 Eng-->>Mod : "PUB heartbeat"
+Admin->>Eng : "ROUTER admin query"
+Eng-->>Admin : "Engine state response"
 ```
 
 **Diagram sources**
@@ -203,6 +215,7 @@ Eng-->>Mod : "PUB heartbeat"
 - [engine.py:238-278](file://src/tyche/engine.py#L238-L278)
 - [heartbeat.py:72-89](file://src/tyche/heartbeat.py#L72-L89)
 - [backend.py:88-162](file://src/modules/trading/persistence/backend.py#L88-L162)
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
 
 ## Detailed Component Analysis
 
@@ -246,12 +259,12 @@ Message --> DurabilityLevel : "uses"
 
 **Diagram sources**
 - [message.py:13-49](file://src/tyche/message.py#L13-L49)
-- [types.py:67-74](file://src/tyche/types.py#L67-L74)
-- [types.py:60-65](file://src/tyche/types.py#L60-L65)
+- [types.py:79-87](file://src/tyche/types.py#L79-L87)
+- [types.py:72-77](file://src/tyche/types.py#L72-L77)
 
 **Section sources**
 - [message.py:13-49](file://src/tyche/message.py#L13-L49)
-- [types.py:60-74](file://src/tyche/types.py#L60-L74)
+- [types.py:72-87](file://src/tyche/types.py#L72-L87)
 
 ### Serialization Hooks: Decimal Precision and Python Types
 The serializer uses custom encode/decode hooks to preserve Decimal precision and handle Python-native types:
@@ -316,6 +329,7 @@ End-to-end lifecycle:
 - Transport: Send via ZeroMQ sockets (REQ/ROUTER for registration, XPUB/XSUB for events, DEALER/ROUTER for P2P).
 - Delivery: Engine routes messages to subscribers or ACK responders; modules deserialize and dispatch.
 - **Persistence: Optional durable storage through backend implementations.**
+- **Administration: Engine responds to administrative queries with state information.**
 
 ```mermaid
 flowchart TD
@@ -327,15 +341,20 @@ Deserialize --> PersistCheck{"Persistence enabled?"}
 PersistCheck --> |Yes| Store["Store via PersistenceBackend"]
 PersistCheck --> |No| Dispatch["Dispatch to handler"]
 Store --> Dispatch
-Dispatch --> Ack["Optional ACK reply"]
+Dispatch --> AdminCheck{"Admin query?"}
+AdminCheck --> |Yes| ProcessAdmin["Process admin request"]
+AdminCheck --> |No| Ack["Optional ACK reply"]
+ProcessAdmin --> AdminResponse["Send admin response"]
 Ack --> End(["Lifecycle Complete"])
+AdminResponse --> End
 ```
 
 **Diagram sources**
-- [module.py:301-330](file://src/tyche/module.py#L301-L330)
+- [module.py:301-373](file://src/tyche/module.py#L301-L373)
 - [module.py:331-373](file://src/tyche/module.py#L331-L373)
 - [engine.py:144-177](file://src/tyche/engine.py#L144-L177)
 - [backend.py:88-162](file://src/modules/trading/persistence/backend.py#L88-L162)
+- [engine.py:593-660](file://src/tyche/engine.py#L593-L660)
 
 **Section sources**
 - [module.py:301-373](file://src/tyche/module.py#L301-L373)
@@ -346,6 +365,7 @@ Ack --> End(["Lifecycle Complete"])
 - Events: XPUB/XSUB proxy forwards events to subscribers; modules subscribe by topic names.
 - P2P: DEALER/ROUTER enables direct module-to-module communication with identity routing.
 - Heartbeat: PUB/SUB with Paranoid Pirate pattern for liveness monitoring.
+- **Administration: ROUTER socket for engine state queries and monitoring.**
 
 ```mermaid
 graph TB
@@ -366,23 +386,30 @@ end
 subgraph "Heartbeat"
 HB_PUB["PUB Engine"] --> HB_SUB["SUB Module"]
 end
+subgraph "Administration"
+ADM_REQ["REQ AdminClient"] --> ADM_ROUTER["ROUTER Engine"]
+ADM_ROUTER --> ADM_RESP["Engine state response"]
+end
 ```
 
 **Diagram sources**
 - [engine.py:121-177](file://src/tyche/engine.py#L121-L177)
 - [engine.py:238-278](file://src/tyche/engine.py#L238-L278)
 - [heartbeat.py:72-89](file://src/tyche/heartbeat.py#L72-L89)
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
 
 **Section sources**
 - [engine.py:121-177](file://src/tyche/engine.py#L121-L177)
 - [engine.py:238-278](file://src/tyche/engine.py#L238-L278)
 - [heartbeat.py:72-89](file://src/tyche/heartbeat.py#L72-L89)
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
 
 ### Type Safety and Validation
 - Enums: MessageType and DurabilityLevel ensure consistent values across the system.
 - Optional fields: timestamp, correlation_id, recipient allow flexible message shapes.
 - Validation in engine: Registration validates message type and extracts module info; malformed messages are logged and ignored.
 - Heartbeat validation: Engine updates liveness on valid heartbeat messages.
+- **Administrative validation: Engine processes admin queries with structured responses and error handling.**
 
 ```mermaid
 flowchart TD
@@ -412,6 +439,7 @@ LogErr --> Done
 - Direct P2P: Use whisper_* handlers; establish channels during registration.
 - Broadcast: Use on_common_* handlers; publish via send_event to topics.
 - **Durable events: Configure persistence backend for production deployments.**
+- **Administrative monitoring: Use admin endpoint for engine state inspection.**
 
 ```mermaid
 sequenceDiagram
@@ -631,8 +659,109 @@ BroadcastEvent --> UpdateClock["Send system.clock updates<br/>for each event"]
 - [replay.py:50-137](file://src/modules/trading/store/replay.py#L50-L137)
 
 **Section sources**
-- [recorder.py:20-124](file://src/modules/trading/store/recorder.py#L20-L124)
+- [recorder.py:20-123](file://src/modules/trading/store/recorder.py#L20-L123)
 - [replay.py:21-137](file://src/modules/trading/store/replay.py#L21-L137)
+
+## Administrative Endpoint Support
+
+### Admin Worker Implementation
+The TycheEngine includes a dedicated administrative endpoint that allows external clients to query engine state and monitoring information. The admin worker operates on a separate ROUTER socket with predefined query commands.
+
+Key features:
+- Dedicated admin endpoint with default port 5560
+- Structured query processing with JSON-encoded responses
+- Thread-safe state access with engine-wide locking
+- Multiple query types: STATUS, MODULES, STATS
+- Real-time metrics including uptime, event counts, and queue sizes
+
+```mermaid
+sequenceDiagram
+participant Admin as "AdminClient"
+participant AdminSock as "Admin ROUTER Socket"
+participant Engine as "TycheEngine"
+Admin->>AdminSock : "REQ admin query"
+AdminSock->>Engine : "ROUTER frames"
+Engine->>Engine : "_process_admin_query()"
+Engine->>Engine : "Acquire locks for state access"
+Engine->>Engine : "Collect metrics and statistics"
+Engine->>AdminSock : "Send JSON response"
+AdminSock-->>Admin : "Engine state information"
+```
+
+**Diagram sources**
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
+
+### Supported Administrative Queries
+The administrative endpoint supports three primary query types:
+
+**STATUS Query**: Returns comprehensive engine operational information including:
+- Engine uptime and event statistics
+- Module registration counts
+- Topic queue metrics
+- Subscriber and producer mappings
+- Internal queue sizes
+
+**MODULES Query**: Provides detailed information about registered modules:
+- Module identifiers and interface lists
+- Liveness status for each module
+- Interface patterns and durability levels
+
+**STATS Query**: Returns aggregated operational statistics:
+- Event and registration counts
+- Current module count
+- Engine performance metrics
+
+**Section sources**
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
+- [types.py:13-14](file://src/tyche/types.py#L13-L14)
+
+## Thread-Safe Operations
+
+### Comprehensive Locking Strategy
+The TycheEngine implements a multi-layered locking strategy to ensure thread-safe operations across all components:
+
+**Engine-Level Locks**:
+- `_lock`: Global engine state protection for module registry and interface maps
+- `_topic_queues_lock`: Per-topic queue synchronization for event distribution
+- `_xpub_lock`: ZeroMQ socket access protection for XPUB operations
+- `_registration_lock`: Registration socket thread safety
+
+**Module-Level Locks**:
+- `_handlers_lock`: Event handler registration and access protection
+- `_pub_lock`: Publisher socket thread safety for event publishing
+
+**Heartbeat Management**:
+- Thread-safe heartbeat monitoring with individual peer tracking
+- Coordinated heartbeat sending and receiving operations
+
+```mermaid
+graph TB
+subgraph "Engine Thread Safety"
+E1["Global Lock (_lock)"] --> E2["Topic Queues Lock (_topic_queues_lock)"]
+E1 --> E3["Socket Locks (_xpub_lock, _registration_lock)"]
+E2 --> E4["Per-Topic Queue Access"]
+E3 --> E5["ZeroMQ Socket Operations"]
+end
+subgraph "Module Thread Safety"
+M1["Handlers Lock (_handlers_lock)"] --> M2["Publisher Lock (_pub_lock)"]
+M1 --> M3["Handler Registration"]
+M2 --> M4["Event Publishing"]
+end
+subgraph "Heartbeat Thread Safety"
+H1["Heartbeat Manager Lock"] --> H2["Peer Monitoring"]
+H1 --> H3["Liveness Tracking"]
+end
+```
+
+**Diagram sources**
+- [engine.py:57-104](file://src/tyche/engine.py#L57-L104)
+- [module.py:53-76](file://src/tyche/module.py#L53-L76)
+- [heartbeat.py:105-153](file://src/tyche/heartbeat.py#L105-L153)
+
+**Section sources**
+- [engine.py:57-104](file://src/tyche/engine.py#L57-L104)
+- [module.py:53-76](file://src/tyche/module.py#L53-L76)
+- [heartbeat.py:105-153](file://src/tyche/heartbeat.py#L105-L153)
 
 ## Dependency Analysis
 The message system depends on:
@@ -642,6 +771,8 @@ The message system depends on:
 - Heartbeat manager for liveness monitoring.
 - **Persistence backends for durable event storage.**
 - **Schema management for ClickHouse table creation.**
+- **Administrative endpoint for engine state monitoring.**
+- **Thread-safe locking mechanisms throughout all components.**
 
 ```mermaid
 graph LR
@@ -660,6 +791,9 @@ PERS --> JL["JsonlBackend"]
 CK --> SM["SchemaManager"]
 REC["DataRecorderModule"] --> JL
 REP["ReplayModule"] --> REC
+ADM["AdminWorker"] --> ENG
+LOCK["Thread Locks"] --> ENG
+LOCK --> MOD
 ```
 
 **Diagram sources**
@@ -696,11 +830,14 @@ REP["ReplayModule"] --> REC
 - **Schema optimization**: ClickHouse events table uses optimized partitioning and ordering for time-series queries; consider indexing strategies for specific query patterns.
 - **Connection pooling**: ClickHouseBackend maintains persistent connections; configure appropriate pool sizes for high-throughput scenarios.
 - **Payload encoding**: Binary payloads are base64-encoded for storage; consider compression for large payloads to reduce storage footprint.
+- **Thread contention**: Engine uses fine-grained locking to minimize contention; avoid long-running operations within locked sections.
+- **Administrative query performance**: Admin endpoint provides non-blocking state access with minimal overhead for monitoring operations.
 
 **Section sources**
 - [clickhouse_backend.py:23-231](file://src/modules/trading/persistence/clickhouse_backend.py#L23-L231)
 - [jsonl_backend.py:20-155](file://src/modules/trading/persistence/jsonl_backend.py#L20-L155)
 - [schema.py:14-32](file://src/modules/trading/persistence/schema.py#L14-L32)
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -712,6 +849,9 @@ Common issues and resolutions:
 - **ClickHouse connectivity**: Confirm service availability, authentication credentials, and network connectivity; verify schema version and table existence.
 - **JSONL file permissions**: Ensure write permissions for data directory; check disk space availability; verify file system integrity.
 - **Query performance**: Optimize time-range filters and consider adding appropriate indexes; monitor storage utilization and query patterns.
+- **Administrative endpoint issues**: Verify admin endpoint binding and connectivity; check query syntax and response formats.
+- **Thread safety concerns**: Monitor for deadlocks or race conditions; ensure proper lock acquisition order in complex operations.
+- **Memory leaks**: Track event queue growth and topic queue TTL settings; implement proper cleanup procedures.
 
 **Section sources**
 - [test_message.py:77-91](file://tests/unit/test_message.py#L77-L91)
@@ -724,7 +864,7 @@ Common issues and resolutions:
 ## Conclusion
 Tyche Engine's message system provides a robust, high-performance foundation for distributed event-driven architectures. MessagePack serialization with custom hooks preserves Decimal precision and handles Python-native types safely. The Message and Envelope structures, combined with ZeroMQ routing patterns, enable flexible communication modes: fire-and-forget, request-response with ACK, direct P2P, and broadcast. The engine's registration, event proxy, and heartbeat mechanisms ensure reliable operation and scalability.
 
-**Updated** The addition of the event persistence layer significantly enhances the system's capabilities by providing durable event storage through configurable backends. The ClickHouseBackend offers production-grade analytics with sub-second latency and sophisticated querying capabilities, while the JsonlBackend provides a development-friendly alternative for testing and debugging. The SchemaManager ensures consistent schema deployment and versioning, supporting future evolution of the persistence layer. Together with the recording and replay modules, the system now supports comprehensive event lifecycle management from generation through archival and analysis.
+**Updated** The addition of administrative endpoint support significantly enhances operational visibility by providing real-time engine state monitoring and statistics collection. The comprehensive thread-safe operations ensure reliable multi-threaded execution across all components, preventing race conditions and maintaining system stability under load. The integration of the event persistence layer with ClickHouse and JSONL backends creates a complete solution for event-driven systems, supporting both production-scale analytics and development/testing workflows. The combination of these enhancements makes Tyche Engine suitable for enterprise-grade deployments requiring monitoring, reliability, and scalable event processing capabilities.
 
 ## Appendices
 
@@ -732,6 +872,7 @@ Tyche Engine's message system provides a robust, high-performance foundation for
 - Start the engine and module examples demonstrate end-to-end usage of the message system.
 - Example module patterns show how to implement on_*, ack_*, whisper_*, and on_common_* handlers.
 - **Persistence integration**: Configure backend selection through persistence.backend setting ("clickhouse" | "jsonl") with appropriate connection parameters.
+- **Administrative monitoring**: Use admin endpoint for engine state inspection and operational monitoring.
 
 **Section sources**
 - [run_engine.py:21-50](file://examples/run_engine.py#L21-L50)
@@ -743,6 +884,7 @@ Tyche Engine's message system provides a robust, high-performance foundation for
 - ZeroMQ socket patterns are transport-independent and can interoperate with other systems using compatible protocols.
 - **ClickHouse backend**: Supports standard SQL queries and integrates with BI tools; payload encoding maintains compatibility with external systems.
 - **JSONL format**: Human-readable and easily processable by external tools; supports streaming and batch processing workflows.
+- **Administrative endpoint**: Provides structured JSON responses compatible with monitoring and alerting systems.
 
 **Section sources**
 - [README.md:104-103](file://README.md#L104-L103)
@@ -767,6 +909,19 @@ backend = ClickHouseBackend(
 backend = JsonlBackend(data_dir="./data/recorded")
 ```
 
+**Administrative Endpoint Configuration:**
+```python
+engine = TycheEngine(
+    registration_endpoint=Endpoint("127.0.0.1", 5555),
+    event_endpoint=Endpoint("127.0.0.1", 5556),
+    heartbeat_endpoint=Endpoint("127.0.0.1", 5558),
+    heartbeat_receive_endpoint=Endpoint("127.0.0.1", 5559),
+    admin_endpoint="tcp://127.0.0.1:5560"  # Administrative endpoint
+)
+```
+
 **Section sources**
 - [clickhouse_backend.py:38-57](file://src/modules/trading/persistence/clickhouse_backend.py#L38-L57)
 - [jsonl_backend.py:34](file://src/modules/trading/persistence/jsonl_backend.py#L34)
+- [engine.py:43](file://src/tyche/engine.py#L43)
+- [types.py:13-14](file://src/tyche/types.py#L13-L14)

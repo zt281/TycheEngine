@@ -123,14 +123,14 @@ class DummyStrategy(StrategyModule):
         self.on_quote_calls: List[Quote] = []
         self.on_position_calls: List[Position] = []
 
-    def add_interface(self, name, handler, pattern=InterfacePattern.ON_STREAMING, durability=1):
+    def add_interface(self, name, handler, pattern=InterfacePattern.ON, durability=1):
         self._handlers[name] = handler
         self._interfaces.append(Interface(name=name, pattern=pattern, event_type=name, durability=durability))
 
     def on_quote(self, quote: Quote) -> None:
         self.on_quote_calls.append(quote)
 
-    def on_position_update(self, position: Position) -> None:
+    def _on_position_update(self, position: Position) -> None:
         self.on_position_calls.append(position)
 
 
@@ -153,7 +153,7 @@ class TestStrategyModule:
 
     def test_dispatch_position_update_parses_and_calls_callback(self):
         strat = self._strat()
-        strat.on_broadcasted_position_update({"instrument_id": "BTCUSDT.simulated.crypto", "side": "LONG", "quantity": "2.5", "avg_entry_price": "63000.00", "realized_pnl": "0", "unrealized_pnl": "100.00", "commission": "5.00", "last_price": "64000.00"})
+        strat.on_position_update({"instrument_id": "BTCUSDT.simulated.crypto", "side": "LONG", "quantity": "2.5", "avg_entry_price": "63000.00", "realized_pnl": "0", "unrealized_pnl": "100.00", "commission": "5.00", "last_price": "64000.00"})
         assert len(strat.on_position_calls) == 1
         pos = strat.on_position_calls[0]
         assert pos.side == PositionSide.LONG

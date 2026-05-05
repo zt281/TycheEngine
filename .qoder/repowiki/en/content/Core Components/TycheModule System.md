@@ -8,8 +8,8 @@
 - [module_main.py](file://src/tyche/module_main.py)
 - [engine.py](file://src/tyche/engine.py)
 - [types.py](file://src/tyche/types.py)
-- [message.py](file://src/tyche/message.py)
 - [heartbeat.py](file://src/tyche/heartbeat.py)
+- [events.py](file://src/modules/trading/events.py)
 - [run_module.py](file://examples/run_module.py)
 - [run_engine.py](file://examples/run_engine.py)
 - [test_module_base.py](file://tests/unit/test_module_base.py)
@@ -19,9 +19,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced type safety documentation for ExampleModule with explicit Dict[str, Any] type annotations
-- Updated communication patterns section to emphasize improved static type checking
-- Added documentation for enhanced IDE support and development experience
+- Updated interface discovery system to reflect new v3 unified queue model with simplified naming conventions (on_*, send_*)
+- Enhanced heartbeat management documentation with sophisticated monitoring and liveness tracking
+- Added administrative endpoint support documentation for engine state queries
+- Updated communication patterns to reflect the streamlined v3 interface model
+- Revised module lifecycle documentation to align with current implementation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -38,15 +40,13 @@
 
 The TycheModule system is a distributed event-driven framework built on ZeroMQ that enables asynchronous communication between heterogeneous modules. This system provides a standardized interface pattern system for event handling, automatic interface discovery, and robust module lifecycle management.
 
-The framework supports four primary communication patterns:
-- **on_** events: Fire-and-forget, load-balanced processing
-- **ack_** events: Request-response with mandatory acknowledgment
-- **whisper_** events: Direct peer-to-peer communication
-- **on_common_** events: Broadcast to all subscribers
+The framework supports a unified v3 interface model with two primary patterns:
+- **on_** events: Consumer interfaces for event processing
+- **send_** events: Producer declarations for event generation
 
-Built around the Paranoid Pirate Pattern for reliability and the ZeroMQ REQ/REP, PUB/SUB, and DEALER/ROUTER socket patterns, TycheModule ensures high-performance, scalable distributed processing.
+Built around the Paranoid Pirate Pattern for reliability and ZeroMQ's advanced socket patterns, TycheModule ensures high-performance, scalable distributed processing with sophisticated heartbeat management and administrative monitoring capabilities.
 
-**Enhanced Type Safety** The system now provides enhanced type safety through explicit Dict[str, Any] type annotations, improving static type checking and developer experience with better IDE support and IntelliSense capabilities.
+**Enhanced Interface Discovery** The system now uses a simplified v3 unified queue model where method naming determines interface patterns rather than complex routing semantics. This provides cleaner separation between interface declaration and routing behavior.
 
 ## Project Structure
 
@@ -58,6 +58,8 @@ subgraph "Core Framework"
 MB[ModuleBase]
 TM[TycheModule]
 ENG[TycheEngine]
+HB[Heartbeat System]
+ADM[Admin Endpoint]
 MSG[Message System]
 TYP[Type Definitions]
 end
@@ -65,8 +67,10 @@ subgraph "Examples"
 EM[ExampleModule]
 MM[module_main.py]
 end
+subgraph "Trading Modules"
+TEV[Trading Events]
+end
 subgraph "Utilities"
-HB[Heartbeat Manager]
 RUNM[run_module.py]
 RUNE[run_engine.py]
 end
@@ -77,24 +81,28 @@ TEM[test_example_module.py]
 end
 MB --> TM
 TM --> ENG
-TM --> MSG
-ENG --> MSG
+TM --> HB
+TM --> ADM
 ENG --> HB
+ENG --> ADM
 EM --> TM
+TEV --> ENG
 MM --> EM
 RUNM --> EM
 RUNE --> ENG
 ```
 
 **Diagram sources**
-- [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
-- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
+- [module_base.py:1-32](file://src/tyche/module_base.py#L1-L32)
+- [module.py:1-434](file://src/tyche/module.py#L1-L434)
+- [engine.py:1-200](file://src/tyche/engine.py#L1-L200)
+- [heartbeat.py:1-153](file://src/tyche/heartbeat.py#L1-L153)
+- [events.py:1-86](file://src/modules/trading/events.py#L1-L86)
 
 **Section sources**
-- [module_base.py:1-120](file://src/tyche/module_base.py#L1-L120)
-- [module.py:1-401](file://src/tyche/module.py#L1-L401)
-- [engine.py:1-350](file://src/tyche/engine.py#L1-L350)
+- [module_base.py:1-32](file://src/tyche/module_base.py#L1-L32)
+- [module.py:1-434](file://src/tyche/module.py#L1-L434)
+- [engine.py:1-200](file://src/tyche/engine.py#L1-L200)
 
 ## Core Components
 
@@ -104,20 +112,18 @@ The ModuleBase class defines the contract for all Tyche Engine modules. It estab
 
 Key responsibilities include:
 - Defining the abstract interface contract (`module_id`, `start`, `stop`)
-- Automatic interface pattern detection based on method naming conventions
+- Automatic interface pattern detection based on simplified method naming conventions
 - Event handler resolution and dispatch mechanisms
 - Pattern-based method signature validation
 
-The automatic interface discovery system analyzes method names to determine communication patterns:
-- `on_{event}` → ON pattern (fire-and-forget)
-- `ack_{event}` → ACK pattern (must return acknowledgment)
-- `whisper_{target}_{event}` → WHISPER pattern (direct P2P)
-- `on_common_{event}` → ON_COMMON pattern (broadcast to all)
+The automatic interface discovery system analyzes method names to determine interface patterns using the v3 unified queue model:
+- `on_{event}` → ON pattern (consumer interface)
+- `send_{event}` → SEND pattern (producer declaration)
 
-**Enhanced Type Safety** The ModuleBase class now enforces explicit Dict[str, Any] type annotations for all event payloads, providing better static type checking and IDE support across the entire framework.
+**Enhanced Interface Discovery** The v3 model simplifies interface patterns by separating method naming from routing semantics. All discovered interfaces are registered consistently regardless of their intended routing behavior.
 
 **Section sources**
-- [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
+- [module_base.py:1-32](file://src/tyche/module_base.py#L1-L32)
 
 ### TycheModule Implementation
 
@@ -127,8 +133,8 @@ Core features include:
 - **Network Connectivity**: ZMQ socket management for registration, event publishing/subscribing, and heartbeats
 - **Registration Protocol**: One-shot REQ/REP handshake with the engine for module registration
 - **Event Routing**: Automatic subscription to discovered interfaces and event dispatch
-- **ACK Handling**: Request-response pattern with timeout management
-- **Heartbeat Monitoring**: Integration with engine's heartbeat system for liveness detection
+- **Heartbeat Monitoring**: Integration with engine's sophisticated heartbeat system for liveness detection
+- **Administrative Support**: Integration with engine's admin endpoint for monitoring and control
 
 The module maintains separate sockets for different communication patterns:
 - REQ socket for one-time registration
@@ -136,29 +142,25 @@ The module maintains separate sockets for different communication patterns:
 - SUB socket for event subscription from engine's XPUB
 - DEALER socket for heartbeat transmission
 
-**Enhanced Type Safety** TycheModule leverages the improved type annotations from ExampleModule to provide consistent type safety across all module implementations, with explicit Dict[str, Any] annotations for payload parameters and return values.
+**Enhanced Heartbeat Management** TycheModule leverages the sophisticated heartbeat system with configurable intervals and liveness thresholds for robust module monitoring and failure detection.
 
 **Section sources**
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
+- [module.py:1-434](file://src/tyche/module.py#L1-L434)
 
 ### ExampleModule Reference Implementation
 
-ExampleModule demonstrates all interface patterns and serves as a comprehensive reference implementation. It showcases:
-- Complete interface pattern coverage (on_, ack_, whisper_, on_common_)
-- Ping-pong broadcast coordination between modules
+ExampleModule demonstrates the v3 unified queue interface patterns and serves as a comprehensive reference implementation. It showcases:
+- Complete interface pattern coverage (on_*, send_*)
+- Event chaining patterns with ping-pong coordination
 - Timer-based scheduling with proper cleanup
 - Statistics collection and reporting
 
-**Enhanced Type Safety** ExampleModule now features comprehensive Dict[str, Any] type annotations throughout all method signatures, providing:
-- Explicit payload parameter typing for all event handlers
-- Consistent return type annotations for ACK pattern handlers
-- Improved static type checking and IDE IntelliSense support
-- Better development experience with compile-time type validation
+**Enhanced Interface Patterns** ExampleModule demonstrates the simplified v3 interface model where all event handlers follow consistent naming conventions without complex routing semantics.
 
-This module illustrates best practices for implementing custom modules while maintaining clean separation of concerns and enhanced type safety.
+This module illustrates best practices for implementing custom modules while maintaining clean separation of concerns and consistent interface patterns.
 
 **Section sources**
-- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
+- [example_module.py:1-164](file://src/tyche/example_module.py#L1-L164)
 
 ## Architecture Overview
 
@@ -169,6 +171,7 @@ sequenceDiagram
 participant Module as "TycheModule"
 participant Engine as "TycheEngine"
 participant Broker as "ZeroMQ Broker"
+participant Admin as "Admin Endpoint"
 Note over Module,Engine : Registration Phase
 Module->>Engine : REQ REGISTER {module_id, interfaces}
 Engine->>Engine : Validate interfaces
@@ -176,51 +179,47 @@ Engine->>Module : ACK {event_pub_port, event_sub_port}
 Note over Module,Engine : Runtime Phase
 Module->>Broker : PUB events (XPUB/XSUB)
 Broker->>Module : SUB events (XPUB/XSUB)
-Module->>Engine : DEALER ACK requests
-Engine->>Module : ROUTER ACK responses
-Note over Module,Engine : Heartbeat Phase
-Module->>Engine : HEARTBEAT broadcasts
-Engine->>Module : HEARTBEAT monitoring
+Module->>Engine : DEALER heartbeats
+Engine->>Module : ROUTER heartbeat monitoring
+Note over Module,Engine : Administrative Phase
+Module->>Admin : Query engine state
+Admin->>Module : Return status information
 Note over Module,Engine : Cleanup Phase
 Module->>Engine : Graceful shutdown
 Engine->>Module : Unregister module
 ```
 
 **Diagram sources**
-- [module.py:200-255](file://src/tyche/module.py#L200-L255)
-- [engine.py:144-177](file://src/tyche/engine.py#L144-L177)
+- [module.py:178-316](file://src/tyche/module.py#L178-L316)
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
 
 The architecture leverages ZeroMQ's advanced socket patterns:
 - **REQ/REP**: One-time registration handshake
 - **XPUB/XSUB**: Event routing and distribution
 - **DEALER/ROUTER**: Reliable request-response with identity preservation
-- **PUB/SUB**: Heartbeat monitoring and broadcast communication
+- **ROUTER/DEALER**: Administrative queries and monitoring
 
-**Enhanced Type Safety** The architecture now benefits from consistent type annotations across all communication layers, ensuring type safety from the application layer through the ZeroMQ transport layer.
+**Enhanced Administrative Support** The architecture now includes comprehensive administrative capabilities through dedicated admin endpoints for monitoring and control.
 
 **Section sources**
-- [engine.py:25-350](file://src/tyche/engine.py#L25-L350)
-- [module.py:13-401](file://src/tyche/module.py#L13-L401)
+- [engine.py:1-200](file://src/tyche/engine.py#L1-L200)
+- [module.py:1-434](file://src/tyche/module.py#L1-L434)
 
 ## Detailed Component Analysis
 
 ### Interface Discovery System
 
-The automatic interface discovery mechanism provides a powerful abstraction that eliminates manual interface registration boilerplate:
+The automatic interface discovery mechanism provides a powerful abstraction that eliminates manual interface registration boilerplate using the v3 unified queue model:
 
 ```mermaid
 flowchart TD
 Start([Method Inspection]) --> GetMethods["Inspect all methods"]
 GetMethods --> CheckName{"Method name starts with?"}
-CheckName --> |on_common_| AddCommon["Add ON_COMMON interface"]
-CheckName --> |whisper_| AddWhisper["Add WHISPER interface"]
-CheckName --> |ack_| AddAck["Add ACK interface"]
 CheckName --> |on_| AddOn["Add ON interface"]
+CheckName --> |send_| AddSend["Add SEND interface"]
 CheckName --> |Other| Skip["Skip method"]
-AddCommon --> CreateInterface["Create Interface definition"]
-AddWhisper --> CreateInterface
-AddAck --> CreateInterface
-AddOn --> CreateInterface
+AddOn --> CreateInterface["Create Interface definition"]
+AddSend --> CreateInterface
 CreateInterface --> StoreInterfaces["Store in interface list"]
 Skip --> NextMethod["Check next method"]
 StoreInterfaces --> NextMethod
@@ -230,14 +229,14 @@ CheckComplete --> |No| ReturnInterfaces["Return discovered interfaces"]
 ```
 
 **Diagram sources**
-- [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
+- [module.py:106-123](file://src/tyche/module.py#L106-L123)
 
-The discovery system supports four distinct interface patterns, each with specific behavioral guarantees and method signature requirements.
+The discovery system supports two distinct interface patterns, each with specific behavioral guarantees and method signature requirements.
 
-**Enhanced Type Safety** The interface discovery system now validates method signatures against the enhanced Dict[str, Any] type annotations, ensuring that all discovered interfaces maintain consistent type safety standards.
+**Enhanced Interface Model** The v3 unified queue model simplifies interface patterns by focusing on consumption vs production rather than complex routing semantics, making the system more intuitive and maintainable.
 
 **Section sources**
-- [module_base.py:48-84](file://src/tyche/module_base.py#L48-L84)
+- [module.py:92-123](file://src/tyche/module.py#L92-L123)
 
 ### Event Handler Registration and Dispatch
 
@@ -249,28 +248,23 @@ class ModuleBase {
 +module_id : str
 +start() : void
 +stop() : void
-+discover_interfaces() : List[Interface]
-+get_handler(event : str) : Callable
-+handle_event(event : str, payload : Dict[str, Any]) : Any
 }
 class TycheModule {
 -context : zmq.Context
 -pub_socket : zmq.Socket
 -sub_socket : zmq.Socket
 -heartbeat_socket : zmq.Socket
-+add_interface(name : str, handler : Callable, pattern : InterfacePattern)
-+send_event(event : str, payload : Dict[str, Any], recipient : Optional[str])
-+call_ack(event : str, payload : Dict[str, Any], timeout_ms : int)
++interfaces : List[Interface]
++send_event(event : str, payload : Dict[str, Any])
 +run() : void
 +stop() : void
 }
 class ExampleModule {
 +on_data(payload : Dict[str, Any]) : None
-+ack_request(payload : Dict[str, Any]) : Dict[str, Any]
-+whisper_target_message(payload : Dict[str, Any], sender : Optional[str]) : None
-+on_common_broadcast(payload : Dict[str, Any]) : None
-+on_common_ping(payload : Dict[str, Any]) : None
-+on_common_pong(payload : Dict[str, Any]) : None
++on_message(payload : Dict[str, Any]) : None
++on_broadcast(payload : Dict[str, Any]) : None
++send_ping(payload : Dict[str, Any]) : None
++send_pong(payload : Dict[str, Any]) : None
 +start_ping_pong() : void
 +get_stats() : Dict[str, Any]
 }
@@ -279,11 +273,11 @@ TycheModule <|-- ExampleModule
 ```
 
 **Diagram sources**
-- [module_base.py:10-120](file://src/tyche/module_base.py#L10-L120)
-- [module.py:28-401](file://src/tyche/module.py#L28-L401)
-- [example_module.py:19-183](file://src/tyche/example_module.py#L19-L183)
+- [module_base.py:1-32](file://src/tyche/module_base.py#L1-L32)
+- [module.py:1-434](file://src/tyche/module.py#L1-L434)
+- [example_module.py:1-164](file://src/tyche/example_module.py#L1-L164)
 
-**Enhanced Type Safety** The event handler system now enforces consistent Dict[str, Any] type annotations across all handler registrations, providing better static type checking and preventing type-related runtime errors.
+**Enhanced Interface Patterns** The v3 model provides consistent interface registration where all discovered methods are treated uniformly, simplifying the handler registration process.
 
 ### Module Lifecycle Management
 
@@ -308,48 +302,34 @@ The lifecycle includes:
 3. **Runtime**: Event processing and heartbeat maintenance
 4. **Cleanup**: Resource destruction and graceful shutdown
 
-**Enhanced Type Safety** The module lifecycle now benefits from consistent type annotations throughout all phases, ensuring type safety from initialization through cleanup and preventing type-related issues during resource management.
+**Enhanced Heartbeat Integration** The module lifecycle now includes sophisticated heartbeat management with configurable intervals and liveness monitoring for robust failure detection.
 
 **Section sources**
-- [module.py:116-197](file://src/tyche/module.py#L116-L197)
+- [module.py:178-258](file://src/tyche/module.py#L178-L258)
 
 ### Communication Patterns Implementation
 
-Each communication pattern has specific implementation requirements and behavioral guarantees:
+Each communication pattern has specific implementation requirements and behavioral guarantees using the v3 unified queue model:
 
-#### ON Pattern (Fire-and-forget)
+#### ON Pattern (Consumer Interfaces)
 - Method signature: `on_{event}(payload: Dict[str, Any]) -> None`
-- Behavior: Asynchronous processing without acknowledgment
-- Use cases: Background processing, telemetry, logging
+- Behavior: Event consumption without acknowledgment
+- Use cases: Data processing, event handling, business logic execution
 
-#### ACK Pattern (Request-Response)
-- Method signature: `ack_{event}(payload: Dict[str, Any]) -> Dict[str, Any]`
-- Behavior: Synchronous processing with mandatory acknowledgment
-- Use cases: Critical operations, financial transactions
+#### SEND Pattern (Producer Declarations)
+- Method signature: `send_{event}(payload: Dict[str, Any]) -> None`
+- Behavior: Event generation without inbound handler registration
+- Use cases: Data production, event publishing, system notifications
 
-#### WHISPER Pattern (Direct P2P)
-- Method signature: `whisper_{target}_{event}(payload: Dict[str, Any], sender: Optional[str]) -> None`
-- Behavior: Direct peer-to-peer communication bypassing engine routing
-- Use cases: Private module-to-module communication
-
-#### ON_COMMON Pattern (Broadcast)
-- Method signature: `on_common_{event}(payload: Dict[str, Any]) -> None`
-- Behavior: Broadcast to all subscribers without load balancing
-- Use cases: Consensus protocols, state synchronization
-
-**Enhanced Type Safety** All communication patterns now enforce explicit Dict[str, Any] type annotations, providing:
-- Consistent payload typing across all interface patterns
-- Improved static type checking for event handlers
-- Better IDE support with IntelliSense and autocomplete
-- Compile-time type validation for custom module implementations
+**Enhanced Interface Model** The v3 model eliminates the complexity of routing semantics by separating interface declaration from routing behavior, making the system more intuitive and maintainable.
 
 **Section sources**
-- [module_base.py:13-17](file://src/tyche/module_base.py#L13-L17)
-- [types.py:51-58](file://src/tyche/types.py#L51-L58)
+- [module.py:92-104](file://src/tyche/module.py#L92-L104)
+- [types.py:54-63](file://src/tyche/types.py#L54-L63)
 
 ### Heartbeat and Reliability
 
-The system implements the Paranoid Pirate Pattern for reliable worker monitoring:
+The system implements sophisticated heartbeat monitoring using the Paranoid Pirate Pattern for reliable worker monitoring:
 
 ```mermaid
 sequenceDiagram
@@ -361,20 +341,51 @@ Module->>Engine : HEARTBEAT {status : "alive"}
 Engine->>HBMgr : Update module liveness
 HBMgr->>HBMgr : Decrement liveness counter
 HBMgr->>HBMgr : Check expiration
+alt Module expired
+Engine->>Module : Unregister expired module
 end
-Note over HBMgr : Monitor expired modules
-HBMgr->>Engine : Unregister expired modules
+end
 ```
 
 **Diagram sources**
-- [heartbeat.py:91-142](file://src/tyche/heartbeat.py#L91-L142)
-- [engine.py:307-350](file://src/tyche/engine.py#L307-L350)
+- [heartbeat.py:16-153](file://src/tyche/heartbeat.py#L16-L153)
+- [engine.py:559-568](file://src/tyche/engine.py#L559-L568)
 
-**Enhanced Type Safety** The heartbeat system now benefits from consistent type annotations, ensuring type safety in heartbeat message processing and liveness monitoring.
+**Enhanced Heartbeat Management** The heartbeat system now includes sophisticated monitoring with configurable intervals, liveness thresholds, and automatic cleanup of expired modules.
 
 **Section sources**
-- [heartbeat.py:16-142](file://src/tyche/heartbeat.py#L16-L142)
-- [engine.py:279-350](file://src/tyche/engine.py#L279-L350)
+- [heartbeat.py:16-153](file://src/tyche/heartbeat.py#L16-L153)
+- [engine.py:559-568](file://src/tyche/engine.py#L559-L568)
+
+### Administrative Endpoint Support
+
+The engine provides comprehensive administrative capabilities through dedicated endpoints for monitoring and control:
+
+```mermaid
+sequenceDiagram
+participant Client as "Admin Client"
+participant Admin as "Admin Endpoint"
+participant Engine as "TycheEngine"
+Client->>Admin : STATUS query
+Admin->>Engine : Process request
+Engine->>Engine : Collect metrics
+Engine->>Admin : Return status data
+Admin->>Client : Status response
+Client->>Admin : MODULES query
+Admin->>Engine : Process request
+Engine->>Engine : List modules
+Engine->>Admin : Return module list
+Admin->>Client : Modules response
+```
+
+**Diagram sources**
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
+- [heartbeat.py:91-153](file://src/tyche/heartbeat.py#L91-L153)
+
+**Enhanced Administrative Capabilities** The administrative endpoint provides comprehensive monitoring capabilities including module status, system metrics, and real-time health monitoring.
+
+**Section sources**
+- [engine.py:570-660](file://src/tyche/engine.py#L570-L660)
 
 ## Dependency Analysis
 
@@ -386,6 +397,8 @@ subgraph "External Dependencies"
 ZMQ[ZeroMQ]
 MSGPACK[MessagePack]
 THREADING[Threading]
+ENDPOINT[Network Endpoints]
+HEARTBEAT[Heartbeat Constants]
 end
 subgraph "Internal Dependencies"
 TYPES[types.py]
@@ -395,6 +408,8 @@ MODULE[module.py]
 ENGINE[engine.py]
 HEARTBEAT[heartbeat.py]
 EXAMPLE[example_module.py]
+EVENTS[events.py]
+ENDPOINTS[Endpoint Configuration]
 end
 MODULE --> BASE
 MODULE --> TYPES
@@ -403,7 +418,9 @@ MODULE --> ZMQ
 ENGINE --> TYPES
 ENGINE --> MESSAGE
 ENGINE --> HEARTBEAT
+ENGINE --> ENDPOINTS
 EXAMPLE --> MODULE
+EVENTS --> TYPES
 MODULE_MAIN --> EXAMPLE
 RUN_MODULE --> EXAMPLE
 RUN_ENGINE --> ENGINE
@@ -413,20 +430,21 @@ MESSAGE --> TYPES
 
 **Diagram sources**
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
-- [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
-- [message.py:10-11](file://src/tyche/message.py#L10-L11)
+- [engine.py:14-23](file://src/tyche/engine.py#L14-L23)
+- [events.py:1-17](file://src/modules/trading/events.py#L1-L17)
 
 The dependency graph reveals a well-structured system where:
 - Core functionality is isolated in base classes
 - Network concerns are encapsulated in specialized modules
-- Examples demonstrate proper usage patterns with enhanced type safety
+- Examples demonstrate proper usage patterns with consistent interface models
+- Trading modules showcase real-world event patterns and routing
 - Tests validate system behavior without external dependencies
 
-**Enhanced Type Safety** The dependency analysis now includes the impact of enhanced type annotations, which improve static type checking across all internal dependencies while maintaining clean separation of concerns.
+**Enhanced Administrative Integration** The dependency analysis now includes administrative endpoint support, which provides comprehensive monitoring and control capabilities across the entire system.
 
 **Section sources**
 - [module.py:13-23](file://src/tyche/module.py#L13-L23)
-- [engine.py:10-20](file://src/tyche/engine.py#L10-L20)
+- [engine.py:14-23](file://src/tyche/engine.py#L14-L23)
 
 ## Performance Considerations
 
@@ -450,7 +468,7 @@ The TycheModule system is designed for high-performance distributed processing w
 - **Weak References**: Prevent circular references in event routing
 - **Context Management**: Proper socket lifecycle management
 
-**Enhanced Type Safety** The performance considerations now include the benefits of static type checking, which can help catch type-related issues at development time rather than runtime, potentially reducing debugging overhead and improving overall system reliability.
+**Enhanced Heartbeat Optimization** The heartbeat system includes optimized timing and liveness tracking to minimize overhead while maintaining reliable monitoring capabilities.
 
 ## Troubleshooting Guide
 
@@ -476,11 +494,11 @@ The TycheModule system is designed for high-performance distributed processing w
 **Causes**: Heartbeat timeouts, network latency, system overload
 **Solutions**: Adjust heartbeat intervals, increase liveness thresholds, monitor system resources
 
-**Enhanced Type Safety** With improved type annotations, developers can now catch type-related issues earlier in the development process, reducing debugging time and improving code quality. Static type checking helps prevent common runtime errors related to incorrect payload types or missing return values.
+**Enhanced Administrative Monitoring** With administrative endpoints, developers can now monitor system health and performance in real-time, providing better visibility into system behavior and potential issues.
 
 **Section sources**
-- [module.py:247-254](file://src/tyche/module.py#L247-L254)
-- [engine.py:341-350](file://src/tyche/engine.py#L341-L350)
+- [module.py:241-258](file://src/tyche/module.py#L241-L258)
+- [engine.py:636-646](file://src/tyche/engine.py#L636-L646)
 
 ### Debugging Strategies
 
@@ -489,30 +507,23 @@ The TycheModule system is designed for high-performance distributed processing w
 3. **Validate Interface Patterns**: Ensure method signatures match expected patterns
 4. **Test Network Connectivity**: Verify ZeroMQ socket connectivity and routing
 5. **Profile Performance**: Measure event processing latency and throughput
-6. **Static Type Checking**: Leverage enhanced type annotations for early error detection
+6. **Query Administrative State**: Use admin endpoints for system monitoring
+7. **Monitor Heartbeat Health**: Track module liveness and failure detection
 
-**Enhanced Type Safety** The debugging strategy now includes leveraging the enhanced type safety features, which provide:
-- Early detection of type-related issues during development
-- Improved IDE support with better IntelliSense and autocomplete
-- Compile-time validation of method signatures and return types
-- Reduced debugging time through static type checking
+**Enhanced Monitoring Capabilities** The debugging strategy now includes leveraging administrative endpoints for comprehensive system monitoring and health assessment.
 
 ## Conclusion
 
 The TycheModule system provides a robust foundation for building distributed, event-driven applications. Its design emphasizes:
 
-- **Flexibility**: Four distinct communication patterns accommodate diverse use cases
-- **Reliability**: ZeroMQ patterns and heartbeat monitoring ensure fault tolerance
-- **Performance**: Asynchronous processing and efficient socket management maximize throughput
-- **Maintainability**: Clear abstractions and automatic interface discovery reduce boilerplate code
-- **Type Safety**: Enhanced Dict[str, Any] type annotations improve static type checking and developer experience
+- **Simplicity**: Unified v3 interface model with clean on_/send_ patterns
+- **Reliability**: Sophisticated heartbeat monitoring and failure detection
+- **Performance**: Asynchronous processing and efficient socket management
+- **Maintainability**: Clear abstractions and automatic interface discovery
+- **Observability**: Comprehensive administrative endpoints for monitoring and control
 
-**Enhanced Type Safety** The recent improvements to type safety through explicit Dict[str, Any] type annotations provide significant benefits:
-- Better static type checking with improved IDE support and IntelliSense
-- Earlier detection of type-related issues during development
-- Consistent type annotations across all interface patterns
-- Enhanced development experience with compile-time type validation
+**Enhanced Administrative Support** The recent improvements to administrative capabilities provide comprehensive monitoring and control over the entire system, enabling better observability and operational management.
 
-The system successfully balances simplicity with power, enabling developers to build complex distributed systems while maintaining clean, testable code. The comprehensive example implementation and extensive test coverage provide excellent guidance for extending the framework with custom modules.
+The system successfully balances simplicity with power, enabling developers to build complex distributed systems while maintaining clean, testable code. The comprehensive example implementation and extensive test coverage provide excellent guidance for extending the framework with custom modules using the streamlined v3 interface model.
 
-Future enhancements could include dynamic module loading, plugin architectures, and enhanced monitoring capabilities, all while maintaining the core design principles that make TycheModule an effective distributed computing platform.
+Future enhancements could include dynamic module loading, enhanced monitoring capabilities, and expanded administrative functionality, all while maintaining the core design principles that make TycheModule an effective distributed computing platform.

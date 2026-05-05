@@ -37,12 +37,13 @@
 ## Update Summary
 **Changes Made**
 - Enhanced CTP gateway with sophisticated connection state machine featuring exponential backoff and auto-reconnect
+- Added comprehensive persistence layer with ClickHouse and JSONL backends for event storage
+- Integrated state machine into gateway lifecycle management for improved reliability
+- Enhanced position handling with accumulator-based aggregation for better performance
+- Improved order submission with full CTP protocol compliance including time-in-force mapping
 - Added advanced order types including STOP and STOP_LIMIT with comprehensive CTP protocol mapping
 - Integrated Offset enum support for precise position management (OPEN/CLOSE/CLOSE_TODAY/CLOSE_YESTERDAY)
 - Implemented comprehensive error event publishing system for better observability
-- Added new persistence layer with ClickHouse and JSONL backends for event storage
-- Improved position handling with accumulator-based aggregation for better performance
-- Enhanced order submission with full CTP protocol compliance including time-in-force mapping
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -796,14 +797,21 @@ B --> |STOP| D[ANY Price + Stop Price]
 B --> |STOP_LIMIT| E[LIMIT Price + Stop Price]
 B --> |MARKET| F[ANY Price Type]
 C --> G[Contingent Condition: Immediately]
-D --> H[Contingent Condition: Touch]
-E --> I[Contingent Condition: Touch]
+B --> |IOC| H[Immediate Or Cancel]
+B --> |FOK| I[Fill Or Kill]
+B --> |GTC| J[Good Till Cancelled]
+C --> G
+D --> K[Contingent Condition: Touch]
+E --> L[Contingent Condition: Touch]
 F --> G
-G --> J[Submit to CTP]
-H --> J
-I --> J
-J --> K[Track Order Ref Mapping]
-K --> L[Monitor Status Updates]
+H --> G
+I --> G
+J --> G
+G --> M[Submit to CTP]
+K --> M
+L --> M
+M --> N[Track Order Ref Mapping]
+N --> O[Monitor Status Updates]
 ```
 
 **Diagram sources**
@@ -1090,7 +1098,7 @@ The system is optimized for high-frequency trading with several performance-crit
 
 ### Async Persistence Architecture
 
-The framework implements an innovative async persistence mechanism that maintains sub-microsecond hot-path latency while ensuring data durability:
+The framework implements an innovative async persistence mechanism that maintains sub-microsecond hot-path latency while ensuring data durability and recovery capabilities:
 
 ```mermaid
 flowchart LR

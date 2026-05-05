@@ -134,7 +134,7 @@ class MovingAverageCrossStrategy(StrategyModule):
                 tag="ema_cross_sell",
             )
 
-    def on_order_update(self, update: OrderUpdate) -> None:
+    def _on_order_update(self, update: OrderUpdate) -> None:
         """Log order status changes."""
         logger.info(
             "[%s] Order %s: %s (filled=%s @ %s)",
@@ -145,7 +145,7 @@ class MovingAverageCrossStrategy(StrategyModule):
             update.avg_fill_price,
         )
 
-    def on_position_update(self, position: Position) -> None:
+    def _on_position_update(self, position: Position) -> None:
         """Log position changes."""
         logger.info(
             "[%s] Position %s: %s qty=%s pnl=%s",

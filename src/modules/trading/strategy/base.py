@@ -76,11 +76,11 @@ class StrategyModule(TycheModule):
         """Called when an order is filled (optional override)."""
         pass
 
-    def on_order_update(self, update: OrderUpdate) -> None:
+    def _on_order_update(self, update: OrderUpdate) -> None:
         """Called on order status change (optional override)."""
         pass
 
-    def on_position_update(self, position: Position) -> None:
+    def _on_position_update(self, position: Position) -> None:
         """Called when position changes (optional override)."""
         pass
 
@@ -114,20 +114,28 @@ class StrategyModule(TycheModule):
         self.ctx._update_bar(bar)
         self.on_bar(bar)
 
-    def on_broadcasted_order_update(self, payload: Dict[str, Any]) -> None:
-        """Handle order update broadcasts."""
-        update = OrderUpdate.from_dict(payload)
+    def on_order_update(self, payload: Any) -> None:
+        """Handle order update broadcasts (dict from engine or OrderUpdate from tests)."""
+        if isinstance(payload, dict):
+            update = OrderUpdate.from_dict(payload)
+            strategy_id = payload.get("strategy_id")
+        else:
+            update = payload
+            strategy_id = getattr(payload, "strategy_id", None)
         # Only forward updates for orders belonging to this strategy
-        if payload.get("strategy_id") == self.module_id or not payload.get("strategy_id"):
-            self.on_order_update(update)
+        if strategy_id == self.module_id or not strategy_id:
+            self._on_order_update(update)
 
-    def on_broadcasted_position_update(self, payload: Dict[str, Any]) -> None:
-        """Handle position update broadcasts."""
-        position = Position.from_dict(payload)
+    def on_position_update(self, payload: Any) -> None:
+        """Handle position update broadcasts (dict from engine or Position from tests)."""
+        if isinstance(payload, dict):
+            position = Position.from_dict(payload)
+        else:
+            position = payload
         self.ctx._update_position(position)
-        self.on_position_update(position)
+        self._on_position_update(position)
 
-    def on_broadcasted_system_clock(self, payload: Dict[str, Any]) -> None:
+    def on_system_clock(self, payload: Dict[str, Any]) -> None:
         """Handle system clock broadcasts."""
         timestamp = payload.get("timestamp", 0.0)
         self.ctx._update_clock(timestamp)

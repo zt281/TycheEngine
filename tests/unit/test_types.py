@@ -1,6 +1,7 @@
 """Tests for core type definitions."""
 
 from tyche.types import (
+    BackpressureStrategy,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_LIVENESS,
     DurabilityLevel,
@@ -57,13 +58,17 @@ def test_event_type_values():
 
 
 def test_interface_pattern_values():
-    """InterfacePattern enum has expected v2 categories and prefixes."""
-    assert InterfacePattern.ON_BROADCASTED.value == "on_broadcasted"
-    assert InterfacePattern.HANDLE_BROADCASTED.value == "handle_broadcasted"
-    assert InterfacePattern.ON_WHISPERED.value == "on_whispered"
-    assert InterfacePattern.HANDLE_WHISPERED.value == "handle_whispered"
-    assert InterfacePattern.ON_STREAMING.value == "on_streaming"
-    assert InterfacePattern.HANDLE_STREAMING.value == "handle_streaming"
+    """InterfacePattern enum has v3 ON and SEND only."""
+    assert InterfacePattern.ON.value == "on"
+    assert InterfacePattern.SEND.value == "send"
+    assert len(InterfacePattern) == 2
+
+
+def test_backpressure_strategy_values():
+    """BackpressureStrategy enum has expected members."""
+    assert BackpressureStrategy.DROP_OLDEST.value == "drop_oldest"
+    assert BackpressureStrategy.DROP_NEWEST.value == "drop_newest"
+    assert BackpressureStrategy.BLOCK_PRODUCER.value == "block_producer"
 
 
 def test_durability_levels():
@@ -87,13 +92,15 @@ def test_heartbeat_constants():
 
 
 def test_interface_dataclass_defaults():
-    """Interface dataclass has correct default durability."""
+    """Interface dataclass has correct default durability and backpressure."""
     iface = Interface(
-        name="on_streaming_data",
-        pattern=InterfacePattern.ON_STREAMING,
-        event_type="on_streaming_data",
+        name="on_data",
+        pattern=InterfacePattern.ON,
+        event_type="data",
     )
     assert iface.durability == DurabilityLevel.ASYNC_FLUSH
+    assert iface.backpressure == BackpressureStrategy.DROP_OLDEST
+    assert iface.max_queue_depth == 10000
 
 
 def test_module_info_dataclass():

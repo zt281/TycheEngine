@@ -64,12 +64,12 @@ class DataRecorderModule(TycheModule):
         """Record bar events."""
         self._record_event(payload)
 
-    def on_broadcasted_fill(self, payload: Dict[str, Any]) -> None:
+    def on_fill(self, payload: Dict[str, Any]) -> None:
         """Record fill events."""
         if self._record_fills:
             self._record_event(payload)
 
-    def on_broadcasted_order_update(self, payload: Dict[str, Any]) -> None:
+    def on_order_update(self, payload: Dict[str, Any]) -> None:
         """Record order update events."""
         if self._record_orders:
             self._record_event(payload)

@@ -1,10 +1,9 @@
-"""Example Module demonstrating all Tyche v2 interface patterns.
+"""Example Module demonstrating Tyche v3 unified queue interface model.
 
 This module serves as a reference implementation showing:
-- on_broadcasted_{event}: Fire-and-forget broadcast
-- handle_broadcasted_{event}: Request-response broadcast
-- on_whispered_{event}: Direct P2P message
-- on_streaming_{event}: Continuous data stream
+- on_{event}: Fire-and-forget event handler
+- send_{event}: Producer declaration (optional, for pre-warming queues)
+- Event chaining: on_ping receives, schedules pong response
 """
 
 import random
@@ -16,13 +15,13 @@ from tyche.types import Endpoint, ModuleId
 
 
 class ExampleModule(TycheModule):
-    """Example module with all v2 interface patterns.
+    """Example module with v3 unified queue patterns.
 
     Demonstrates:
-    - on_streaming_data: Streaming data handler
-    - handle_broadcasted_request: Request-response handler
-    - on_whispered_message: Direct P2P handler
-    - on_broadcasted_broadcast: Broadcast event handler
+    - on_data: Generic event handler
+    - on_message: Generic event handler
+    - on_broadcast: Generic event handler
+    - on_ping/on_pong: Event chaining pattern
 
     Args:
         engine_endpoint: TycheEngine registration endpoint
@@ -79,54 +78,27 @@ class ExampleModule(TycheModule):
             self._pending_timers.append(timer)
             timer.start()
 
-    def on_streaming_data(self, payload: Dict[str, Any]) -> None:
-        """Handle streaming data events.
+    # ── Event handlers (on_*) ────────────────────────────────────
 
-        Pattern: on_streaming_{event}
-        """
-        self.received_events.append({"event": "on_streaming_data", "payload": payload})
+    def on_data(self, payload: Dict[str, Any]) -> None:
+        """Handle generic data events."""
+        self.received_events.append({"event": "on_data", "payload": payload})
 
-    def handle_broadcasted_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle request with acknowledgment.
-
-        Pattern: handle_broadcasted_{event}
-        """
-        self.request_count += 1
-        request_id = payload.get("request_id", "unknown")
-
-        return {
-            "status": "acknowledged",
-            "request_id": request_id,
-            "module_id": self.module_id,
-            "count": self.request_count,
-        }
-
-    def on_whispered_message(
-        self,
-        payload: Dict[str, Any],
-        sender: Optional[str] = None,
-    ) -> None:
-        """Handle direct P2P whisper message.
-
-        Pattern: on_whispered_{event}
-        """
+    def on_message(self, payload: Dict[str, Any]) -> None:
+        """Handle generic message events."""
         self.received_events.append(
-            {"event": "on_whispered_message", "payload": payload, "sender": sender}
+            {"event": "on_message", "payload": payload}
         )
 
-    def on_broadcasted_broadcast(self, payload: Dict[str, Any]) -> None:
-        """Handle broadcast events to ALL subscribers.
-
-        Pattern: on_broadcasted_{event}
-        """
+    def on_broadcast(self, payload: Dict[str, Any]) -> None:
+        """Handle broadcast events to ALL subscribers."""
         self.received_events.append(
-            {"event": "on_broadcasted_broadcast", "payload": payload}
+            {"event": "on_broadcast", "payload": payload}
         )
 
-    def on_broadcasted_ping(self, payload: Dict[str, Any]) -> None:
-        """Handle ping broadcast - respond with pong after random delay.
+    def on_ping(self, payload: Dict[str, Any]) -> None:
+        """Handle ping event — respond with pong after random delay.
 
-        Pattern: on_broadcasted_{event}
         Echoes back the same value from the ping payload in the pong reply.
         Skips responding if the ping came from this module itself.
         """
@@ -139,11 +111,30 @@ class ExampleModule(TycheModule):
         delay = random.uniform(0.1, 0.9)
         self._schedule_timer(delay, lambda: self._broadcast_pong(value))
 
+    def on_pong(self, payload: Dict[str, Any]) -> None:
+        """Handle pong event."""
+        sender = payload.get("sender")
+        if sender == self.module_id:
+            return
+        self.pong_count += 1
+
+    # ── Producer declarations (send_*) ───────────────────────────
+
+    def send_ping(self, payload: Dict[str, Any]) -> None:
+        """Declare intent to publish ping events (optional documentation)."""
+        self.send_event("ping", payload)
+
+    def send_pong(self, payload: Dict[str, Any]) -> None:
+        """Declare intent to publish pong events (optional documentation)."""
+        self.send_event("pong", payload)
+
+    # ── Internal helpers ─────────────────────────────────────────
+
     def _broadcast_ping(self) -> None:
         """Broadcast a ping message to all modules with a random value."""
         if self._running:
             value = random.randint(0, 100)
-            self.send_event("on_broadcasted_ping", {"sender": self.module_id, "value": value})
+            self.send_event("ping", {"sender": self.module_id, "value": value})
             delay = random.uniform(0, 3)
             self._schedule_timer(delay, self._broadcast_ping)
 
@@ -153,7 +144,7 @@ class ExampleModule(TycheModule):
             payload: Dict[str, Any] = {"sender": self.module_id}
             if value is not None:
                 payload["value"] = value
-            self.send_event("on_broadcasted_pong", payload)
+            self.send_event("pong", payload)
 
     def start_ping_pong(self) -> None:
         """Start the ping-pong cycle by broadcasting initial ping."""
