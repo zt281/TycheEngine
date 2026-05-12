@@ -1,0 +1,65 @@
+name: Sync to GitHub Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.qoder/repowiki/en/content/**'
+      - '.github/workflows/wiki-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone wiki repository
+        run: |
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git" wiki || true
+          if [ ! -d "wiki/.git" ]; then
+            rm -rf wiki
+            mkdir wiki
+            cd wiki
+            git init
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git"
+          fi
+
+      - name: Sync wiki content
+        run: |
+          cd wiki
+
+          # Remove existing tracked and untracked content (preserve .git)
+          git ls-files | xargs -r -I{} rm -f "{}"
+          git clean -fdx
+
+          # Copy markdown files from repowiki content directory
+          cd "${{ github.workspace }}"
+          find .qoder/repowiki/en/content -type f -name '*.md' | while read -r file; do
+            rel="${file#.qoder/repowiki/en/content/}"
+            target="wiki/$rel"
+            mkdir -p "$(dirname "$target")"
+            cp "$file" "$target"
+          done
+
+          # Set Home.md from Project Overview if it exists
+          if [ -f ".qoder/repowiki/en/content/Project Overview.md" ]; then
+            cp ".qoder/repowiki/en/content/Project Overview.md" "wiki/Home.md"
+          fi
+
+      - name: Commit and push wiki changes
+        run: |
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No wiki changes to sync."
+          else
+            git commit -m "Sync wiki from ${{ github.sha }}"
+            git push origin HEAD:master
+          fi

@@ -1,0 +1,19 @@
+[submodule "wiki"]
+	path = .qoder/repowiki/en
+	url = https://github.com/zt281/TycheEngine.wiki.git
+[submodule "tui"]
+	path = tui
+	url = https://github.com/zt281/TycheTUI.git
+[submodule "third_party/cppzmq"]
+	path = third_party/cppzmq
+	url = https://github.com/zeromq/cppzmq.git
+[submodule "third_party/msgpack-c"]
+	path = third_party/msgpack-c
+	url = https://github.com/msgpack/msgpack-c.git
+	branch = cpp_master
+[submodule "third_party/libzmq"]
+	path = third_party/libzmq
+	url = https://github.com/zeromq/libzmq.git
+[submodule "third_party/pybind11"]
+	path = third_party/pybind11
+	url = https://github.com/pybind/pybind11.git

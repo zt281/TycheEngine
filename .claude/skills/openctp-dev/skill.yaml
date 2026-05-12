@@ -1,0 +1,9 @@
+name: openctp-dev
+description: Development guide for openCTP (CTP futures trading API) in Python and C++
+version: 1.0.0
+triggers:
+  - openctp
+  - ctp
+  - futures trading api
+  - thosttraderapi
+  - thostmduserapi

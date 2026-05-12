@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Pre-push hook: run CI lint checks before pushing to remote.
+# Fails the push if ruff or mypy reports errors.
+
+echo "Running pre-push lint checks..."
+
+# Ruff lint check
+echo "  -> python -m ruff check src tests"
+if ! python -m ruff check src tests; then
+    echo ""
+    echo "ERROR: ruff check failed. Push aborted."
+    exit 1
+fi
+
+# Mypy type check
+echo "  -> python -m mypy src"
+if ! python -m mypy src; then
+    echo ""
+    echo "ERROR: mypy check failed. Push aborted."
+    exit 1
+fi
+
+echo ""
+echo "All lint checks passed. Proceeding with push."
+exit 0

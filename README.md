@@ -2,24 +2,57 @@
   <img src="resources/logo/tycheengine_logo_v5_4k_white.jpg" alt="Tyche Engine Logo" width="400">
 </p>
 
+<p align="center">
+  <a href="https://github.com/zt281/TycheEngine/actions/workflows/ci.yml">
+    <img src="https://github.com/zt281/TycheEngine/workflows/CI/badge.svg" alt="CI Status">
+  </a>
+  <a href="https://codecov.io/gh/zt281/TycheEngine">
+    <img src="https://codecov.io/gh/zt281/TycheEngine/branch/main/graph/badge.svg" alt="Coverage">
+  </a>
+  <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python 3.9+">
+  <a href="https://github.com/zt281/TycheEngine/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/zt281/TycheEngine" alt="License">
+  </a>
+</p>
+
 # Tyche Engine
 
-Tyche Engine is a high-performance distributed event-driven framework written in Python, built on ZeroMQ. It serves as a central processing system for orchestrating multi-process applications. The system consists of two core components:
-- Event Management
-- Module Management
+Tyche Engine is a high-performance distributed event-driven framework written in Python, built on ZeroMQ. It serves as a central processing system for orchestrating multi-process applications, with a focus on quantitative trading workflows. The system consists of two core components:
+- **Event Management** — ZeroMQ-based message broker with topic routing, unified per-topic queues, and async persistence
+- **Module Management** — Pluggable module lifecycle, heartbeat-based liveness, and v3 auto-discovery interface model
 
 ## Architecture Overview
 
-Tyche Engine uses ZeroMQ as its messaging backbone, leveraging specific socket patterns for different communication needs:
+Tyche Engine is designed as a **multi-process distributed system**. The Engine and each Module run as separate operating system processes, communicating exclusively via ZeroMQ. This provides true process isolation, CPU scaling across cores, and the ability to distribute across machines.
 
-| Communication Pattern | ZeroMQ Pattern | Socket Types | Purpose |
-|----------------------|----------------|--------------|---------|
-| Module Registration | Request-Reply | REQ (Module) → ROUTER (Engine) | Initial handshake and interface discovery |
-| Event Broadcasting | Pub-Sub | XPUB/XSUB Proxy | Fire-and-forget event distribution |
-| Load-Balanced Work | Pipeline | PUSH → PULL | Distributing tasks across homogeneous workers |
-| Whisper (P2P) | DEALER-ROUTER | DEALER ↔ ROUTER | Direct async module-to-module communication |
-| Heartbeat | Pub-Sub | PUB (Engine) / SUB (Modules) | Health monitoring and failure detection |
-| ACK Responses | DEALER-ROUTER | ROUTER (Engine) → DEALER (Source) | Asynchronous acknowledgments |
+```
+Process A                    Process B                    Process C
++------------------+         +------------------+         +------------------+
+|   TycheEngine    |<──ZMQ──>|  ExampleModule   |<──ZMQ──>|  ExampleModule   |
+|    (engine.py)   |         |  (module.py)     |         |  (module.py)     |
++------------------+         +------------------+         +------------------+
+```
+
+Tyche Engine uses ZeroMQ as its messaging backbone. The engine runs **8 daemon threads** managing a unified topic-queue system:
+
+| Thread | Socket | Purpose |
+|--------|--------|---------|
+| Registration | ROUTER | Receive module registration requests |
+| Event Proxy | XPUB/XSUB | Route events via per-topic unified queues |
+| Event Egress | (internal) | Drain topic queues and broadcast via XPUB |
+| Heartbeat Send | PUB | Broadcast engine heartbeats to all modules |
+| Heartbeat Recv | ROUTER | Receive module heartbeats |
+| Monitor | (internal) | Check liveness, unregister expired modules |
+| Admin | ROUTER | Respond to STATUS/MODULES/QUEUES/STATS queries |
+
+Module socket architecture:
+
+| Socket | Pattern | Purpose |
+|--------|---------|---------|
+| REQ | Request-Reply | One-shot registration handshake |
+| PUB | Pub-Sub | Publish events to engine's XSUB |
+| SUB | Pub-Sub | Subscribe to events from engine's XPUB |
+| DEALER | DEALER-ROUTER | Send heartbeats to engine |
 
 ### Multi-Instance Engine Coordination
 
@@ -33,9 +66,8 @@ When running multiple Tyche Engine instances for high availability:
 
 Modules are the smallest unit for integrating with Tyche Engine. They can be:
 
-- **Heterogeneous**: Asynchronous independent processes that automatically register their event handling interfaces, event broadcasting interfaces, and single-point communication interfaces (called "Whisper") with Tyche Engine according to the same standard module discovery protocol.
-
-- **Homogeneous**: Multiple instances started with nearly identical configurations (except for CPU core binding) as multi-node modules, exposing the same event handling interfaces, broadcasting interfaces, and single-point communication interfaces to Tyche Engine for load balancing.
+- **Heterogeneous**: Asynchronous independent processes that automatically register their event handling interfaces with Tyche Engine via the v3 unified queue interface discovery protocol.
+- **Homogeneous**: Multiple instances started with nearly identical configurations (except for CPU core binding) as multi-node modules, exposing the same interfaces to Tyche Engine for load balancing.
 
 Tyche Engine itself is also a module and can start multiple instances for load balancing.
 
@@ -44,69 +76,103 @@ Tyche Engine itself is also a module and can start multiple instances for load b
 A standard module must have the following:
 
 - **Module Type**: The category or class of the module
-- **Module Name (UUID)**: Assigned by Tyche Engine, guaranteed to be unique (format: `{deity_name}{6-char MD5}`)
+- **Module Name (UUID)**: Assigned by Tyche Engine, guaranteed to be unique (format: `{deity_name}{6-char hex}`, e.g. `athena3f2a1b`)
 - **Module Settings**: Including CPU core binding, heartbeat interval, timeout thresholds, and restart limits
-- **Interface Contract**: Methods following the naming conventions below
+- **Interface Contract**: Methods following the v3 naming conventions below
 
-#### Event Handling Interfaces
+#### v3 Unified Queue Interface Model
 
-| Interface Pattern | ZeroMQ Pattern | Behavior | Use Case |
-|------------------|----------------|----------|----------|
-| `on_{event}` | PUSH-PULL | Fire-and-forget, load-balanced across workers | Background processing, no response needed |
-| `ack_{event}` | DEALER-ROUTER | Must reply with ACK within timeout | Critical operations requiring confirmation |
-| `whisper_{target}_{event}` | DEALER-ROUTER | Direct P2P, bypasses Engine routing | Module-to-module private communication |
-| `on_common_{event}` | PUB-SUB | Broadcast to ALL subscribers, no load balancing | Consensus, cache invalidation, state sync |
+Modules declare handlers using naming conventions discovered automatically at registration:
 
-**Important Design Notes:**
-- `ack_{event}` uses idempotent operation assumption — modules must handle duplicate ACK requests gracefully
-- `whisper` interfaces are established during registration; both modules must consent to the P2P channel
-- `on_common` events have no back-pressure protection — ensure subscribers can keep up or implement Suicidal Snail pattern
+| Pattern | Prefix | Semantics | Example |
+|---------|--------|-----------|---------|
+| **ON** | `on_*` | Consumer interface — receives events on this topic | `on_data`, `on_order_submit`, `on_fill` |
+| **SEND** | `send_*` | Producer declaration — declares intent to publish | `send_ping`, `send_pong` |
 
-#### Broadcasting Interfaces
+Routing semantics (broadcast, stream, or targeted) are determined by subscriber configuration, not method name prefixes. The v3 model uses unified per-topic queues with configurable backpressure (`DROP_OLDEST`, `DROP_NEWEST`, `BLOCK_PRODUCER`).
 
-- `broadcast_{event}`: Publishes event to XPUB socket; Tyche Engine routes to matching SUB subscribers
+**Handler registration details:**
+- Methods defined on `TycheModule` itself are skipped
+- Abstract methods are skipped (subclasses implement these as callbacks)
+- For `on_*` handlers, both the full name and bare topic name are registered (e.g., `on_data` subscribes to both `on_data` and `data`)
 
 ### Events
 
 Events are the smallest unit of communication between modules registered in Tyche Engine.
 
 Each event consists of:
-- **Event name**: Topic identifier for routing (string)
+- **Event name**: Topic identifier for routing (string), e.g. `quote.BTCUSDT.simulated.crypto`, `order.submit`
 - **Event ID**: Unique UUID for idempotency tracking
 - **Timestamp**: Unix timestamp with microsecond precision
 - **Source module**: Sender's assigned UUID
-- **Data**: Serialized payload (MessagePack recommended)
+- **Data**: Serialized payload (MessagePack with custom Decimal encoder)
 - **Processing hints**: Optional QoS, priority, TTL
 
 ### Event Delivery Guarantees
 
-| Pattern | Delivery | Ordering | Failure Mode |
-|---------|----------|----------|--------------|
-| `on_` | At-least-once | FIFO per producer | Retry with exponential backoff |
-| `ack_` | At-least-once with confirmation | FIFO | Timeout → retry → dead letter |
-| `whisper_` | Best-effort or confirmed (configurable) | FIFO | Connection failure → fallback to Engine |
-| `on_common_` | Best-effort (no guarantee) | None | Drop if subscriber slow |
-| `broadcast_` | Best-effort | None | Drop if subscriber slow |
+| Delivery Mode | Guarantee | Ordering | Failure Mode |
+|---------------|-----------|----------|--------------|
+| Pub-Sub (topic broadcast) | At-least-once | FIFO per producer | Retry with exponential backoff |
+| Best-effort broadcast | Best-effort (no guarantee) | None | Drop if subscriber slow |
+
+## Trading Domain Modules
+
+Built on top of the core framework, Tyche Engine provides a complete quantitative trading domain:
+
+| Module | Purpose | Location |
+|--------|---------|----------|
+| **Gateway** | Exchange connectivity (CTP, simulated) | `src/modules/trading/gateway/` |
+| **OMS** | Order lifecycle management and routing | `src/modules/trading/oms/` |
+| **Risk** | Pre-trade risk validation rules engine | `src/modules/trading/risk/` |
+| **Portfolio** | Position tracking and P&L calculation | `src/modules/trading/portfolio/` |
+| **Strategy** | Strategy framework with context and callbacks | `src/modules/trading/strategy/` |
+| **Persistence** | Pluggable event storage (ClickHouse, JSONL) | `src/modules/trading/persistence/` |
+| **Store** | Data recording and deterministic replay | `src/modules/trading/store/` |
+| **Clock** | Live and simulated time synchronization | `src/modules/trading/clock/` |
+
+### Order Submission Flow
+
+```
+StrategyModule
+    -> submit_order() via StrategyContext
+    -> send_event("order.submit", order_dict)
+    -> TycheEngine XSUB socket -> TopicQueue -> XPUB socket
+    -> RiskModule (on_order_submit handler)
+       -> Evaluates risk rules via RiskRuleEngine
+       -> If approved: send_event("order.approved", order_dict)
+       -> If rejected: send_event("order.rejected", {...})
+    -> OMSModule (on_order_approved handler)
+       -> Stores order in OrderStore, routes to Gateway
+    -> GatewayModule (on_order_execute handler)
+       -> Calls venue API, publishes fills and order updates
+```
 
 ## Message Management
 
-Tyche Engine implements **Async Persistence** to support production trading, backtesting, and research workflows without blocking the hot path:
+Tyche Engine implements **pluggable async persistence** to support production trading, backtesting, and research workflows without blocking the hot path.
+
+### Persistence Backends
+
+| Backend | Use Case | Features |
+|---------|----------|----------|
+| **ClickHouse** | Production | High-throughput columnar storage, SQL queries, schema versioning |
+| **JSON Lines** | Development / Testing | Simple file-based storage, human-readable, date-partitioned |
 
 ### Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                         HOT PATH (Sub-millisecond)                   │
-│  Module ──▶ Event Router ──▶ Handler ──▶ Lock-free Ring Buffer ──▶   │
-│                                          (SPSC, memory-mapped)       │
+│  Module ──▶ Event Router ──▶ Handler ──▶ Continue processing         │
+│                                          (no blocking)               │
 └─────────────────────────────────────────┬────────────────────────────┘
                                           │
-                                          ▼ (async handoff)
+                                          ▼ (async, batched)
 ┌──────────────────────────────────────────────────────────────────────┐
 │                     PERSISTENCE SERVICE (Background)                 │
 │  ┌─────────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
 │  │ Batch Processor │─▶│ WAL Writer   │  │ Recovery & Replay Store  │ │
-│  │ (100ms/1000 evt)│  │ (crash-safe) │  │                          │ │
+│  │ (1s / 5000 evt) │  │ (crash-safe) │  │ (JSONL / ClickHouse)     │ │
 │  └─────────────────┘  └──────────────┘  └──────────────────────────┘ │
 │           │                    │                    │                │
 │           ▼                    ▼                    ▼                │
@@ -129,14 +195,13 @@ Events can specify their durability requirement at the time of publication:
 
 ### Async Persistence Mechanism
 
-1. **Lock-free Ring Buffer**: Single-producer, single-consumer (SPSC) queue between hot path and persistence thread
-   - Default capacity: 1M events (~256MB, configurable)
-   - Memory-mapped for crash recovery of buffer state
-   - Sequence numbers ensure strict ordering
+1. **Batching**: Events are batched before writing to the backend
+   - Batch size: 5000 events OR 1s timeout (whichever comes first)
+   - Amortizes I/O cost across many events
 
-2. **Batching**: Events are batched before writing to disk
-   - Batch size: 1000 events OR 100ms timeout (whichever comes first)
-   - Amortizes disk I/O cost across many events
+2. **Pluggable Backends**: `PersistenceBackend` abstract base with `InsertResult`/`QueryResult`
+   - `ClickHouseBackend`: HTTP client with parameterized queries, `DateTime64(3)` support, schema versioning via `schema_meta` table
+   - `JsonlBackend`: Date-partitioned JSON Lines files (`{data_dir}/{date}/{instrument}_{event_type}.jsonl`)
 
 3. **Backpressure Handling**: If persistence falls behind:
    - **Drop oldest** (research mode): Acceptable loss for analysis
@@ -146,14 +211,14 @@ Events can specify their durability requirement at the time of publication:
 ### Operating Modes
 
 #### Live Trading Mode
-Standard operation with async persistence to WAL for crash recovery.
+Standard operation with async persistence to ClickHouse or WAL for crash recovery.
 
 #### Backtesting Mode
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Replay Store   │────▶│  Backtest       │────▶│  Tyche Engine   │
 │  (historical    │     │  Controller     │     │  (same code     │
-│   events)       │     │  (simulated     │     │   path as live) │
+│   events)       │     │  (simulated     │     │  path as live)  │
 └─────────────────┘     │   time)         │     └─────────────────┘
                         └─────────────────┘              │
                                                          ▼
@@ -162,7 +227,7 @@ Standard operation with async persistence to WAL for crash recovery.
                                                  │  (PnL, fills)   │
                                                  └─────────────────┘
 ```
-- Events replayed at simulated time (deterministic)
+- Events replayed at simulated time (deterministic) via `ReplayModule` + `SimulatedClock`
 - Same engine code path as live trading
 - Outputs captured for strategy evaluation
 
@@ -176,7 +241,7 @@ All events captured with rich metadata:
 
 | Scenario | Recovery Mechanism |
 |----------|-------------------|
-| Engine crash | Replay WAL from last checkpoint + ring buffer snapshot |
+| Engine crash | Replay WAL from last checkpoint |
 | Module crash | Redeliver un-ACKed messages to available workers |
 | Persistence lag | Resume from last committed sequence number |
 | Disk full | Alert operators, pause new accepts, allow reads |
@@ -186,7 +251,7 @@ All events captured with rich metadata:
 | Metric | Target | Notes |
 |--------|--------|-------|
 | Hot path latency | <10μs | Python + ZeroMQ inproc |
-| Persistence latency | 100ms (batched) | Amortized via batching |
+| Persistence latency | 1s (batched) | Amortized via batching |
 | Recovery time | <1s | From WAL checkpoint |
 | Backtest throughput | >100K events/sec | Limited by CPU, not I/O |
 
@@ -298,18 +363,18 @@ ZeroMQ provides the right balance of performance and reliability patterns for Ty
 
 | Decision | Alternative | Rationale |
 |----------|-------------|-----------|
+| v3 Unified Queue (on_*/send_*) | ack_/whisper_/on_common_ prefixes | Simpler interface model; routing by subscriber config, not method name |
 | PUB-SUB for broadcasts | Message queue | True broadcast needed for consensus events |
 | PUSH-PULL for load balancing | Round-robin REQ-REP | Better back-pressure, natural load distribution |
-| DEALER-ROUTER for P2P | Direct TCP | Identity-based routing, async capability |
-| Async persistence | Synchronous disk write | Keeps hot path fast; supports backtesting/research |
-| Lock-free ring buffer | ZeroMQ PUSH-PULL | Lower latency, memory-mapped for crash recovery |
+| Async persistence (ClickHouse/JSONL) | Synchronous disk write | Keeps hot path fast; supports backtesting/research |
+| Pluggable backend abstraction | Single backend | Supports both production (ClickHouse) and dev/test (JSONL) |
 | Binary Star for HA | Active-Active | Simpler consistency, prevents split-brain |
 | Deity-based naming | UUID-only | Human-readable + unique |
 
 ### Known Limitations
 
 1. **No total ordering across producers**: Events from different producers may be processed out of order relative to each other
-2. **Best-effort broadcast**: `on_common_` events may be dropped by slow subscribers
+2. **Best-effort broadcast**: Events may be dropped by slow subscribers; use `ASYNC_FLUSH` or `SYNC_FLUSH` for critical data
 3. **Memory pressure**: Default ZeroMQ high-water marks apply; tune for your workload
 4. **Single-engine bottleneck**: Single instance limits throughput; scale via multi-instance with shared storage
 
@@ -324,6 +389,38 @@ ZeroMQ provides the right balance of performance and reliability patterns for Ty
 | Exactly-once semantics | Implement idempotency in handlers + async WAL |
 | Backtesting large datasets | Use Parquet format, streaming replay |
 | Research data export | Batch to HDF5/Parquet, avoid CSV for large datasets |
+
+## Terminal UI Dashboard
+
+Tyche Engine includes a real-time terminal dashboard that is both a **monitor** and a **process supervisor**. Built with OpenTUI and Bun, it displays live events, module health, and engine stats while also managing the lifecycle of engine and module processes directly from the terminal.
+
+### Features
+
+- **Live monitoring**: Real-time event stream, module health, heartbeat status, and engine statistics
+- **Process management**: Start, stop, restart, and force-kill engine and module processes
+- **Dependency resolution**: Auto-starts processes in topological order based on `dependsOn`
+- **Module filtering**: Select a module to filter the event log to that sender only
+- **Microsecond timestamps**: Event log shows `HH:MM:SS.mmmuuu` with inline payload preview
+- **Keyboard navigation**: `Tab` cycles through processes and modules; all controls are keyboard-driven
+
+See [tui/README.md](tui/README.md) for full documentation.
+
+**Quick Start — TUI as Supervisor:**
+
+```bash
+# Terminal 1: Start the TUI (auto-launches engine and modules)
+cd tui && bun install && bun run start --config tyche-processes.json
+```
+
+**Quick Start — Connect to Existing Engine:**
+
+```bash
+# Terminal 1: Start the engine
+python examples/run_engine.py
+
+# Terminal 2: Start the TUI dashboard
+cd tui && bun run start
+```
 
 ## References
 
