@@ -114,6 +114,5 @@ class Interface:
 class ModuleInfo:
     """Module registration information."""
     module_id: str
-    endpoint: Endpoint
     interfaces: List[Interface]
     metadata: Dict[str, Any]

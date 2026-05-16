@@ -174,7 +174,6 @@ struct Interface {
 // Module registration information.
 struct ModuleInfo {
     std::string module_id;
-    Endpoint endpoint;
     std::vector<Interface> interfaces;
     Payload metadata;
 };

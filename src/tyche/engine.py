@@ -351,7 +351,6 @@ class TycheEngine:
 
         return ModuleInfo(
             module_id=module_id,
-            endpoint=Endpoint("127.0.0.1", 0),
             interfaces=interfaces,
             metadata=msg.payload.get("metadata", {}),
         )

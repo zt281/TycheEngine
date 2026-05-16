@@ -2,11 +2,11 @@
 
 ## What This Is
 
-A high-performance distributed event-driven trading engine built on ZeroMQ. TycheEngine provides the core broker, module lifecycle, heartbeat protocol, and message routing. Trading modules plug into the engine and communicate via pub/sub and request/response patterns. This milestone adds database persistence so all events can be recorded for replay, audit, and analysis.
+A high-performance distributed event-driven trading engine built on ZeroMQ. TycheEngine provides the core broker, module lifecycle, heartbeat protocol, and message routing. Trading modules plug into the engine and communicate via pub/sub and request/response patterns.
 
 ## Core Value
 
-All events flowing through TycheEngine can be persisted to a database for replay, audit, and analysis — with zero configuration for local development (SQLite) and production-grade throughput (ClickHouse).
+A modular, multi-process trading system where domain-specific modules (gateway, OMS, risk, portfolio, strategy) connect to a central event broker and communicate through standardized pub/sub and request/response patterns, with events persisted for replay and analysis.
 
 ## Evolution
 
@@ -25,17 +25,19 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
-## Current Milestone: v1.0 Persistence Module
+## Current Milestone: v1.1 Trading Gateway
 
-**Goal:** A pluggable database persistence module that subscribes to TycheEngine message queue events and writes them to ClickHouse (with SQLite fallback), fully tested and registerable with the engine.
+**Goal:** A market data and order execution gateway module that connects TycheEngine to external exchanges (starting with CTP), normalizes exchange-specific protocols into standard Tyche events, and provides clean connection lifecycle management.
 
 **Target features:**
-- ClickHouse backend for high-throughput event persistence
-- SQLite fallback backend for local/dev use
-- Module integrates with TycheEngine's pub/sub system via `TycheModule` base class
-- Configurable event filtering (which event types to persist)
-- Batch/buffered writes for efficiency
-- Unit and integration tests
+- Simulated exchange gateway for local development and backtesting
+- CTP (China Futures) gateway for production market data and order routing
+- Unified gateway base class/protocol for future exchange adapters
+- Market data normalization (quote, trade, bar events from exchange-native formats)
+- Order submission, cancellation, and fill reporting through the gateway
+- Connection state machine (disconnected, connecting, connected, error, disconnected)
+- Reconnection logic with exponential backoff
+- Heartbeat integration with the engine's liveness monitoring
 
 ## Requirements
 
@@ -45,29 +47,38 @@ This document evolves at phase transitions and milestone boundaries.
 
 ### Active
 
-- [ ] A `PersistenceModule` that subscribes to engine events and writes them to a database backend
-- [ ] ClickHouse backend for high-throughput production deployments
-- [ ] SQLite backend for local development and testing (zero-config fallback)
-- [ ] Configurable event type filtering (subscribe to all or subset)
-- [ ] Batch/buffered writes for efficiency (not per-event DB round-trip)
-- [ ] Clean module lifecycle: `start()` connects DB, `stop()` flushes buffer and closes gracefully
-- [ ] Unit tests with mocked DB connections verifying write logic
-- [ ] Integration tests proving real DB writes for events, market data, and order/position snapshots
+- [ ] A `GatewayBase` protocol/ABC that defines the interface all exchange gateways implement
+- [ ] `SimulatedGateway` for local dev — generates synthetic quotes, trades, and fills
+- [ ] `CTPGateway` that wraps the CTP API for market data and trading
+- [ ] Market data normalization: exchange-native formats → Tyche events (quote, trade, bar)
+- [ ] Order flow: engine events → exchange-native orders, cancellations
+- [ ] Fill reporting: exchange fills → Tyche `fill` events
+- [ ] Connection state machine with events: `gateway_connecting`, `gateway_connected`, `gateway_disconnected`, `gateway_error`
+- [ ] Automatic reconnection with configurable retry policy
+- [ ] Gateway registers as a `TycheModule` with appropriate interfaces (on_quote, send_order_submit, etc.)
+- [ ] Unit tests for simulated gateway (no external dependencies)
+- [ ] Unit tests for CTP gateway with mocked CTP API
+- [ ] Integration test: gateway + engine end-to-end with simulated exchange
 
 ### Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Schema migration management | Initial schema setup only, no versioning |
-| Query/read interface for persisted data | Write-only for this milestone; reads come later |
-| Real-time analytics on persisted data | Defer to v2 |
-| Multi-database replication or clustering | Single database instance per module |
-| GUI or CLI for browsing persisted events | Engine admin queries sufficient for now |
-| Trading modules (gateway, OMS, risk, portfolio) | Separate milestone after persistence is solid |
+| Multiple simultaneous exchange connections | Single gateway instance per exchange for now |
+| FIX protocol gateway | CTP is the primary target; FIX comes later |
+| WebSocket/crypto exchange gateways | Futures focus first; crypto later |
+| Real-time P&L calculation | Portfolio module responsibility |
+| Pre-trade risk checks | Risk module responsibility |
+| Market data persistence | Persistence module responsibility (v1.0) |
+| GUI for gateway status | TUI dashboard handles this |
 
 ## Context
 
 TycheEngine is a ZeroMQ-based event broker for trading systems. It supports module registration, heartbeat monitoring, event pub/sub via XPUB/XSUB, and job routing. The engine already has `TycheModule` (in `src/tyche/module.py`) which handles socket setup and event discovery.
+
+Event constants exist in `src/tyche/events.py` for market data (QUOTE, TRADE, BAR), order flow (ORDER_SUBMIT, ORDER_APPROVED, ORDER_REJECTED, ORDER_EXECUTE, ORDER_CANCEL, ORDER_UPDATE), fills (FILL), portfolio (POSITION_UPDATE, ACCOUNT_UPDATE), and risk (RISK_ALERT).
+
+The `src/modules/` package is currently empty (just `__init__.py`) — this is where trading domain modules live.
 
 Key files in the existing codebase:
 - `src/tyche/engine.py` — `TycheEngine` broker
@@ -81,20 +92,21 @@ Key files in the existing codebase:
 
 ## Constraints
 
-- **Tech stack**: Python 3.9+, ZeroMQ, msgpack, pytest. ClickHouse driver + sqlite3 (stdlib).
-- **Module location**: `src/tyche/persistence/` (new package)
-- **Test runtime**: Unit tests < 5 seconds; integration tests may take longer for DB setup
+- **Tech stack**: Python 3.9+, ZeroMQ, msgpack, pytest
+- **Module location**: `src/modules/gateway/` (new package)
+- **CTP API**: `openctp-ctp` Python bindings or direct CTP C++ API via pybind11
+- **Test runtime**: Unit tests < 5 seconds; integration tests may take longer for connection setup
 - **Module pattern**: All modules inherit from `TycheModule`, use `on_*` for consumers, `send_*` for producers
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| ClickHouse primary, SQLite fallback | ClickHouse for columnar analytics throughput; SQLite for zero-config dev/test | — Pending |
-| Subscribe to all events by default, filter configurable | Easiest to use; filtering is opt-in optimization | — Pending |
-| Buffer/batch writes | Per-event DB round-trip would bottleneck the engine's dispatch path | — Pending |
-| Use `TycheModule` base class | Avoid re-implementing socket boilerplate; follows engine conventions | — Pending |
-| Persistence before trading modules | Events need a place to go before trading logic generates them | — Pending |
+| Gateway as TycheModule | Follows engine conventions; gets heartbeat, pub/sub, registration for free | — Pending |
+| Simulated gateway first | Enables development and testing without external exchange credentials | — Pending |
+| CTP as first real exchange | Primary target market; CTP is the standard Chinese futures API | — Pending |
+| GatewayBase ABC, not just protocol | ABC enforces interface compliance at import time | — Pending |
+| Gateway before OMS/risk/portfolio | Gateway is the outermost layer; other modules consume gateway events | — Pending |
 
 ---
-*Last updated: 2026-05-14 after milestone v1.0 started*
+*Last updated: 2026-05-15 after milestone v1.1 started*
