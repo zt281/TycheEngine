@@ -88,6 +88,8 @@ enum class EventType {
 enum class InterfacePattern {
     ON,
     SEND,
+    HANDLE,
+    REQUEST,
 };
 
 enum class BackpressureStrategy {
@@ -110,6 +112,7 @@ enum class MessageType {
     REGISTER,
     ACK,
     RESPONSE,
+    REQUEST,
 };
 
 // ── String conversion helpers ─────────────────────────────────────
@@ -123,6 +126,7 @@ inline const char* message_type_to_str(MessageType t) {
         case MessageType::REGISTER:  return "reg";
         case MessageType::ACK:       return "ack";
         case MessageType::RESPONSE:  return "resp";
+        case MessageType::REQUEST:   return "req";
     }
     return "evt";
 }
@@ -134,16 +138,27 @@ inline MessageType message_type_from_str(const std::string& s) {
     if (s == "reg")  return MessageType::REGISTER;
     if (s == "ack")  return MessageType::ACK;
     if (s == "resp") return MessageType::RESPONSE;
+    if (s == "req")  return MessageType::REQUEST;
     return MessageType::EVENT;
 }
 
 // String conversion for InterfacePattern (matches Python InterfacePattern.value)
 inline const char* interface_pattern_to_str(InterfacePattern p) {
     switch (p) {
-        case InterfacePattern::ON:   return "on";
-        case InterfacePattern::SEND: return "send";
+        case InterfacePattern::ON:      return "on";
+        case InterfacePattern::SEND:    return "send";
+        case InterfacePattern::HANDLE:  return "handle";
+        case InterfacePattern::REQUEST: return "request";
     }
     return "on";
+}
+
+inline InterfacePattern interface_pattern_from_str(const std::string& s) {
+    if (s == "on")      return InterfacePattern::ON;
+    if (s == "send")    return InterfacePattern::SEND;
+    if (s == "handle")  return InterfacePattern::HANDLE;
+    if (s == "request") return InterfacePattern::REQUEST;
+    return InterfacePattern::ON;
 }
 
 // ── Structs ────────────────────────────────────────────────────────

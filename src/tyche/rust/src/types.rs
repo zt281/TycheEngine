@@ -106,12 +106,28 @@ pub struct ReceivedEvent {
 // Enums (for type-safe APIs)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum InterfacePattern {
     #[serde(rename = "on")]
     On,
     #[serde(rename = "send")]
     Send,
+    #[serde(rename = "handle")]
+    Handle,
+    #[serde(rename = "request")]
+    Request,
+}
+
+impl InterfacePattern {
+    /// Return the string value matching Python InterfacePattern.value.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Send => "send",
+            Self::Handle => "handle",
+            Self::Request => "request",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -130,7 +146,7 @@ impl Default for DurabilityLevel {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum MessageType {
     #[serde(rename = "cmd")]
     Command,
@@ -144,4 +160,6 @@ pub enum MessageType {
     Ack,
     #[serde(rename = "resp")]
     Response,
+    #[serde(rename = "req")]
+    Request,
 }

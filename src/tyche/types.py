@@ -2,9 +2,9 @@
 
 import random
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # Paranoid Pirate Pattern constants
 HEARTBEAT_INTERVAL = 1.0  # seconds
@@ -108,6 +108,7 @@ class Interface:
     durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH
     backpressure: BackpressureStrategy = BackpressureStrategy.DROP_OLDEST
     max_queue_depth: int = 10000
+    wait_timeout: Optional[float] = None
 
 
 @dataclass
@@ -116,3 +117,5 @@ class ModuleInfo:
     module_id: str
     interfaces: List[Interface]
     metadata: Dict[str, Any]
+    family_name: str = ""
+    admin_handlers: Dict[str, Callable] = field(default_factory=dict)

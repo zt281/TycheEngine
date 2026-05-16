@@ -14,6 +14,7 @@ from tyche.engine import TycheEngine
 from tyche.heartbeat import HeartbeatManager, HeartbeatMonitor, HeartbeatSender
 from tyche.message import Envelope, Message, deserialize, serialize
 from tyche.module import TycheModule
+from tyche.dead_letter import DeadLetterStore
 from tyche.module_base import ModuleBase
 from tyche.types import (
     HEARTBEAT_INTERVAL,
@@ -55,4 +56,6 @@ __all__ = [
     "ModuleBase",
     "TycheModule",
     "TycheEngine",
+    # Dead Letter
+    "DeadLetterStore",
 ]
