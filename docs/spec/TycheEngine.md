@@ -1,61 +1,335 @@
-# Tyche Engine Spec Design
-## Definition of the Job
-The smallest unit the mesasge queue handle is a 'job', which has at least these attributes:
-- type: broadcast|callback
-- sender: the specific id of the sender module
-- handler: the name of the handler which can handle the job
-- wait-timeout: this indicates the maximum time of a job can stay waiting in the queue, and the engine will return an error to the sender if this timeout is reached, then persist the job detail to a file
-- run-timeout: this is only mandatory for callback job, indicating the maximum time of running in the handler
-- param: the job parameters, this is optional
+# Tyche Engine Architecture Design
 
-## Definition of the module
-A module is the basic unit of a service endpoint of the system. A module is a single process which can be coded by differnt languages as long as it following the tyche message protocol, it can communicate with other tyche modules via tyche engine.
+> **Status:** Draft v1 — replaces `docs/design/unified_queue_design_v1.md`
+> **Date:** 2026-05-16
 
-A module can be running in the same machine of the tyche engine, or running in a different physical node and connects to the engine via internet or other ways of communication.
+## Overview
 
-A module has at least these attributes:
-- family name: shows which type of module it is
-- module id: the unique module id which is given by tyche engine, as the identifier if the engine needs to find a specific module instance
-- admin handlers: handlers expose to the tyche engine to handle the lifecycle of the module instance, including health check, availability check and other commands like respawning and decommision
-- handlers: the actual job handlers this module has. The module will hold a dictionary indicating what kinds of job a handler will handle, and a job buffer queue indicating the maximum pending job each handler can have
+Tyche Engine is a high-performance distributed job-routing framework built on ZeroMQ. This design replaces the prior event-centric unified-queue model with an explicit **job-centric** abstraction. The smallest unit of work is a **job**; the engine's sole responsibility is to receive, queue, route, and (for callback jobs) guarantee delivery of jobs to registered module handlers.
 
-## Definition of the engine
-The engine is basically a job router: it receives registration requests from modules, spawing/subscribing corresponding message queues based on the handler information, and routing jobs to handlers based on the previous registrations.
+Modules remain isolated OS processes. All inter-module communication flows through the engine. There is no direct module-to-module socket.
 
-The engine manages three attributes:
-- lifecycle of modules: register, health/availability check, decomission;
-- lifecycle of message queue: spawning, health, especially capacity management;
-- lifecycle of jobs: routing, waiting, ordering, delivering with promise-to-deliver or try-to-deliver policy;
+---
 
-## Lifecycle management
+## System Topology
 
-### 1. Lifecycle of the jobs
-The tyche engine need to handle the lifecycle of the job: 
+```
+                              +---------------------------+
+                              |      TycheEngine          |
+                              |                           |
+   Module A                   |  +---------------------+  |                   Module B
+   +------------------+       |  |  Per-topic queues   |  |            +------------------+
+   |  on_tick         |<------|--|  (broadcast/callback)|  |----------->|  on_tick         |
+   |  handle_compute  |<------|--|                     |  |            |  on_bar          |
+   |  send_bar        |------>|  |  Job router         |  |            |  handle_compute  |
+   |  request_compute |------>|  |  (ROUTER-DEALER)    |  |            |  request_compute |
+   +------------------+       |  +---------------------+  |            +------------------+
+          |                   |         ^   |              |                  ^
+          | PUB/XSUB          |         |   | XPUB/SUB     |                  | SUB
+          v                   |   [ingress] [egress]       |                  |
+        [frames] ------------>|         |   |              |                [frames]
+                              +---------|---|--------------+
+                                        |   |
+                              +---------|---|--------------+
+                              |    Admin / Heartbeat       |
+                              +----------------------------+
+```
 
-#### Broadcast job
-If the job is a broadcast job, the engine does not guarantee if the job is delivered to all subscribers(try-to-deliver policy), however, it guarantees the job is broadcasted by subscribers only once.
+### Socket Layout
 
-If the broadcasted job reaches its waiting timeout, it will be poped out from the message queue and persisted in the file.
+| Socket | Pattern | Bind/Connect | Purpose |
+|--------|---------|--------------|---------|
+| Registration | REQ ↔ ROUTER | Engine binds | Module handshake, interface discovery |
+| Event ingress | PUB → XSUB | Engine binds | Module-published events enter engine queues |
+| Event egress | XPUB → SUB | Engine binds | Engine broadcasts events to subscribers |
+| Job routing | DEALER ↔ ROUTER | Engine binds | Callback job request/response routing |
+| Heartbeat send | PUB | Engine binds | Engine broadcasts heartbeat ticks |
+| Heartbeat recv | ROUTER | Engine binds | Modules report liveness + handler availability |
 
-#### Callback job
-If the job is a callback job, the engine guarantees the job is delivered to an available subscriber(promise-to-deliver), and guarantees the job is done with a return value. The engine must deliver the job to another available handler if the previous handler is timed out.
+---
 
-If the callback job reaches its waiting timeout, it will be poped out from the message queue and persisted in the file.
+## Definitions
 
-### 2. Lifecycle of the message queue
-The tyche engine will create a message queue when:
-- the tyche engine start up, it will only creates a heartbeat message queue and an admin message queue
-- when a module registers to the engine, it will automatically subscribing the heartbeat mq, and admin message queue with the corresponding handlers, and the registration request will have to tell the engine about the events and their handlers of the module. The engine will check if the events have message queues, and spawn them if not there, or subscibe to them if they are already there.
-- the engine will periodically manage its message queue, checking their capacities
+### Job
 
-### 3. Lifecycle of the module
-When spawing the module, it will read its configuration yaml file and register to the tyche engine configured.
+The smallest unit the message queue handles.
 
-The module will proactively sending heartbeat information to the tyche engine, including the heartbeat event, and availability of the module to each message queue it registers to. The availability is defined as:
-- if the buffer queue of the handler still have room for a new job, then this handler of the module is available
-- if the buffer queue of the handler is full, then this handler of the module is not available
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `type` | `broadcast` \| `callback` | Yes | Delivery semantics |
+| `sender` | `str` (module_id) | Yes | Origin module |
+| `handler` | `str` | Yes | Bare event name (e.g. `tick`, `compute`). The engine maps this to the module method `on_tick` or `handle_compute`. |
+| `wait_timeout` | `float` (seconds) | Yes | Max time a job may wait in queue. Exceeded → persist to dead-letter file and return error to sender (callback only). |
+| `run_timeout` | `float` (seconds) | Callback only | Max time the handler may run. Exceeded → retry on another handler. |
+| `param` | `dict` | No | Job payload |
+| `correlation_id` | `str` | Callback only | UUID for pairing request with response. Generated by sender. |
 
-The tyche engine will dispatching jobs based on the heartbeats of the modules.
+### Module
 
+A single OS process implementing the Tyche message protocol. May be written in any language.
 
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `family_name` | `str` | Module class/type (e.g. `Strategy`, `Risk`). Used for load-balancing groups and admin filtering. |
+| `module_id` | `str` | Unique ID assigned by engine at registration. Format: `{deity}{6-hex}` (e.g. `apolloa3f7d2`). |
+| `admin_handlers` | `dict` | Lifecycle hooks exposed to engine: `health_check`, `availability_check`, `respawn`, `decommission`. |
+| `handlers` | `dict[str, tuple]` | Map of bare event name → (`handler_method`, `buffer_queue_maxsize`). The buffer queue is local to the module; its fullness determines availability reported in heartbeats. |
 
+### Engine
+
+The central job router. Manages three lifecycles:
+
+1. **Module lifecycle** — register, health/availability check, decommission.
+2. **Queue lifecycle** — spawn per-topic queues, capacity management, TTL-based GC.
+3. **Job lifecycle** — route, wait, order, deliver with `try-to-deliver` (broadcast) or `promise-to-deliver` (callback) policy.
+
+---
+
+## Interface Patterns (v4)
+
+Auto-discovery scans for four prefixes. These replace the prior v3 `ON`/`SEND` model by splitting producer/consumer roles along the broadcast/callback axis.
+
+| Role | Method Prefix | Pattern Enum | Semantics |
+|------|--------------|--------------|-----------|
+| **Broadcast consumer** | `on_{event}` | `InterfacePattern.ON` | Receive broadcast jobs on this topic. Engine adds module to topic subscriber list. |
+| **Broadcast producer** | `send_{event}` | `InterfacePattern.SEND` | Declare intent to publish broadcast jobs. Engine creates topic queue if absent. |
+| **Callback handler** | `handle_{event}` | `InterfacePattern.HANDLE` | Receive callback jobs on this topic. Engine adds module to job-handler pool for round-robin dispatch. |
+| **Callback requester** | `request_{event}` | `InterfacePattern.REQUEST` | Declare intent to issue callback jobs. Engine records producer metadata. |
+
+**Key rule:** A module may implement both `on_tick` (broadcast consumer) and `handle_compute` (callback handler). The engine routes broadcast jobs to all `on_*` subscribers and callback jobs to exactly one `handle_*` handler.
+
+---
+
+## Job Lifecycle
+
+### Broadcast Job
+
+```
+Module A                              TycheEngine                              Module B
+   |                                      |                                       |
+   | send_event("tick", payload)          |                                       |
+   |------------------------------------->|                                       |
+   |   [PUB -> XSUB]                      |  enqueue to _topic_queues["tick"]     |
+   |                                      |                                       |
+   |                                      |  egress worker drains queue           |
+   |                                      |  XPUB broadcasts to all SUBs          |
+   |                                      |-------------------------------------->|
+   |                                      |   [XPUB -> SUB]                       |
+   |                                      |                                       | on_tick(payload)
+```
+
+- **Delivery guarantee:** Try-to-deliver. The engine guarantees the job is enqueued once and broadcast once. It does not guarantee every subscriber receives it (a slow/crashed subscriber may miss it).
+- **Timeout behavior:** If `wait_timeout` is reached before egress, the job is removed from the queue, persisted to a dead-letter file, and no error is returned (fire-and-forget).
+
+### Callback Job
+
+```
+Module A (requester)                  TycheEngine                              Module C (handler)
+   |                                      |                                       |
+   | request_event("compute", payload)    |                                       |
+   |------------------------------------->|                                       |
+   |   [DEALER -> ROUTER]                 |  correlation_id = uuid()              |
+   |                                      |  _pending_jobs[corr_id] = identity_A  |
+   |                                      |  round-robin pick handler (Module C)  |
+   |                                      |-------------------------------------->|
+   |                                      |   [ROUTER -> DEALER]                  |
+   |                                      |                                       | handle_compute(payload)
+   |                                      |                                       | (run_timeout enforced)
+   |                                      |                                       |
+   |                                      |<--------------------------------------|
+   |                                      |   [DEALER -> ROUTER]                  |
+   |                                      |  response with same correlation_id    |
+   |                                      |  _pending_jobs.pop(corr_id)           |
+   |<-------------------------------------|                                       |
+   |   [ROUTER -> DEALER]                 |                                       |
+   | return response payload              |                                       |
+```
+
+- **Delivery guarantee:** Promise-to-deliver. The engine guarantees the job reaches an available handler and that the response returns to the original requester.
+- **Correlation ID:** Generated by the requester module (via `uuid.uuid4()`). The engine stores `correlation_id → requester_identity` in `_pending_jobs`. The handler **must** echo the same `correlation_id` in its response. The engine routes the response back using this map and then deletes the entry.
+- **Timeout & retry:**
+  1. **Wait timeout** — If no handler is available before `wait_timeout`, the job is persisted to dead-letter file and a `{"error": "wait_timeout"}` response is sent to the requester.
+  2. **Run timeout** — If a handler is assigned but does not respond within `run_timeout`, the engine marks that handler as unavailable, removes the pending correlation mapping, and retries with the next handler in the round-robin pool. After all handlers exhaust, a `{"error": "run_timeout"}` response is sent.
+- **Idempotency:** It is the **requester's** responsibility to use idempotent payloads or to deduplicate on `correlation_id`. The engine does not deduplicate retries.
+
+---
+
+## Queue Lifecycle
+
+### Creation
+
+The engine creates a queue when:
+
+1. **Startup:** Creates `heartbeat` and `admin` queues.
+2. **Module registration:** For each interface declared by the module:
+   - `on_tick` → create queue `tick` (if absent), add module to `_topic_subscribers[tick]`.
+   - `send_bar` → create queue `bar` (if absent), add module to `_topic_producers[bar]`.
+   - `handle_compute` → create queue `compute` (if absent), add module to `_job_handlers[compute]`.
+   - `request_compute` → create queue `compute` (if absent), add module to `_topic_producers[compute]`.
+3. **Dynamic ingress:** If an unregistered topic arrives on XSUB, a queue is created on-demand (`_enqueue_from_xsub` slow path).
+
+### Capacity & Backpressure
+
+Each queue has:
+- `max_queue_depth` (default 10,000)
+- `backpressure` strategy: `DROP_OLDEST` (default), `DROP_NEWEST`, `BLOCK_PRODUCER`
+
+When depth is exceeded:
+- `DROP_OLDEST`: Pop front until room, then append.
+- `DROP_NEWEST`: Discard the incoming message.
+- `BLOCK_PRODUCER`: `put()` blocks until room (not recommended for tick-heavy topics).
+
+### Garbage Collection
+
+A background sweeper (`_monitor_worker`) removes queues where:
+- Subscriber count = 0
+- Producer count = 0
+- Last access > `TOPIC_QUEUE_TTL_SECONDS` (default 60s)
+
+This prevents race conditions where a module briefly disconnects and re-registers.
+
+---
+
+## Module Lifecycle
+
+### Registration
+
+```
+Module                              Engine
+  |                                    |
+  | REQ: REGISTER {module_id,          |
+  |               interfaces,           |
+  |               family_name}          |
+  |----------------------------------->|
+  |                                    | create ModuleInfo
+  |                                    | create topic queues
+  |                                    | update subscriber/producer maps
+  |                                    | heartbeat_manager.register()
+  |<-----------------------------------|
+  | ACK: {event_pub_port,              |
+  |      event_sub_port,               |
+  |      job_port}                     |
+  |                                    |
+  | PUB connects to event_sub_port     |
+  | SUB connects to event_pub_port     |
+  | DEALER connects to job_port        |
+```
+
+### Heartbeat & Availability
+
+Modules send periodic heartbeats (default 1s interval) to the engine's heartbeat ROUTER socket. Each heartbeat payload includes:
+- `status`: `"alive"`
+- `availability`: `dict[str, bool]` mapping each handler name → whether its local buffer queue has room.
+
+The engine uses this availability map to decide which handlers are eligible for callback job dispatch. A handler whose buffer is full is skipped in round-robin selection.
+
+The engine also runs the Paranoid Pirate pattern: if a module misses `HEARTBEAT_LIVENESS` (default 3) consecutive heartbeats, it is unregistered and all its queues are cleaned up.
+
+### Decommission
+
+Triggered by:
+- Missing heartbeats (engine-initiated)
+- Admin `decommission` command (engine-initiated)
+- Module graceful shutdown (module sends final heartbeat with `status: "shutdown"`)
+
+On decommission:
+1. Remove module from all subscriber/producer/handler maps.
+2. Re-queue or persist in-flight callback jobs assigned to this module.
+3. Delete module from `heartbeat_manager`.
+
+---
+
+## Event Delivery Guarantees
+
+| Scenario | Guarantee | Mechanism |
+|----------|-----------|-----------|
+| Broadcast, module alive | At-least-once, FIFO | `_topic_queues` list + egress worker drains in order. |
+| Broadcast, module slow | Queue bounded, drop or block | `max_queue_depth` + `backpressure` strategy. |
+| Callback, handler available | Exactly-once delivery to one handler | Round-robin + correlation ID tracking. |
+| Callback, handler times out | Retry next handler | `run_timeout` + re-dispatch. |
+| Callback, all handlers fail | Error response to requester | `{"error": "run_timeout"}`. |
+| Module crashes mid-callback | Job may be redelivered | No ACK from module; engine retries on timeout. |
+| Engine crashes | In-memory queues lost | Future: `SYNC_FLUSH` durability writes queue to backend before ack. |
+
+---
+
+## Serialization
+
+All messages are serialized with **MessagePack** via `tyche.message.serialize` / `deserialize`. The `Message` dataclass contains:
+
+```python
+@dataclass
+class Message:
+    msg_type: MessageType      # EVENT, REQUEST, RESPONSE, HEARTBEAT, REGISTER, ACK
+    sender: str                # module_id or "engine"
+    event: str                 # bare event name (e.g. "tick", "compute")
+    payload: dict
+    recipient: Optional[str]   # unused in v4 (routing is engine-managed)
+    durability: DurabilityLevel
+    timestamp: Optional[float]
+    correlation_id: Optional[str]  # required for REQUEST/RESPONSE
+```
+
+ZeroMQ frame format:
+- **Broadcast ingress (PUB → XSUB):** `[topic_bytes, serialized_message]`
+- **Broadcast egress (XPUB → SUB):** `[topic_bytes, serialized_message]`
+- **Callback request (DEALER → ROUTER):** `[b"", topic_bytes, serialized_message]`
+- **Callback response (DEALER → ROUTER):** `[b"", topic_bytes, serialized_message]` (echoes `correlation_id`)
+
+---
+
+## Relation to Prior Designs
+
+| Design | Status | Notes |
+|--------|--------|-------|
+| `tyche_engine_design_v1.md` | Superseded | Ad-hoc five-pattern model replaced by v2/v3/v4. |
+| `tyche_engine_design_v2.md` | Superseded | Six `InterfacePattern` values collapsed. |
+| `unified_queue_design_v1.md` | **Superseded by this spec** | v3's pure `ON`/`SEND` model lacked explicit callback/job semantics. This v4 design re-introduces `handle_*`/`request_*` as first-class job patterns, but keeps the unified per-topic queue for broadcast traffic. |
+
+**Mapping from v3 to v4:**
+
+| v3 Pattern | v4 Equivalent | Change |
+|------------|---------------|--------|
+| `on_tick` | `on_tick` | Unchanged (broadcast consumer) |
+| `send_bar` | `send_bar` | Unchanged (broadcast producer) |
+| `send_event_with_response` (API) | `request_event` (method prefix) | Moved from API method to discoverable interface pattern. Requester declares intent explicitly. |
+| Event chaining (v3 replacement for req-resp) | `handle_*` + `request_*` | Replaced. Event chaining is still valid for fire-and-forget flows, but synchronous request-response is now a first-class job pattern. |
+
+---
+
+## Decisions
+
+### [DEC-1] Re-introducing synchronous request-response — **RESOLVED**
+**Question:** v3 removed `handle_*` and `send_event_with_response` in favor of event chaining. Should v4 restore them?
+**Chosen:** Yes, but as explicit job patterns (`handle_*` / `request_*`) routed through a dedicated DEALER-ROUTER socket, not through the event proxy.
+**Rationale:** Event chaining is elegant for fully asynchronous flows, but trading systems need synchronous validation (e.g. Risk checks an order before Strategy proceeds). Hiding this behind event chains pushes complexity into every module. A first-class callback job with engine-managed routing, timeout, and retry is simpler for module authors.
+
+### [DEC-2] Queue garbage collection policy — **RESOLVED**
+**Chosen:** Grace period with TTL = 60s.
+**Rationale:** Same as v3 [DEC-1]. Prevents race conditions on module re-registration.
+
+### [DEC-3] Backpressure strategy — **RESOLVED**
+**Chosen:** Configurable per topic; default `DROP_OLDEST`.
+**Rationale:** Same as v3 [DEC-3]. Market data topics drop stale ticks; control-plane topics may block.
+
+### [DEC-4] Correlation ID ownership — **RESOLVED**
+**Chosen:** Generated by requester module, verified (echoed) by handler, tracked by engine.
+**Rationale:** If the engine generated IDs, requesters would need an extra round-trip to learn them. Requester generation allows fire-and-request without blocking for ID assignment. The engine only tracks `correlation_id → requester_identity` for response routing.
+
+---
+
+## Migration Path from v3
+
+### Phase 1: Engine (non-breaking)
+1. Add `InterfacePattern.HANDLE` and `REQUEST` to `_pattern_for_name`.
+2. Implement `_job_router_worker` with round-robin dispatch.
+3. Add `request_event` API to `TycheModule`.
+4. Run benchmarks. Verify broadcast throughput is unchanged.
+
+### Phase 2: Module API (breaking)
+1. Update modules that used event chaining for synchronous flows to use `handle_*` / `request_*`.
+2. Mark pure event-chaining patterns as deprecated where callback is clearer.
+
+### Phase 3: Cleanup
+1. Remove deprecated event-chaining helpers.
+2. Update tests and documentation.
