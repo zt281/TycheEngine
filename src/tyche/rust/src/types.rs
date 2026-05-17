@@ -37,26 +37,15 @@ impl std::fmt::Display for Endpoint {
 pub struct ModuleId;
 
 impl ModuleId {
-    const DEITIES: &'static [&'static str] = &[
-        "zeus", "hera", "poseidon", "hades", "example",
-        "apollo", "artemis", "ares", "aphrodite", "hermes",
-        "dionysus", "demeter", "hephaestus", "hestia",
-    ];
-
-    /// Generate a new module ID in format `{deity}{6-char hex}`.
-    pub fn generate(deity: Option<&str>) -> String {
+    /// Generate a new module ID in format `{family}_{6-char hex}`.
+    pub fn generate(family: &str) -> String {
         let mut rng = rand::thread_rng();
-
-        let deity = deity.unwrap_or_else(|| {
-            let idx = rng.gen_range(0..Self::DEITIES.len());
-            Self::DEITIES[idx]
-        });
 
         let suffix: String = (0..6)
             .map(|_| format!("{:x}", rng.gen_range(0..16)))
             .collect();
 
-        format!("{}{}", deity, suffix)
+        format!("{}_{}", family, suffix)
     }
 }
 

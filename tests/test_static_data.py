@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -221,7 +222,7 @@ class TestOpenCtpDataClient:
 
     @patch("modules.static_data.client.requests.Session.request")
     def test_retry_then_fail(self, mock_request, config):
-        mock_request.side_effect = Exception("Network error")
+        mock_request.side_effect = requests.ConnectionError("Network error")
 
         client = OpenCtpDataClient(config)
         with pytest.raises(RuntimeError, match="Request failed after"):

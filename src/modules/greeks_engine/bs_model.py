@@ -64,7 +64,6 @@ def bs_price(S, K, T, r, sigma, is_call):
     # 边界情况：到期时返回内在价值
     if T <= 0.0:
         intrinsic = max(S - K, 0.0) if is_call else max(K - S, 0.0)
-        logger.debug("bs_price: T<=0, 返回内在价值=%.4f", intrinsic)
         return intrinsic
 
     # 边界情况：波动率为零
@@ -74,7 +73,6 @@ def bs_price(S, K, T, r, sigma, is_call):
             price = max(S - K * df, 0.0)
         else:
             price = max(K * df - S, 0.0)
-        logger.debug("bs_price: sigma<=0, 返回价格=%.4f", price)
         return price
 
     sqrt_T = math.sqrt(T)
@@ -85,11 +83,6 @@ def bs_price(S, K, T, r, sigma, is_call):
         price = S * _norm_cdf(d1) - K * math.exp(-r * T) * _norm_cdf(d2)
     else:
         price = K * math.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1)
-
-    logger.debug(
-        "bs_price: S=%.2f K=%.2f T=%.4f sigma=%.4f %s -> price=%.4f",
-        S, K, T, sigma, "Call" if is_call else "Put", price,
-    )
     return price
 
 
@@ -120,7 +113,6 @@ def bs_greeks(S, K, T, r, sigma, is_call):
         else:
             intrinsic = max(K - S, 0.0)
             delta = -1.0 if S < K else 0.0
-        logger.debug("bs_greeks: T<=0, 返回边界值")
         return (intrinsic, delta, 0.0, 0.0, 0.0, 0.0)
 
     # 边界情况：波动率为零
@@ -132,7 +124,6 @@ def bs_greeks(S, K, T, r, sigma, is_call):
         else:
             price = max(K * df - S, 0.0)
             delta = -1.0 if S < K * df else 0.0
-        logger.debug("bs_greeks: sigma<=0, 返回边界值")
         return (price, delta, 0.0, 0.0, 0.0, 0.0)
 
     sqrt_T = math.sqrt(T)
@@ -179,12 +170,7 @@ def bs_greeks(S, K, T, r, sigma, is_call):
     else:
         rho = -K * T * df * n_neg_d2 * 0.01
 
-    logger.debug(
-        "bs_greeks: S=%.2f K=%.2f T=%.4f sigma=%.4f %s -> "
-        "price=%.4f delta=%.4f gamma=%.6f vega=%.4f theta=%.4f rho=%.4f",
-        S, K, T, sigma, "Call" if is_call else "Put",
-        price, delta, gamma, vega, theta, rho,
-    )
+
     return (price, delta, gamma, vega, theta, rho)
 
 
@@ -208,7 +194,6 @@ def implied_vol(market_price, S, K, T, r, is_call, tol=1e-8, max_iter=100):
     """
     # 边界情况
     if T <= 0.0 or market_price <= 0.0:
-        logger.debug("implied_vol: 边界失败 T=%s market_price=%s", T, market_price)
         return -1.0
 
     # 初始猜测
@@ -220,10 +205,6 @@ def implied_vol(market_price, S, K, T, r, is_call, tol=1e-8, max_iter=100):
         diff = price - market_price
 
         if abs(diff) < tol:
-            logger.debug(
-                "implied_vol: %s 收敛于第 %d 次迭代, IV=%.6f",
-                cp_flag, i, sigma,
-            )
             return sigma
 
         # 计算 vega (未缩放版本，用于 Newton-Raphson)
@@ -233,10 +214,6 @@ def implied_vol(market_price, S, K, T, r, is_call, tol=1e-8, max_iter=100):
 
         # vega 为零时无法继续迭代
         if vega < 1e-12:
-            logger.debug(
-                "implied_vol: %s vega 过小 (%.2e) 于第 %d 次迭代, 放弃",
-                cp_flag, vega, i,
-            )
             return -1.0
 
         # Newton-Raphson 更新
@@ -246,14 +223,5 @@ def implied_vol(market_price, S, K, T, r, is_call, tol=1e-8, max_iter=100):
         if sigma <= 0.0:
             sigma = 0.001
         if sigma > 10.0:
-            logger.debug(
-                "implied_vol: %s sigma 溢出 (%.4f) 于第 %d 次迭代, 放弃",
-                cp_flag, sigma, i,
-            )
             return -1.0
-
-    logger.debug(
-        "implied_vol: %s 未收敛 (max_iter=%d), 最终 sigma=%.6f diff=%.6f",
-        cp_flag, max_iter, sigma, diff,
-    )
     return -1.0

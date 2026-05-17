@@ -1,7 +1,9 @@
 """OpenCTP Gateway - TycheModule that bridges CTP market data into Tyche Engine."""
 
 import logging
+import queue
 import tempfile
+import threading
 from typing import List
 
 from openctp_tts import mdapi
@@ -43,6 +45,13 @@ class OpenCtpGateway(TycheModule):
         self._quote_count = 0
         self._job_count = 0
         self._tick_drop_count = 0
+
+        # Tick queue for non-blocking CTP callback processing.
+        # CTP callbacks put ticks into the queue (fast, never blocks),
+        # and a background worker thread processes them sequentially.
+        # This prevents request_compute_greeks from freezing the CTP thread.
+        self._tick_queue: queue.Queue = queue.Queue(maxsize=50000)
+        self._tick_worker_thread: threading.Thread | None = None
 
     # ── Producer declarations (auto-discovered) ──────────────────
 
@@ -194,14 +203,41 @@ class OpenCtpGateway(TycheModule):
     def _on_tick(self, tick_data: dict) -> None:
         """Callback invoked from MdSpi when a new tick arrives.
 
+        This is called from the CTP internal thread. We enqueue the tick
+        for async processing to avoid blocking the CTP thread —
+        ``request_compute_greeks`` can block for seconds when the
+        GreeksEngine is unavailable, which would freeze all CTP callbacks.
+        """
+        try:
+            self._tick_queue.put_nowait(tick_data)
+        except queue.Full:
+            self._tick_drop_count += 1
+            logger.warning(
+                "[OpenCtpGateway] Tick queue full, dropping: %s",
+                tick_data.get("instrument_id", ""),
+            )
+
+    def _tick_worker(self) -> None:
+        """Background worker that drains the tick queue and processes ticks.
+
+        Runs in a dedicated thread so that blocking ``request_compute_greeks``
+        calls never freeze the CTP callback thread.
+        """
+        while self._running:
+            try:
+                tick_data = self._tick_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            self._process_tick(tick_data)
+
+    def _process_tick(self, tick_data: dict) -> None:
+        """Process a single tick (routing logic, runs in tick worker thread).
+
         Routing strategy:
         - Future (underlying) ticks -> broadcast via ``quote`` topic
           (all GreeksEngines receive and update local cache)
-        - Option ticks -> job request ``compute_greeks``
+        - Option ticks -> broadcast + job request ``compute_greeks``
           (exactly one GreeksEngine handles via round-robin)
-
-        This is called from the CTP internal thread; ``send_event`` and
-        ``request_event`` are thread-safe.
         """
         instrument_id = tick_data.get("instrument_id", "")
         last_price = tick_data.get("last_price", 0.0)
@@ -278,6 +314,12 @@ class OpenCtpGateway(TycheModule):
         super().start()
         self._resolved_instruments = self._resolve_instruments()
 
+        # Start background tick worker before CTP MD connection
+        self._tick_worker_thread = threading.Thread(
+            target=self._tick_worker, name="tick_worker", daemon=True,
+        )
+        self._tick_worker_thread.start()
+
         # 分离期货和期权，用于日志展示
         futures = [i for i in self._resolved_instruments if len(i) <= 7]
         options = [i for i in self._resolved_instruments if len(i) > 7]
@@ -327,10 +369,11 @@ class OpenCtpGateway(TycheModule):
     def stop(self) -> None:
         """Stop CTP connections and the module."""
         logger.info(
-            "[OpenCtpGateway] Stopping... (quotes=%d, jobs=%d, dropped=%d)",
+            "[OpenCtpGateway] Stopping... (quotes=%d, jobs=%d, dropped=%d, queue=%d)",
             self._quote_count,
             self._job_count,
             self._tick_drop_count,
+            self._tick_queue.qsize(),
         )
 
         if self._md_api is not None:

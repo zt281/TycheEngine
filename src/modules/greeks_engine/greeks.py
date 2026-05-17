@@ -39,11 +39,14 @@ class GreeksEngine(TycheModule):
         self.config = config
         # 标的最新价缓存: instrument_id -> last_price
         self.underlying_prices: Dict[str, float] = {}
+        # 合约解析完成标志，防止竞态条件下误判期权合约为非期权
+        self._resolved = False
 
     def start(self) -> None:
         """启动模块: 先注册到引擎，然后从 static_data 解析合约列表."""
         super().start()
         self._resolve_instruments()
+        self._resolved = True
         logger.info(
             "GreeksEngine 启动完成: 监听标的 %d 个, 期权映射 %d 条",
             len(self.config.underlying_instruments),
@@ -84,6 +87,12 @@ class GreeksEngine(TycheModule):
                     inst_id = inst.get("InstrumentID", "")
                     if inst_id:
                         self.config.underlying_instruments.add(inst_id)
+                logger.info(
+                    "[GreeksEngine] %s %s: resolved %d future instruments",
+                    exchange_id,
+                    product_id,
+                    len(future_instruments),
+                )
 
                 # 2. 查询期权合约
                 option_product_ids: List[str] = []
@@ -110,8 +119,17 @@ class GreeksEngine(TycheModule):
                         underlying_id = inst.get("UnderlyingInstrID", "")
                         expire_date = inst.get("ExpireDate", "")
                         if inst_id and underlying_id and expire_date:
-                            self.config.underlying_map[inst_id] = underlying_id
-                            self.config.expiry_map[inst_id] = expire_date
+                            # 归一化 key，确保与 handle_compute_greeks 查找时格式一致
+                            # CTP InstrumentID 可能含连字符 (如 HO2606-C-2400)
+                            norm_id = self._normalize_option_id(inst_id)
+                            self.config.underlying_map[norm_id] = underlying_id
+                            self.config.expiry_map[norm_id] = expire_date
+                    logger.info(
+                        "[GreeksEngine] %s %s: resolved %d option instruments",
+                        exchange_id,
+                        opt_pid,
+                        len(option_instruments),
+                    )
 
     def _query_instruments(
         self, exchange_id: str, product_id: str, payload: dict
@@ -189,13 +207,6 @@ class GreeksEngine(TycheModule):
                     instrument_id,
                     payload["last_price"],
                 )
-            else:
-                logger.debug(
-                    "标的价格更新: %s = %.2f (prev=%.2f)",
-                    instrument_id,
-                    payload["last_price"],
-                    old_price,
-                )
 
     # ── Job Handler (round-robin dispatch) ─────────────────────────
 
@@ -211,8 +222,17 @@ class GreeksEngine(TycheModule):
         # 需要转换为配置中的格式 (如 ag2506C6000)
         normalized_id = self._normalize_option_id(instrument_id)
 
+        # 合约解析尚未完成时，不判定为非期权合约
+        if not self._resolved:
+            return {"status": "skipped", "reason": "not_resolved_yet"}
+
         if normalized_id not in self.config.underlying_map:
-            logger.debug("跳过非期权合约: %s (normalized=%s)", instrument_id, normalized_id)
+            if not self.config.underlying_map:
+                logger.warning(
+                    "underlying_map 为空，请检查 _resolve_instruments 是否成功! "
+                    "instrument_id=%s",
+                    instrument_id,
+                )
             return {"status": "skipped", "reason": "not_an_option"}
 
         result = self._compute_and_publish_greeks(normalized_id, payload)

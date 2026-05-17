@@ -29,7 +29,11 @@ def engine(tmp_path):
     # Mock the job router socket so we can verify sends
     engine._job_router = MagicMock()
     engine._running = True
-    return engine
+    yield engine
+    # Cleanup
+    engine._running = False
+    if engine.context and not engine.context.closed:
+        engine.context.destroy(linger=0)
 
 
 @pytest.fixture

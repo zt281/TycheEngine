@@ -1,6 +1,5 @@
 """Core type definitions for Tyche Engine."""
 
-import random
 import secrets
 from dataclasses import dataclass, field
 from enum import Enum
@@ -15,30 +14,20 @@ ADMIN_PORT_DEFAULT = 5560
 
 
 class ModuleId:
-    """Module identifier with format: {deity_name}{6-char MD5}."""
-
-    DEITIES = [
-        "zeus", "hera", "poseidon", "hades", "example",
-        "apollo", "artemis", "ares", "aphrodite", "hermes",
-        "dionysus", "demeter", "hephaestus", "hestia"
-    ]
+    """Module identifier with format: {family}_{6-char hex}."""
 
     @classmethod
-    def generate(cls, deity: Optional[str] = None) -> str:
+    def generate(cls, family: str = "unknown") -> str:
         """Generate a new module ID.
 
         Args:
-            deity: Optional deity name. If None, random selection.
+            family: Module family name (e.g. "openctp_gateway").
 
         Returns:
-            Module ID string in format {deity}{6-char hex}
+            Module ID string in format {family}_{6-char hex}
         """
-        if deity is None:
-            deity = random.choice(cls.DEITIES)
-
-        hash_suffix = secrets.token_hex(3)  # 6 hex chars
-
-        return f"{deity}{hash_suffix}"
+        suffix = secrets.token_hex(3)  # 6 hex chars
+        return f"{family}_{suffix}"
 
 
 class EventType(Enum):

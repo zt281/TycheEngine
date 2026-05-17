@@ -67,6 +67,7 @@ class StaticDataModule(TycheModule):
         self._refresh_stop_event.set()
         if self._refresh_thread is not None:
             self._refresh_thread.join(timeout=2.0)
+        self.client.close()
         super().stop()
         logger.info("[static_data] Module stopped")
 
@@ -95,9 +96,13 @@ class StaticDataModule(TycheModule):
 
     def _do_refresh(self) -> None:
         """Perform a single refresh: fetch all data and persist."""
+        if self._refresh_stop_event.is_set():
+            return
         try:
             logger.info("[static_data] Starting data refresh...")
             data = self.client.fetch_all()
+            if self._refresh_stop_event.is_set():
+                return
             self.storage.save_all(data)
             self._update_cache(data)
             self._last_refresh = time.time()

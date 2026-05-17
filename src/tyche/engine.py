@@ -30,6 +30,36 @@ from tyche.types import (
 logger = logging.getLogger(__name__)
 
 
+class ZmqLogHandler(logging.Handler):
+    """Logging handler that publishes log records via ZeroMQ XPUB socket.
+
+    Serializes each log record as a multipart message:
+        [b"engine_log", msgpack-packed payload]
+    where payload = {"timestamp": float, "level": str, "message": str}.
+    """
+
+    def __init__(self, engine: "TycheEngine"):
+        super().__init__(level=logging.INFO)
+        self._engine = engine
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            socket = self._engine._xpub_socket
+            if socket is None:
+                return
+            payload = {
+                "event": "engine_log",
+                "timestamp": record.created,
+                "level": record.levelname,
+                "message": self.format(record),
+            }
+            data = msgpack.packb(payload)
+            with self._engine._xpub_lock:
+                socket.send_multipart([b"engine_log", data])
+        except Exception:
+            pass
+
+
 class TopicQueue:
     """Thread-safe queue with capacity, processed, and dropped stats.
 
@@ -266,6 +296,11 @@ class TycheEngine:
             t.start()
             logger.info("Worker '%s' started", name)
 
+        # Attach ZmqLogHandler so engine logs are published to TUI subscribers
+        self._zmq_log_handler = ZmqLogHandler(self)
+        self._zmq_log_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(self._zmq_log_handler)
+
         logger.info(
             "All %d workers started — TycheEngine is running", len(self._threads)
         )
@@ -294,6 +329,10 @@ class TycheEngine:
                 logger.warning("Worker '%s' did not stop within timeout", t.name)
             else:
                 logger.info("Worker '%s' stopped", t.name)
+
+        # Remove ZmqLogHandler before destroying context to avoid send on closed socket
+        if hasattr(self, '_zmq_log_handler'):
+            logger.removeHandler(self._zmq_log_handler)
 
         if self.context:
             logger.info("Destroying ZeroMQ context...")
@@ -387,10 +426,11 @@ class TycheEngine:
 
         The Engine is the sole authority for module_id generation.
         Modules send their family_name during registration; the Engine
-        assigns a unique module_id using ModuleId.generate().
+        assigns a unique module_id using ModuleId.generate(family_name),
+        producing an ID in the format {family}_{6-char hex}.
         """
         family_name = msg.payload.get("family_name") or msg.sender or "unknown"
-        module_id = ModuleId.generate()
+        module_id = ModuleId.generate(family_name)
         interfaces_data = msg.payload.get("interfaces", [])
 
         interfaces = [
@@ -628,6 +668,15 @@ class TycheEngine:
             self._xpub_socket.bind(str(self.event_endpoint))
             self._xsub_socket.bind(str(self.event_sub_endpoint))
 
+            # Pre-subscribe XSUB to all topics (empty prefix = match everything).
+            # This ensures upstream PUB sockets start sending immediately,
+            # solving the ZMQ "slow joiner" problem where messages are
+            # dropped if no subscription has been forwarded yet.
+            # Without this, a publisher's PUB socket silently drops all
+            # messages until XSUB forwards a matching subscription.
+            self._xsub_socket.send_multipart([b'\x01'])
+            logger.debug("XSUB pre-subscribed to all topics")
+
             poller = zmq.Poller()
             poller.register(self._xpub_socket, zmq.POLLIN)
             poller.register(self._xsub_socket, zmq.POLLIN)
@@ -644,11 +693,22 @@ class TycheEngine:
                     self._xsub_socket.send_multipart(frame)
 
                 if self._xsub_socket in events:
-                    # Batch drain — enqueue all messages to topic queues
+                    # Batch drain — forward directly to XPUB AND enqueue to topic queues.
+                    # Direct forwarding (hot path) ensures minimum latency for
+                    # live subscribers.  Topic queues serve as a secondary path
+                    # for dead-letter / TTL / monitoring.
                     batch_count = 0
                     while self._running:
                         try:
                             frames = self._xsub_socket.recv_multipart(zmq.NOBLOCK)
+                            # Hot path: direct forward to XPUB
+                            if self._xpub_socket is not None:
+                                try:
+                                    with self._xpub_lock:
+                                        self._xpub_socket.send_multipart(frames)
+                                except Exception:
+                                    pass  # egress will retry from queue
+                            # Secondary path: enqueue for monitoring / dead-letter
                             self._enqueue_from_xsub(frames)
                             batch_count += 1
                         except zmq.error.Again:
@@ -741,14 +801,12 @@ class TycheEngine:
         self._egress_wakeup.put(None)
 
     def _event_egress_worker(self) -> None:
-        """Background drainer for all topic queues (v3 unified queue).
+        """Background drainer for all topic queues.
 
-        Blocks on a wakeup queue so it does not spin.  The proxy worker
-        handles ingress (enqueues all events); this worker handles egress
-        (dequeues and broadcasts via XPUB).
-
-        Checks per-message TTL before dispatching: expired messages are
-        dead-lettered instead of being sent to subscribers.
+        The proxy worker now directly forwards XSUB→XPUB (hot path), so
+        this worker only drains topic queues for monitoring, TTL checking,
+        and dead-lettering expired messages.  It does NOT re-send via XPUB
+        (that would duplicate messages already sent directly).
         """
         while self._running:
             try:
@@ -797,19 +855,9 @@ class TycheEngine:
                             "dead-lettered (age=%.2fs, ttl=%.2fs)",
                             topic, now - enqueue_time, topic_ttl,
                         )
-                        continue  # skip sending, move to next message
 
-                    if self._xpub_socket is not None:
-                        try:
-                            with self._xpub_lock:
-                                self._xpub_socket.send_multipart(frames)
-                            with self._lock:
-                                self._event_count += 1
-                            self._topic_last_access[topic] = time.time()
-                        except Exception as e:
-                            if self._running:
-                                logger.error("Event egress error: %s", e)
-                            break
+                    # Update last access time for monitoring
+                    self._topic_last_access[topic] = time.time()
 
     # ── Heartbeat ─────────────────────────────────────────────────
 
@@ -984,6 +1032,17 @@ class TycheEngine:
                 self._job_router.close()
                 self._job_router = None
 
+    def _publish_job_event(self, msg: Message) -> None:
+        """Mirror a job message to the XPUB socket so TUI subscribers can see it."""
+        if self._xpub_socket is None:
+            return
+        try:
+            data = serialize(msg)
+            with self._xpub_lock:
+                self._xpub_socket.send_multipart([msg.event.encode(), data])
+        except Exception:
+            pass
+
     def _handle_job_request(
         self,
         identity: bytes,
@@ -1071,6 +1130,9 @@ class TycheEngine:
         with self._job_tracking_lock:
             self._job_tracking[msg.correlation_id] = tracking_info
 
+        # Mirror request to XPUB so TUI can observe job traffic
+        self._publish_job_event(msg)
+
         # Forward request to handler
         try:
             assert self._job_router is not None
@@ -1111,6 +1173,9 @@ class TycheEngine:
         # Remove from timeout tracking
         with self._job_tracking_lock:
             self._job_tracking.pop(msg.correlation_id, None)
+
+        # Mirror response to XPUB so TUI can observe job traffic
+        self._publish_job_event(msg)
 
         # Forward response to requester
         try:

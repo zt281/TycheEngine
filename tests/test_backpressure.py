@@ -26,7 +26,11 @@ def engine(tmp_path):
         data_dir=str(tmp_path / "data"),
     )
     engine._running = True
-    return engine
+    yield engine
+    # Cleanup
+    engine._running = False
+    if engine.context and not engine.context.closed:
+        engine.context.destroy(linger=0)
 
 
 class TestDropOldest:

@@ -1,9 +1,12 @@
 """Static Data Module 入口 — 支持 ``python -m modules.static_data`` 启动."""
 
 import argparse
+import atexit
 import json
 import logging
+import os
 import signal
+import sys
 import threading
 from typing import Optional
 
@@ -102,6 +105,21 @@ def main() -> None:
     # ── Start ────────────────────────────────────────────────────
     module = StaticDataModule(config)
     stop_event = threading.Event()
+    _cleanup_done = False
+
+    def _do_cleanup() -> None:
+        """确保 module.stop() 被调用（atexit 兜底）."""
+        nonlocal _cleanup_done
+        if _cleanup_done:
+            return
+        _cleanup_done = True
+        try:
+            module.stop()
+        except Exception:
+            pass
+        logger.info("Static Data 模块已停止")
+
+    atexit.register(_do_cleanup)
 
     def _shutdown(signum: int, _frame: object) -> None:  # noqa: ANN001
         sig_name = signal.Signals(signum).name
@@ -122,8 +140,9 @@ def main() -> None:
     except Exception:
         logger.exception("Static Data 模块运行异常")
     finally:
-        module.stop()
-        logger.info("Static Data 模块已停止")
+        _do_cleanup()
+        # 强制退出：防止 daemon 线程或 ZMQ 残留阻止进程退出
+        os._exit(0)
 
 
 if __name__ == "__main__":

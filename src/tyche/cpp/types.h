@@ -32,34 +32,16 @@ using Payload = std::unordered_map<std::string, std::any>;
 
 namespace ModuleId {
 
-// Greek deity prefixes used by generate().
-inline constexpr std::string_view DEITIES[] = {
-    "zeus",     "hera",   "poseidon", "hades",      "example",
-    "apollo",   "artemis", "ares",    "aphrodite",  "hermes",
-    "dionysus", "demeter", "hephaestus", "hestia",
-};
-
-// Generate a new module ID in the format {deity}{6-char hex}.
-//
-// If `deity` is empty, a random one is selected from DEITIES.
-inline std::string generate(std::string_view deity = "") {
+// Generate a new module ID in the format {family}_{6-char hex}.
+inline std::string generate(std::string_view family = "unknown") {
     static thread_local std::mt19937 rng{std::random_device{}()};
-
-    std::string_view prefix;
-    if (deity.empty()) {
-        std::uniform_int_distribution<std::size_t> pick(
-            0, std::size(DEITIES) - 1);
-        prefix = DEITIES[pick(rng)];
-    } else {
-        prefix = deity;
-    }
 
     // 6 hex chars (3 bytes worth of randomness).
     std::uniform_int_distribution<unsigned int> hex_dist(0, 0xFFFFFFu);
     const unsigned int suffix = hex_dist(rng);
 
     std::ostringstream oss;
-    oss << prefix;
+    oss << family << "_";
     oss << std::hex;
     oss.fill('0');
     oss.width(6);

@@ -126,6 +126,10 @@ class OpenCtpDataClient:
         response = self._request("GET", url)
         return response.get("data", [])
 
+    def close(self) -> None:
+        """Close the HTTP session and release all connections."""
+        self._session.close()
+
     def fetch_all(self) -> Dict[str, List[Dict[str, Any]]]:
         """Fetch all static data categories.
 

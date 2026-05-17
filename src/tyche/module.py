@@ -324,26 +324,47 @@ class TycheModule(ModuleBase):
             t.start()
 
     def stop(self) -> None:
-        """Stop the module gracefully."""
+        """Stop the module gracefully.
+
+        Idempotent: safe to call multiple times.  On Windows,
+        context.destroy() can hang if sockets are still in use by
+        daemon threads, so we wrap each cleanup step in try/except
+        to ensure all resources are released.
+        """
+        if not self._running and self.context is None:
+            return  # already stopped
+
         self._running = False
         self._stop_event.set()
 
+        # Join worker threads (best-effort; daemon threads won't block)
         for t in self._threads:
-            t.join(timeout=2.0)
+            try:
+                t.join(timeout=2.0)
+            except Exception:
+                pass
 
+        # Close all sockets (LINGER=0 ensures no wait on pending sends)
         for sock in [
             self._pub_socket, self._sub_socket,
             self._heartbeat_socket, self._job_socket,
         ]:
             if sock is not None:
-                sock.close()
+                try:
+                    sock.close()
+                except Exception:
+                    pass
         self._pub_socket = None
         self._sub_socket = None
         self._heartbeat_socket = None
         self._job_socket = None
 
-        if self.context:
-            self.context.destroy(linger=0)
+        # Destroy ZMQ context (releases all OS-level resources)
+        if self.context is not None:
+            try:
+                self.context.destroy(linger=0)
+            except Exception:
+                pass
             self.context = None
 
     # ── Registration ──────────────────────────────────────────────

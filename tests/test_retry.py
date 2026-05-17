@@ -28,7 +28,11 @@ def engine(tmp_path):
     )
     engine._job_router = MagicMock()
     engine._running = True
-    return engine
+    yield engine
+    # Cleanup
+    engine._running = False
+    if engine.context and not engine.context.closed:
+        engine.context.destroy(linger=0)
 
 
 @pytest.fixture
