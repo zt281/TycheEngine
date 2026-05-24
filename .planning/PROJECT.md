@@ -25,9 +25,7 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
-## Milestone History
-
-### v1.1 Trading Gateway
+## Current Milestone: v1.1 Trading Gateway
 
 **Goal:** A market data and order execution gateway module that connects TycheEngine to external exchanges (starting with CTP), normalizes exchange-specific protocols into standard Tyche events, and provides clean connection lifecycle management.
 
@@ -41,21 +39,6 @@ This document evolves at phase transitions and milestone boundaries.
 - Reconnection logic with exponential backoff
 - Heartbeat integration with the engine's liveness monitoring
 
----
-
-## Current Milestone: v1.2 OpenTelemetry Observability
-
-**Goal:** Instrument TycheEngine's distributed event flow with OpenTelemetry tracing to visualize, debug, and analyze data movement across modules and processes.
-
-**Target features:**
-- Trace pub/sub event propagation (engine → modules, module → module)
-- Trace request/response patterns (job routing, synchronous calls)
-- Span context propagation across ZeroMQ message boundaries
-- Module lifecycle tracing (register, start, stop, heartbeat)
-- Configurable sampling and exporter setup (OTLP, console)
-- Integration with existing engine events without performance regression
-- Attribute enrichment with event type, sender module, topic, and correlation IDs
-
 ## Requirements
 
 ### Validated
@@ -64,33 +47,30 @@ This document evolves at phase transitions and milestone boundaries.
 
 ### Active
 
-- [ ] OpenTelemetry SDK initialization integrated with TycheEngine startup
-- [ ] Trace context extraction/injection for ZeroMQ messages (span propagation)
-- [ ] Pub/sub event tracing: create spans when events are published and consumed
-- [ ] Request/response tracing: trace job routing from sender through engine to handler
-- [ ] Module lifecycle spans: register, initialize, start, stop, heartbeat
-- [ ] Event attributes: event_type, sender_id, topic, message_size, correlation_id
-- [ ] Configurable sampling: always_on, ratio_based, always_off
-- [ ] OTLP exporter support for sending traces to Jaeger/Tempo/Collector
-- [ ] Console exporter for local development and debugging
-- [ ] Zero-config mode: auto-detect OTLP endpoint from environment
-- [ ] Unit tests: trace context propagation round-trip
-- [ ] Unit tests: span creation and attribute correctness
-- [ ] Unit tests: sampling behavior
-- [ ] Integration test: end-to-end trace across engine + module
+- [ ] A `GatewayBase` protocol/ABC that defines the interface all exchange gateways implement
+- [ ] `SimulatedGateway` for local dev — generates synthetic quotes, trades, and fills
+- [ ] `CTPGateway` that wraps the CTP API for market data and trading
+- [ ] Market data normalization: exchange-native formats → Tyche events (quote, trade, bar)
+- [ ] Order flow: engine events → exchange-native orders, cancellations
+- [ ] Fill reporting: exchange fills → Tyche `fill` events
+- [ ] Connection state machine with events: `gateway_connecting`, `gateway_connected`, `gateway_disconnected`, `gateway_error`
+- [ ] Automatic reconnection with configurable retry policy
+- [ ] Gateway registers as a `TycheModule` with appropriate interfaces (on_quote, send_order_submit, etc.)
+- [ ] Unit tests for simulated gateway (no external dependencies)
+- [ ] Unit tests for CTP gateway with mocked CTP API
+- [ ] Integration test: gateway + engine end-to-end with simulated exchange
 
 ### Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Metrics (counters, histograms) | Traces only milestone; metrics in v1.3 |
-| Log correlation with trace IDs | Requires logging overhaul; separate milestone |
-| Distributed tracing UI/dashboard | Use existing Jaeger/Tempo/Grafana; no custom UI |
-| Custom trace collection backend | Standard OTLP only |
-| Performance profiling (CPU/memory) | Tracing ≠ profiling; separate concern |
-| Alerting on trace anomalies | Requires metrics + alerting infra; out of scope |
-| Automatic anomaly detection | ML-based; far future |
-| Gateway tracing specifics | Gateway module is v1.1; engine-wide tracing first |
+| Multiple simultaneous exchange connections | Single gateway instance per exchange for now |
+| FIX protocol gateway | CTP is the primary target; FIX comes later |
+| WebSocket/crypto exchange gateways | Futures focus first; crypto later |
+| Real-time P&L calculation | Portfolio module responsibility |
+| Pre-trade risk checks | Risk module responsibility |
+| Market data persistence | Persistence module responsibility (v1.0) |
+| GUI for gateway status | TUI dashboard handles this |
 
 ## Context
 
@@ -127,10 +107,6 @@ Key files in the existing codebase:
 | CTP as first real exchange | Primary target market; CTP is the standard Chinese futures API | — Pending |
 | GatewayBase ABC, not just protocol | ABC enforces interface compliance at import time | — Pending |
 | Gateway before OMS/risk/portfolio | Gateway is the outermost layer; other modules consume gateway events | — Pending |
-| OpenTelemetry over custom tracing | Industry standard, rich ecosystem, no reinvention | — Pending |
-| Trace at Message level, not socket level | Message carries context; socket is transport detail | — Pending |
-| W3C trace context propagation | Standard format; interoperable with any OTLP collector | — Pending |
-| Lazy SDK init (on first span) | Avoid startup cost if tracing disabled | — Pending |
 
 ---
-*Last updated: 2026-05-23 after milestone v1.2 started*
+*Last updated: 2026-05-15 after milestone v1.1 started*
