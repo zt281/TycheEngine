@@ -8,11 +8,11 @@ import logging
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional
 
-from tyche.module import TycheModule
-from tyche.types import Endpoint
+from src.tyche.module import TycheModule
+from src.tyche.types import Endpoint
 
-from .bs_model import bs_greeks, implied_vol
-from .config import GreeksConfig
+from src.modules.greeks_engine.bs_model import bs_greeks, implied_vol
+from src.modules.greeks_engine.config import GreeksConfig
 
 logger = logging.getLogger(__name__)
 

@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tyche.engine import TycheEngine
-from tyche.module import TycheModule
-from tyche.message import Message, MessageType, serialize, deserialize
-from tyche.types import (
+from src.tyche.engine import TycheEngine
+from src.tyche.module import TycheModule
+from src.tyche.message import Message, MessageType, serialize, deserialize
+from src.tyche.types import (
     Endpoint,
     Interface,
     InterfacePattern,
@@ -19,8 +19,8 @@ from tyche.types import (
 
 
 @pytest.fixture
-def engine(tmp_path):
-    """Create a TycheEngine instance for testing."""
+def unstarted_engine(tmp_path):
+    """TycheEngine instance WITHOUT started workers. NEVER call .start()."""
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", 20550),
         event_endpoint=Endpoint("127.0.0.1", 20551),
@@ -30,9 +30,13 @@ def engine(tmp_path):
     engine._job_router = MagicMock()
     engine._running = True
     yield engine
-    # Cleanup
+    # Robust cleanup: stop() joins daemon threads even if start() was never called
+    try:
+        engine.stop()
+    except Exception:
+        pass
     engine._running = False
-    if engine.context and not engine.context.closed:
+    if engine.context is not None and not engine.context.closed:
         engine.context.destroy(linger=0)
 
 
@@ -121,14 +125,14 @@ class TestAdminHandlerModule:
 class TestAdminHandlerEngine:
     """Tests for admin handler invocation from the engine side."""
 
-    def test_engine_invoke_admin_handler(self, engine):
+    def test_engine_invoke_admin_handler(self, unstarted_engine):
         """Engine can send admin commands to specific modules."""
         # Register a module with admin handlers
-        engine._module_admin_handlers["target_mod"] = [
+        unstarted_engine._module_admin_handlers["target_mod"] = [
             "health_check", "availability_check", "respawn", "decommission"
         ]
 
-        result = engine.invoke_admin_handler("target_mod", "health_check")
+        result = unstarted_engine.invoke_admin_handler("target_mod", "health_check")
 
         # Should return sent confirmation
         assert result is not None
@@ -136,8 +140,8 @@ class TestAdminHandlerEngine:
         assert "correlation_id" in result
 
         # Verify the job router was called
-        engine._job_router.send_multipart.assert_called_once()
-        sent_frames = engine._job_router.send_multipart.call_args[0][0]
+        unstarted_engine._job_router.send_multipart.assert_called_once()
+        sent_frames = unstarted_engine._job_router.send_multipart.call_args[0][0]
         assert sent_frames[0] == b"target_mod"
         assert sent_frames[2] == b"admin.health_check"
 
@@ -147,21 +151,21 @@ class TestAdminHandlerEngine:
         assert sent_msg.event == "admin.health_check"
         assert sent_msg.payload["command"] == "health_check"
 
-    def test_unknown_admin_handler_ignored(self, engine):
+    def test_unknown_admin_handler_ignored(self, unstarted_engine):
         """Unknown admin command doesn't crash."""
         # Module registered but with limited handlers
-        engine._module_admin_handlers["target_mod"] = ["health_check"]
+        unstarted_engine._module_admin_handlers["target_mod"] = ["health_check"]
 
         # Try to invoke an unregistered handler
-        result = engine.invoke_admin_handler("target_mod", "unknown_command")
+        result = unstarted_engine.invoke_admin_handler("target_mod", "unknown_command")
         assert result is None
 
         # Job router should NOT have been called
-        engine._job_router.send_multipart.assert_not_called()
+        unstarted_engine._job_router.send_multipart.assert_not_called()
 
-    def test_invoke_unregistered_module_returns_none(self, engine):
+    def test_invoke_unregistered_module_returns_none(self, unstarted_engine):
         """Invoking admin handler on unregistered module returns None."""
-        result = engine.invoke_admin_handler("nonexistent_mod", "health_check")
+        result = unstarted_engine.invoke_admin_handler("nonexistent_mod", "health_check")
         assert result is None
 
     def test_module_handles_admin_job_request(self):

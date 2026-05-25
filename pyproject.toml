@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 ctp = [
     "openctp-ctp>=6.7.0",
+    "openctp-ctpopt>=3.5.8",
 ]
 quant = [
     "numpy>=1.24.0",

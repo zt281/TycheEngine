@@ -24,8 +24,8 @@ from typing import Any, Dict, List
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from tyche.module import TycheModule
-from tyche.types import Endpoint
+from src.tyche.module import TycheModule
+from src.tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 

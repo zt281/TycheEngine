@@ -11,10 +11,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import msgpack
 import zmq
 
-from tyche.dead_letter import DeadLetterStore
-from tyche.heartbeat import HeartbeatManager
-from tyche.message import Message, deserialize, serialize
-from tyche.types import (
+from src.tyche.dead_letter import DeadLetterStore
+from src.tyche.heartbeat import HeartbeatManager
+from src.tyche.message import Message, deserialize, serialize
+from src.tyche.types import (
     ADMIN_PORT_DEFAULT,
     HEARTBEAT_INTERVAL,
     BackpressureStrategy,

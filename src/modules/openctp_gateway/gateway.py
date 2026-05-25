@@ -1,386 +1,260 @@
-"""OpenCTP Gateway - TycheModule that bridges CTP market data into Tyche Engine."""
+"""OpenCTP Gateway module - connects to CTP/TTS and publishes market data.
+
+This module:
+1. Connects to the TTS Trade API to query available instruments
+2. Filters instruments based on configured underlyings (exchange -> products)
+3. Connects to the TTS Market Data API and subscribes to filtered instruments
+4. Publishes received market data as 'quote' events to TycheEngine
+"""
 
 import logging
-import queue
-import tempfile
-import threading
-from typing import List
+import time
+from typing import Any, Dict, List, Optional
 
-from openctp_tts import mdapi
-
-from tyche.module import TycheModule
-from tyche.types import Endpoint
-
-from .config import GatewayConfig
-from .md_spi import MdSpi
+from src.modules.openctp_gateway.config import GatewayConfig
+from src.modules.openctp_gateway.md_spi import MdSpi
+from src.modules.openctp_gateway.td_spi import TdSpi
+from src.tyche.module import TycheModule
+from src.tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 
 
 class OpenCtpGateway(TycheModule):
-    """Gateway module that connects to OpenCTP and publishes quote events.
+    """OpenCTP/TTS Gateway module for TycheEngine.
 
-    Lifecycle:
-        1. ``__init__`` discovers the ``send_quote`` interface automatically.
-        2. ``start()`` registers with TycheEngine, then resolves instruments
-           by querying the static_data module for each configured underlying.
-        3. Once instruments are resolved, CTP MD API is started and
-           subscribes to all resolved InstrumentIDs.
-        4. CTP callbacks (in a CTP internal thread) invoke ``_on_tick``,
-           which publishes the tick as a ``quote`` event through the engine.
-        5. ``stop()`` releases CTP resources, then tears down the module.
+    Connects to CTP-compatible trading front, queries instruments,
+    subscribes to market data, and publishes quotes to the engine.
     """
 
-    def __init__(self, config: GatewayConfig):
+    def __init__(
+        self,
+        config: GatewayConfig,
+        md_module: Any,
+        td_module: Any,
+    ):
+        """Initialize the gateway.
+
+        Args:
+            config: Gateway configuration
+            md_module: Imported CTP market data API module
+            td_module: Imported CTP trader API module
+        """
+        engine_endpoint = Endpoint(config.engine_host, config.engine_port)
+        heartbeat_endpoint = Endpoint(config.engine_host, config.engine_port + 5)
         super().__init__(
-            engine_endpoint=Endpoint(config.engine_host, config.engine_port),
+            engine_endpoint=engine_endpoint,
             family_name="openctp_gateway",
+            heartbeat_receive_endpoint=heartbeat_endpoint,
         )
+
         self.config = config
-        self._md_api: mdapi.CThostFtdcMdApi | None = None
-        self._md_spi: MdSpi | None = None
-        self._resolved_instruments: List[str] = []
+        self._md_module = md_module
+        self._td_module = td_module
 
-        # Tick routing statistics for debugging
-        self._quote_count = 0
-        self._job_count = 0
-        self._tick_drop_count = 0
+        # SPI instances
+        self._md_spi = None  # type: Optional[MdSpi]
+        self._td_spi = None  # type: Optional[TdSpi]
 
-        # Tick queue for non-blocking CTP callback processing.
-        # CTP callbacks put ticks into the queue (fast, never blocks),
-        # and a background worker thread processes them sequentially.
-        # This prevents request_compute_greeks from freezing the CTP thread.
-        self._tick_queue: queue.Queue = queue.Queue(maxsize=50000)
-        self._tick_worker_thread: threading.Thread | None = None
-
-    # ── Producer declarations (auto-discovered) ──────────────────
-
-    def send_quote(self, payload: dict) -> None:
-        """Declare quote event producer - auto-discovered by TycheModule."""
-        self.send_event("quote", payload)
-
-    def request_compute_greeks(self, payload: dict) -> dict:
-        """Declare compute_greeks job requester - auto-discovered by TycheModule.
-
-        Used for option ticks that should be processed by exactly one
-        GreeksEngine via round-robin job routing.
-        """
-        return self.request_event("compute_greeks", payload, timeout=5.0)
-
-    # ── Instrument resolution via static_data ─────────────────────
-
-    def _resolve_instruments(self) -> List[str]:
-        """Query static_data module to resolve underlyings into instrument IDs.
-
-        For each exchange_id -> [product_ids] pair in ``underlyings``, sends a
-        ``query_instruments`` job request per product to the static_data module.
-        Collects all returned InstrumentIDs for CTP subscription.
-
-        Queries both futures (product_id) and options. Option product IDs vary
-        by exchange:
-            - SHFE/DCE/INE/GFEX: {product_id}_o
-            - CZCE: {product_id}C or {product_id}P
-            - CFFEX: same as futures (IO, HO, MO)
-
-        Returns:
-            List of instrument ID strings for CTP subscription.
-        """
-        if not self.config.underlyings:
-            logger.warning(
-                "[OpenCtpGateway] No underlyings configured, "
-                "nothing to subscribe"
-            )
-            return []
-
-        all_instruments: List[str] = []
-
-        for exchange_id, product_ids in self.config.underlyings.items():
-            for product_id in product_ids:
-                # Query futures for the underlying
-                payload = {"exchange_id": exchange_id}
-                if product_id:
-                    payload["product_id"] = product_id
-
-                instruments = self._query_instruments(
-                    exchange_id, product_id, payload
-                )
-                all_instruments.extend(instruments)
-
-                # Query options based on exchange-specific naming
-                option_product_ids: List[str] = []
-                if exchange_id in ("SHFE", "DCE", "INE", "GFEX"):
-                    option_product_ids = [f"{product_id}_o"]
-                elif exchange_id == "CZCE":
-                    option_product_ids = [f"{product_id}C", f"{product_id}P"]
-                elif exchange_id == "CFFEX":
-                    # CFFEX options share the same product_id as futures
-                    option_product_ids = [product_id]
-
-                for opt_pid in option_product_ids:
-                    if not opt_pid:
-                        continue
-                    option_payload = {
-                        "exchange_id": exchange_id,
-                        "product_id": opt_pid,
-                    }
-                    option_instruments = self._query_instruments(
-                        exchange_id, opt_pid, option_payload
-                    )
-                    all_instruments.extend(option_instruments)
-
-        return all_instruments
-
-    def _query_instruments(
-        self, exchange_id: str, product_id: str, payload: dict
-    ) -> List[str]:
-        """Send a single query_instruments job and return instrument IDs."""
-        logger.info(
-            "[OpenCtpGateway] Querying static_data for underlying: "
-            "product_id=%s, exchange_id=%s",
-            product_id,
-            exchange_id,
-        )
-
-        try:
-            result = self.request_event(
-                "query_instruments",
-                payload,
-                timeout=self.config.resolve_timeout,
-            )
-        except TimeoutError:
-            logger.error(
-                "[OpenCtpGateway] Timeout querying static_data for "
-                "product_id=%s, exchange_id=%s — skipping",
-                product_id,
-                exchange_id,
-            )
-            return []
-        except Exception as e:
-            logger.error(
-                "[OpenCtpGateway] Error querying static_data for "
-                "product_id=%s, exchange_id=%s: %s — skipping",
-                product_id,
-                exchange_id,
-                e,
-            )
-            return []
-
-        # request_event wraps handler return value in {"result": ...}
-        # So we need to unwrap: {"result": {"instruments": [...]}}
-        if "error" in result:
-            logger.error(
-                "[OpenCtpGateway] query_instruments returned error "
-                "for product_id=%s, exchange_id=%s: %s",
-                product_id,
-                exchange_id,
-                result["error"],
-            )
-            return []
-
-        inner = result.get("result", {})
-        instruments = inner.get("instruments", [])
-        instrument_ids: List[str] = []
-        for inst in instruments:
-            instrument_id = inst.get("InstrumentID", "")
-            # 期权判断：ticker名长度大于7个字符的是期权，否则为期货
-            is_option = len(instrument_id) > 7
-            if not instrument_id:
-                continue
-            # 期货直接订阅；期权也直接订阅（不再受 subscribe_options 开关限制）
-            instrument_ids.append(instrument_id)
-
-        logger.info(
-            "[OpenCtpGateway] Resolved %d instruments for "
-            "product_id=%s, exchange_id=%s",
-            len(instrument_ids),
-            product_id,
-            exchange_id,
-        )
-        return instrument_ids
-
-    # ── Tick callback from CTP SPI ───────────────────────────────
-
-    def _on_tick(self, tick_data: dict) -> None:
-        """Callback invoked from MdSpi when a new tick arrives.
-
-        This is called from the CTP internal thread. We enqueue the tick
-        for async processing to avoid blocking the CTP thread —
-        ``request_compute_greeks`` can block for seconds when the
-        GreeksEngine is unavailable, which would freeze all CTP callbacks.
-        """
-        try:
-            self._tick_queue.put_nowait(tick_data)
-        except queue.Full:
-            self._tick_drop_count += 1
-            logger.warning(
-                "[OpenCtpGateway] Tick queue full, dropping: %s",
-                tick_data.get("instrument_id", ""),
-            )
-
-    def _tick_worker(self) -> None:
-        """Background worker that drains the tick queue and processes ticks.
-
-        Runs in a dedicated thread so that blocking ``request_compute_greeks``
-        calls never freeze the CTP callback thread.
-        """
-        while self._running:
-            try:
-                tick_data = self._tick_queue.get(timeout=1.0)
-            except queue.Empty:
-                continue
-            self._process_tick(tick_data)
-
-    def _process_tick(self, tick_data: dict) -> None:
-        """Process a single tick (routing logic, runs in tick worker thread).
-
-        Routing strategy:
-        - Future (underlying) ticks -> broadcast via ``quote`` topic
-          (all GreeksEngines receive and update local cache)
-        - Option ticks -> broadcast + job request ``compute_greeks``
-          (exactly one GreeksEngine handles via round-robin)
-        """
-        instrument_id = tick_data.get("instrument_id", "")
-        last_price = tick_data.get("last_price", 0.0)
-
-        if not instrument_id:
-            self._tick_drop_count += 1
-            logger.warning(
-                "[OpenCtpGateway] Dropping tick #%d with empty instrument_id",
-                self._tick_drop_count,
-            )
-            return
-
-        # Log first few ticks for visibility
-        total_routed = self._quote_count + self._job_count
-        if total_routed < 5:
-            logger.info(
-                "[OpenCtpGateway] Tick received: %s price=%.2f",
-                instrument_id,
-                last_price,
-            )
-
-        # 判断期货还是期权：ticker名长度大于7个字符的是期权，否则为期货
-        is_option = len(instrument_id) > 7
-        if is_option:
-            # Option tick -> broadcast + job mode
-            self._job_count += 1
-            self.send_quote(tick_data)
-            try:
-                result = self.request_compute_greeks(tick_data)
-                if self._job_count <= 5 or self._job_count % 100 == 0:
-                    logger.info(
-                        "[OpenCtpGateway] Option quote job #%d: %s price=%.2f",
-                        self._job_count,
-                        instrument_id,
-                        last_price,
-                    )
-                else:
-                    logger.debug(
-                        "[OpenCtpGateway] Option quote job #%d: %s price=%.2f",
-                        self._job_count,
-                        instrument_id,
-                        last_price,
-                    )
-            except Exception as e:
-                logger.warning(
-                    "[OpenCtpGateway] compute_greeks job #%d failed for %s: %s",
-                    self._job_count,
-                    instrument_id,
-                    e,
-                )
-        else:
-            # Future/underlying tick -> broadcast mode (all consumers)
-            self._quote_count += 1
-            self.send_quote(tick_data)
-            if self._quote_count <= 5 or self._quote_count % 100 == 0:
-                logger.info(
-                    "[OpenCtpGateway] Quote broadcast #%d: %s price=%.2f",
-                    self._quote_count,
-                    instrument_id,
-                    last_price,
-                )
-            else:
-                logger.debug(
-                    "[OpenCtpGateway] Quote broadcast #%d: %s price=%.2f",
-                    self._quote_count,
-                    instrument_id,
-                    last_price,
-                )
-
-    # ── Start / Stop ─────────────────────────────────────────────
+        # Subscribed instruments
+        self._subscribed_instruments = []  # type: List[str]
 
     def start(self) -> None:
-        """Start the module: register with engine, resolve instruments, then connect CTP MD."""
+        """Start the gateway module.
+
+        Lifecycle:
+        1. Register with TycheEngine (via super().start())
+        2. Connect trade API and query instruments
+        3. Filter instruments by configured underlyings
+        4. Connect market data API and subscribe
+        """
         super().start()
-        self._resolved_instruments = self._resolve_instruments()
 
-        # Start background tick worker before CTP MD connection
-        self._tick_worker_thread = threading.Thread(
-            target=self._tick_worker, name="tick_worker", daemon=True,
-        )
-        self._tick_worker_thread.start()
+        # Connect trade API first for instrument query
+        self._connect_td()
 
-        # 分离期货和期权，用于日志展示
-        futures = [i for i in self._resolved_instruments if len(i) <= 7]
-        options = [i for i in self._resolved_instruments if len(i) > 7]
+        # Then connect market data API
+        self._connect_md()
+
+    def stop(self) -> None:
+        """Stop the gateway and release all API resources."""
+        logger.info("Stopping OpenCTP Gateway...")
+
+        # Release MD API
+        if self._md_spi is not None:
+            try:
+                self._md_spi.release()
+            except Exception as e:
+                logger.debug("MdSpi release error: %s", e)
+            self._md_spi = None
+
+        # Release TD API
+        if self._td_spi is not None:
+            try:
+                self._td_spi.release()
+            except Exception as e:
+                logger.debug("TdSpi release error: %s", e)
+            self._td_spi = None
+
+        super().stop()
+        logger.info("OpenCTP Gateway stopped")
+
+    def send_quote(self, payload: dict) -> None:
+        """Declare this module as a quote event producer.
+
+        This method's existence (send_ prefix) registers the 'quote'
+        interface as a producer during handler discovery.
+        The actual publishing is done via self.send_event().
+        """
+        pass
+
+    def _on_market_data(self, data: dict) -> None:
+        """Callback from MdSpi - publish quote event to engine.
+
+        Args:
+            data: Parsed market data dictionary from MdSpi
+        """
+        self.send_event("quote", data)
+
+    def _connect_td(self) -> None:
+        """Connect trade API, login, and query instruments."""
+        if not self.config.td_front:
+            logger.warning("No td_front configured, skipping trade API connection")
+            return
 
         logger.info(
-            "[OpenCtpGateway] Resolved %d instruments for subscription "
-            "(%d futures, %d options)",
-            len(self._resolved_instruments),
-            len(futures),
-            len(options),
-        )
-        if futures:
-            logger.info("[OpenCtpGateway] Futures: %s", futures)
-        if options:
-            logger.info("[OpenCtpGateway] Options: %s", options)
-        self._start_md()
-
-    def _start_md(self) -> None:
-        """Initialize and connect CTP Market Data API."""
-        # Use a temporary directory for CTP flow files
-        flow_path = tempfile.mkdtemp(prefix="openctp_md_") + "/"
-
-        logger.info(
-            "[OpenCtpGateway] Creating MD API, flow_path=%s, front=%s",
-            flow_path,
-            self.config.md_front,
+            "TD connect: front=%s broker_id=%s user_id=%s",
+            self.config.td_front, self.config.broker_id, self.config.user_id,
         )
 
-        self._md_api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi(flow_path)
-
-        self._md_spi = MdSpi(
-            md_api=self._md_api,
+        self._td_spi = TdSpi(
+            td_module=self._td_module,
+            front_addr=self.config.td_front,
             broker_id=self.config.broker_id,
             user_id=self.config.user_id,
             password=self.config.password,
-            instruments=self._resolved_instruments,
-            on_tick=self._on_tick,
-            subscribe_for_quote=False,
         )
 
-        self._md_api.RegisterSpi(self._md_spi)
-        self._md_api.RegisterFront(self.config.md_front)
-        self._md_api.Init()
+        self._td_spi.connect()
 
-        logger.info("[OpenCtpGateway] MD API initialized, waiting for connection...")
+        if not self._td_spi.wait_login(timeout=10.0):
+            logger.error(
+                "Trade API login timeout (connected=%s)",
+                self._td_spi.connected,
+            )
+            return
 
-    def stop(self) -> None:
-        """Stop CTP connections and the module."""
+        # Query instruments
+        # Small delay to ensure API is ready (CTP requires this)
+        time.sleep(1.0)
+        self._td_spi.query_instruments()
+
+        if not self._td_spi.wait_instruments(timeout=30.0):
+            logger.error("Instrument query timeout")
+            return
+
         logger.info(
-            "[OpenCtpGateway] Stopping... (quotes=%d, jobs=%d, dropped=%d, queue=%d)",
-            self._quote_count,
-            self._job_count,
-            self._tick_drop_count,
-            self._tick_queue.qsize(),
+            "TD instruments received: total=%d",
+            len(self._td_spi.instruments),
         )
 
-        if self._md_api is not None:
-            self._md_api.RegisterSpi(None)
-            self._md_api.Release()
-            self._md_api = None
-            self._md_spi = None
+        # Filter instruments based on configured underlyings
+        self._subscribed_instruments = self._filter_instruments(
+            self._td_spi.instruments
+        )
+        logger.info(
+            "Filtered %d instruments for subscription (underlyings=%s)",
+            len(self._subscribed_instruments), self.config.underlyings,
+        )
 
-        super().stop()
-        logger.info("[OpenCtpGateway] Stopped")
+    def _connect_md(self) -> None:
+        """Connect market data API and subscribe to instruments."""
+        if not self.config.md_front:
+            logger.warning("No md_front configured, skipping market data connection")
+            return
+
+        logger.info(
+            "MD connect: front=%s broker_id=%s user_id=%s",
+            self.config.md_front, self.config.broker_id, self.config.user_id,
+        )
+
+        self._md_spi = MdSpi(
+            md_module=self._md_module,
+            on_data_callback=self._on_market_data,
+            front_addr=self.config.md_front,
+            broker_id=self.config.broker_id,
+            user_id=self.config.user_id,
+            password=self.config.password,
+        )
+
+        self._md_spi.connect()
+
+        if not self._md_spi.wait_login(timeout=10.0):
+            logger.error(
+                "Market data API login timeout (connected=%s)",
+                self._md_spi.connected,
+            )
+            return
+
+        # Subscribe to filtered instruments
+        if self._subscribed_instruments:
+            self._subscribe_instruments(self._subscribed_instruments)
+        else:
+            logger.warning(
+                "No instruments to subscribe (TD login or instrument query failed)"
+            )
+
+    def _subscribe_instruments(self, instruments: List[str]) -> None:
+        """Subscribe to market data for a list of instruments.
+
+        Args:
+            instruments: List of instrument IDs
+        """
+        if self._md_spi is None:
+            return
+
+        # Subscribe in batches to avoid overwhelming the API
+        batch_size = 500
+        for i in range(0, len(instruments), batch_size):
+            batch = instruments[i:i + batch_size]
+            self._md_spi.subscribe(batch)
+            if i + batch_size < len(instruments):
+                time.sleep(0.5)  # Small delay between batches
+
+    def _filter_instruments(self, instruments: List[dict]) -> List[str]:
+        """Filter instruments based on configured underlyings.
+
+        The underlyings config maps exchange -> list of product IDs.
+        An instrument matches if its exchange_id and product_id match.
+
+        If underlyings is empty, subscribe to ALL instruments.
+
+        Args:
+            instruments: List of instrument info dicts from TdSpi
+
+        Returns:
+            List of instrument IDs to subscribe
+        """
+        underlyings = self.config.underlyings
+        if not underlyings:
+            # No filter configured - subscribe to all
+            return [inst["instrument_id"] for inst in instruments]
+
+        result = []
+        for inst in instruments:
+            exchange = inst.get("exchange_id", "")
+            product_id = inst.get("product_id", "").strip()
+
+            # Check if this exchange is in our config
+            if exchange not in underlyings:
+                continue
+
+            # Check if product matches any configured underlying
+            configured_products = underlyings[exchange]
+            if not configured_products:
+                # Empty product list = all products on this exchange
+                result.append(inst["instrument_id"])
+            elif product_id in configured_products:
+                result.append(inst["instrument_id"])
+
+        return result

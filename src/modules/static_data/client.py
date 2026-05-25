@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urljoin
 
 import requests
 
-from .config import StaticDataConfig
+from src.modules.static_data.config import StaticDataConfig
 
 logger = logging.getLogger(__name__)
 

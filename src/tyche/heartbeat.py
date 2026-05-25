@@ -9,8 +9,8 @@ import time
 
 import zmq
 
-from tyche.message import Message, serialize
-from tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS, MessageType
+from src.tyche.message import Message, serialize
+from src.tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS, MessageType
 
 
 class HeartbeatMonitor:

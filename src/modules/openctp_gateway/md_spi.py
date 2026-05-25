@@ -1,262 +1,223 @@
-"""CTP Market Data SPI - receives callbacks from CTP MD API."""
+"""Market Data SPI (callback handler) for OpenCTP/TTS API.
+
+The MdSpi class inherits from the CTP MdSpi base class (via SWIG director)
+and receives market data callbacks from the CTP API internal thread.
+
+Usage:
+    # md_module is either thostmduserapi or soptthostmduserapi
+    spi = MdSpi(md_module, on_data_callback, front_addr, broker_id, user_id, password)
+    spi.connect()
+"""
 
 import logging
-import sys
-from typing import Callable, Optional
-
-from openctp_tts import mdapi
+import threading
+from typing import Any, Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# CTP uses DBL_MAX (1.7976931348623157e+308) to indicate invalid/empty prices
-_DBL_MAX = sys.float_info.max
 
-
-def _safe_price(value: float) -> float:
-    """Return 0.0 for CTP invalid prices (DBL_MAX), otherwise the value."""
-    if value is None or value >= _DBL_MAX:
-        return 0.0
-    return value
-
-
-def _safe_str(value) -> str:
-    """Decode CTP string fields from bytes to str, or return empty string."""
-    if value is None:
+def _decode(val: Any) -> str:
+    """Decode CTP bytes field to string, handling None and bytes."""
+    if val is None:
         return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return str(value)
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="ignore").strip("\x00")
+    return str(val)
 
 
-class MdSpi(mdapi.CThostFtdcMdSpi):
-    """CTP Market Data SPI implementation.
+class MdSpi:
+    """Market Data SPI - receives quotes from CTP/TTS market data API.
 
-    Receives market data callbacks from CTP and forwards tick data
-    to the gateway via a callback function.
+    This class dynamically inherits from the correct CTP SPI base class
+    depending on whether futures or stocks API is loaded.
 
-    Args:
-        md_api: CTP MD API instance.
-        broker_id: Broker ID for login.
-        user_id: User ID for login.
-        password: Password for login.
-        instruments: List of instrument IDs to subscribe after login.
-        on_tick: Callback invoked with a tick_data dict on each tick.
+    Attributes:
+        md_api: The CThostFtdcMdApi instance
+        connected: Whether front connection is established
+        logged_in: Whether login succeeded
     """
 
     def __init__(
         self,
-        md_api: mdapi.CThostFtdcMdApi,
+        md_module: Any,
+        on_data_callback: Callable[[dict], None],
+        front_addr: str,
         broker_id: str,
         user_id: str,
         password: str,
-        instruments: list[str],
-        on_tick: Callable[[dict], None],
-        subscribe_for_quote: bool = True,
     ):
-        super().__init__()
-        self._api = md_api
+        """Initialize MdSpi.
+
+        Args:
+            md_module: The imported CTP md API module (thostmduserapi or soptthostmduserapi)
+            on_data_callback: Callback invoked with parsed market data dict
+            front_addr: Front address (e.g. "tcp://121.37.80.177:20004")
+            broker_id: Broker ID
+            user_id: User ID for login
+            password: Password for login
+        """
+        self._md_module = md_module
+        self._on_data_callback = on_data_callback
+        self._front_addr = front_addr
         self._broker_id = broker_id
         self._user_id = user_id
         self._password = password
-        self._instruments = instruments
-        self._on_tick = on_tick
-        self._subscribe_for_quote = subscribe_for_quote
 
-        # Tick statistics for debugging
-        self._tick_count = 0
-        self._last_tick_instrument = ""
-        self._last_tick_time = ""
+        self.md_api = None  # type: Optional[Any]
+        self.connected = False
+        self.logged_in = False
+        self._login_event = threading.Event()
+        self._spi_instance = None  # type: Optional[Any]
 
-    # ── Connection callbacks ─────────────────────────────────────
+    def connect(self) -> None:
+        """Create API instance, register SPI, and initiate connection."""
+        # Create the inner SPI class that inherits from CTP base
+        spi_cls = self._create_spi_class()
+        self._spi_instance = spi_cls(self)
 
-    def OnFrontConnected(self) -> None:
-        """Called when connection to the MD front is established."""
-        logger.info("[MdSpi] Front connected, sending login request")
-        logger.debug(
-            "[MdSpi] Login params: broker_id=%s, user_id=%s, password=%s",
-            self._broker_id,
-            self._user_id,
-            "***" if self._password else "(empty)",
-        )
+        # Create API and register
+        self.md_api = self._md_module.CThostFtdcMdApi.CreateFtdcMdApi("")
+        self.md_api.RegisterSpi(self._spi_instance)
+        self.md_api.RegisterFront(self._front_addr)
 
-        req = mdapi.CThostFtdcReqUserLoginField()
-        req.BrokerID = self._broker_id
-        req.UserID = self._user_id
-        req.Password = self._password
+        logger.info("MdApi connecting to %s", self._front_addr)
+        self.md_api.Init()
 
-        ret = self._api.ReqUserLogin(req, 0)
-        if ret != 0:
-            logger.error("[MdSpi] ReqUserLogin failed, ret=%d", ret)
-        else:
-            logger.debug("[MdSpi] ReqUserLogin sent successfully")
+    def wait_login(self, timeout: float = 10.0) -> bool:
+        """Wait for login to complete.
 
-    def OnFrontDisconnected(self, nReason: int) -> None:
-        """Called when disconnected from the MD front."""
-        logger.warning("[MdSpi] Front disconnected, reason=%d", nReason)
-        logger.info(
-            "[MdSpi] Tick stats before disconnect: total_ticks=%d, last_instrument=%s, last_time=%s",
-            self._tick_count,
-            self._last_tick_instrument,
-            self._last_tick_time,
-        )
+        Args:
+            timeout: Maximum seconds to wait
 
-    # ── Login callback ───────────────────────────────────────────
+        Returns:
+            True if login succeeded within timeout
+        """
+        return self._login_event.wait(timeout)
 
-    def OnRspUserLogin(
-        self,
-        pRspUserLogin: mdapi.CThostFtdcRspUserLoginField,
-        pRspInfo: mdapi.CThostFtdcRspInfoField,
-        nRequestID: int,
-        bIsLast: bool,
-    ) -> None:
-        """Called on login response."""
-        if pRspInfo and pRspInfo.ErrorID != 0:
-            error_msg = _safe_str(pRspInfo.ErrorMsg)
-            logger.error(
-                "[MdSpi] Login failed: ErrorID=%d, ErrorMsg=%s",
-                pRspInfo.ErrorID,
-                error_msg,
-            )
+    def subscribe(self, instrument_ids: List[str]) -> None:
+        """Subscribe to market data for given instrument IDs.
+
+        Args:
+            instrument_ids: List of instrument IDs (e.g. ["ag2506", "au2506"])
+        """
+        if not self.md_api or not self.logged_in:
+            logger.warning("Cannot subscribe: not logged in")
             return
 
-        trading_day = _safe_str(pRspUserLogin.TradingDay) if pRspUserLogin else "N/A"
+        if not instrument_ids:
+            return
+
+        # CTP API expects bytes list
+        ids_bytes = [iid.encode("utf-8") for iid in instrument_ids]
+        ret = self.md_api.SubscribeMarketData(ids_bytes, len(ids_bytes))
         logger.info(
-            "[MdSpi] Login succeeded, TradingDay=%s",
-            trading_day,
+            "SubscribeMarketData: %d instruments, ret=%d",
+            len(ids_bytes), ret,
         )
 
-        if self._instruments:
-            logger.info("[MdSpi] Subscribing to %d instruments", len(self._instruments))
-            logger.debug("[MdSpi] Instrument list: %s", self._instruments)
-            encoded = [inst.encode("utf-8") for inst in self._instruments]
-            ret = self._api.SubscribeMarketData(encoded, len(self._instruments))
-            if ret != 0:
-                logger.error("[MdSpi] SubscribeMarketData failed, ret=%d", ret)
-            else:
-                logger.debug("[MdSpi] SubscribeMarketData sent successfully")
+    def release(self) -> None:
+        """Release the API instance."""
+        if self.md_api is not None:
+            try:
+                self.md_api.RegisterSpi(None)
+                self.md_api.Release()
+            except Exception as e:
+                logger.debug("MdApi release error: %s", e)
+            self.md_api = None
+        self._spi_instance = None
 
-            # Subscribe to option for-quote responses if enabled
-            if self._subscribe_for_quote:
-                logger.info(
-                    "[MdSpi] Subscribing to ForQuoteRsp for %d instruments",
-                    len(self._instruments),
-                )
-                ret_fq = self._api.SubscribeForQuoteRsp(encoded, len(self._instruments))
-                if ret_fq != 0:
+    def _create_spi_class(self) -> type:
+        """Dynamically create a SPI class that inherits from the correct CTP base."""
+        md_module = self._md_module
+        base_class = md_module.CThostFtdcMdSpi
+        outer = self
+
+        class _InnerMdSpi(base_class):
+            """Inner SPI class with SWIG director inheritance."""
+
+            def __init__(self, parent: "MdSpi"):
+                super().__init__()  # CRITICAL: SWIG director init
+                self._parent = parent
+
+            def OnFrontConnected(self):
+                logger.info("MdSpi: Front connected")
+                self._parent.connected = True
+                # Send login request
+                req = md_module.CThostFtdcReqUserLoginField()
+                req.BrokerID = outer._broker_id
+                req.UserID = outer._user_id
+                req.Password = outer._password
+                self._parent.md_api.ReqUserLogin(req, 0)
+
+            def OnFrontDisconnected(self, nReason):
+                logger.warning("MdSpi: Front disconnected, reason=%d", nReason)
+                self._parent.connected = False
+                self._parent.logged_in = False
+
+            def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
+                if pRspInfo and pRspInfo.ErrorID != 0:
+                    error_msg = _decode(pRspInfo.ErrorMsg)
                     logger.error(
-                        "[MdSpi] SubscribeForQuoteRsp failed, ret=%d", ret_fq
+                        "MdSpi: Login failed, ErrorID=%d, ErrorMsg=%s",
+                        pRspInfo.ErrorID, error_msg,
                     )
-                else:
-                    logger.debug("[MdSpi] SubscribeForQuoteRsp sent successfully")
-        else:
-            logger.warning("[MdSpi] No instruments configured, nothing to subscribe")
+                    return
+                logger.info("MdSpi: Login successful")
+                self._parent.logged_in = True
+                self._parent._login_event.set()
 
-    # ── Market data callback ─────────────────────────────────────
+            def OnRspSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
+                if pRspInfo and pRspInfo.ErrorID != 0:
+                    instrument = _decode(pSpecificInstrument.InstrumentID) if pSpecificInstrument else "?"
+                    error_msg = _decode(pRspInfo.ErrorMsg)
+                    logger.warning(
+                        "MdSpi: Subscribe failed for %s, ErrorID=%d, Msg=%s",
+                        instrument, pRspInfo.ErrorID, error_msg,
+                    )
 
-    def OnRtnDepthMarketData(
-        self,
-        pDepthMarketData: mdapi.CThostFtdcDepthMarketDataField,
-    ) -> None:
-        """Called on each market data tick."""
-        if pDepthMarketData is None:
-            logger.warning("[MdSpi] OnRtnDepthMarketData called with None data")
-            return
+            def OnRtnDepthMarketData(self, pDepthMarketData):
+                if pDepthMarketData is None:
+                    return
+                try:
+                    data = self._parse_market_data(pDepthMarketData)
+                    self._parent._on_data_callback(data)
+                except Exception as e:
+                    logger.error("MdSpi: Error parsing market data: %s", e)
 
-        instrument_id = _safe_str(pDepthMarketData.InstrumentID)
-        update_time = _safe_str(pDepthMarketData.UpdateTime)
-        last_price = _safe_price(pDepthMarketData.LastPrice)
+            def OnRspError(self, pRspInfo, nRequestID, bIsLast):
+                if pRspInfo:
+                    logger.error(
+                        "MdSpi: RspError ErrorID=%d, ErrorMsg=%s",
+                        pRspInfo.ErrorID, _decode(pRspInfo.ErrorMsg),
+                    )
 
-        self._tick_count += 1
-        self._last_tick_instrument = instrument_id
-        self._last_tick_time = update_time
+            @staticmethod
+            def _parse_market_data(data) -> dict:
+                """Parse CThostFtdcDepthMarketDataField to dict."""
+                return {
+                    "instrument_id": _decode(data.InstrumentID),
+                    "exchange_id": _decode(data.ExchangeID),
+                    "last_price": data.LastPrice,
+                    "pre_settlement_price": data.PreSettlementPrice,
+                    "pre_close_price": data.PreClosePrice,
+                    "open_price": data.OpenPrice,
+                    "highest_price": data.HighestPrice,
+                    "lowest_price": data.LowestPrice,
+                    "volume": data.Volume,
+                    "turnover": data.Turnover,
+                    "open_interest": data.OpenInterest,
+                    "close_price": data.ClosePrice,
+                    "settlement_price": data.SettlementPrice,
+                    "upper_limit_price": data.UpperLimitPrice,
+                    "lower_limit_price": data.LowerLimitPrice,
+                    "bid_price1": data.BidPrice1,
+                    "bid_volume1": data.BidVolume1,
+                    "ask_price1": data.AskPrice1,
+                    "ask_volume1": data.AskVolume1,
+                    "update_time": _decode(data.UpdateTime),
+                    "update_millisec": data.UpdateMillisec,
+                    "trading_day": _decode(data.TradingDay),
+                    "action_day": _decode(data.ActionDay),
+                }
 
-        # Log first tick and every 100th tick for visibility
-        if self._tick_count == 1:
-            logger.info(
-                "[MdSpi] First tick received: %s @ %s price=%.2f",
-                instrument_id,
-                update_time,
-                last_price,
-            )
-        elif self._tick_count % 100 == 0:
-            logger.info(
-                "[MdSpi] Tick milestone: %d ticks received, last=%s @ %s",
-                self._tick_count,
-                instrument_id,
-                update_time,
-            )
-
-        logger.debug(
-            "[MdSpi] Tick #%d: %s price=%.2f bid=%.2f ask=%.2f vol=%d",
-            self._tick_count,
-            instrument_id,
-            last_price,
-            _safe_price(pDepthMarketData.BidPrice1),
-            _safe_price(pDepthMarketData.AskPrice1),
-            pDepthMarketData.Volume,
-        )
-
-        tick_data = {
-            "instrument_id": instrument_id,
-            "exchange_id": _safe_str(pDepthMarketData.ExchangeID),
-            "last_price": last_price,
-            "bid_price_1": _safe_price(pDepthMarketData.BidPrice1),
-            "bid_volume_1": pDepthMarketData.BidVolume1,
-            "ask_price_1": _safe_price(pDepthMarketData.AskPrice1),
-            "ask_volume_1": pDepthMarketData.AskVolume1,
-            "volume": pDepthMarketData.Volume,
-            "open_interest": _safe_price(pDepthMarketData.OpenInterest),
-            "open_price": _safe_price(pDepthMarketData.OpenPrice),
-            "high_price": _safe_price(pDepthMarketData.HighestPrice),
-            "low_price": _safe_price(pDepthMarketData.LowestPrice),
-            "pre_close_price": _safe_price(pDepthMarketData.PreClosePrice),
-            "pre_settlement_price": _safe_price(pDepthMarketData.PreSettlementPrice),
-            "upper_limit_price": _safe_price(pDepthMarketData.UpperLimitPrice),
-            "lower_limit_price": _safe_price(pDepthMarketData.LowerLimitPrice),
-            "update_time": update_time,
-            "update_millisec": pDepthMarketData.UpdateMillisec,
-            "trading_day": _safe_str(pDepthMarketData.TradingDay),
-        }
-
-        self._on_tick(tick_data)
-
-    # ── Error callback ───────────────────────────────────────────
-
-    def OnRspError(
-        self,
-        pRspInfo: mdapi.CThostFtdcRspInfoField,
-        nRequestID: int,
-        bIsLast: bool,
-    ) -> None:
-        """Called on error response."""
-        if pRspInfo:
-            error_msg = _safe_str(pRspInfo.ErrorMsg)
-            logger.error(
-                "[MdSpi] Error: ErrorID=%d, ErrorMsg=%s",
-                pRspInfo.ErrorID,
-                error_msg,
-            )
-
-    # ── Subscription callbacks ───────────────────────────────────
-
-    def OnRspSubMarketData(
-        self,
-        pSpecificInstrument: mdapi.CThostFtdcSpecificInstrumentField,
-        pRspInfo: mdapi.CThostFtdcRspInfoField,
-        nRequestID: int,
-        bIsLast: bool,
-    ) -> None:
-        """Called on subscription response."""
-        inst_id = _safe_str(pSpecificInstrument.InstrumentID) if pSpecificInstrument else "?"
-        if pRspInfo and pRspInfo.ErrorID != 0:
-            error_msg = _safe_str(pRspInfo.ErrorMsg)
-            logger.error(
-                "[MdSpi] Subscribe failed for %s: ErrorID=%d, ErrorMsg=%s",
-                inst_id,
-                pRspInfo.ErrorID,
-                error_msg,
-            )
-        elif pSpecificInstrument:
-            logger.info(
-                "[MdSpi] Subscribed: %s", inst_id
-            )
+        return _InnerMdSpi

@@ -3,7 +3,7 @@ import signal
 import sys
 
 from src.tyche.engine import TycheEngine
-from tyche.types import Endpoint
+from src.tyche.types import Endpoint
 
 
 def setup_logging() -> None:

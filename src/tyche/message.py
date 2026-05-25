@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import msgpack
 
-from tyche.types import DurabilityLevel, MessageType
+from src.tyche.types import DurabilityLevel, MessageType
 
 
 @dataclass

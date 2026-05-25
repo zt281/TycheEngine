@@ -12,9 +12,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 import zmq
 
-from tyche.message import Message, deserialize, serialize
-from tyche.module_base import ModuleBase
-from tyche.types import (
+from src.tyche.message import Message, deserialize, serialize
+from src.tyche.module_base import ModuleBase
+from src.tyche.types import (
     HEARTBEAT_INTERVAL,
     DurabilityLevel,
     Endpoint,

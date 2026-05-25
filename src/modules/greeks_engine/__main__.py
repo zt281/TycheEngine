@@ -7,8 +7,8 @@ import signal
 import threading
 from typing import Optional
 
-from .config import GreeksConfig
-from .greeks import GreeksEngine
+from src.modules.greeks_engine.config import GreeksConfig
+from src.modules.greeks_engine.greeks import GreeksEngine
 
 logger = logging.getLogger(__name__)
 

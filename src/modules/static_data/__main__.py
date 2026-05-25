@@ -10,8 +10,8 @@ import sys
 import threading
 from typing import Optional
 
-from .config import StaticDataConfig
-from .static_data import StaticDataModule
+from src.modules.static_data.config import StaticDataConfig
+from src.modules.static_data.static_data import StaticDataModule
 
 logger = logging.getLogger(__name__)
 

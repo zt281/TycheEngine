@@ -1,69 +1,14 @@
-"""OpenCTP Gateway 模块入口 — 支持 ``python -m modules.openctp_gateway`` 启动."""
+"""OpenCTP Gateway Module 入口 — 支持 ``python -m src.modules.openctp_gateway`` 启动."""
 
 import argparse
-import json
+import atexit
 import logging
+import os
 import signal
+import sys
 import threading
-from typing import Optional
-
-from .config import GatewayConfig
-from .gateway import OpenCtpGateway
 
 logger = logging.getLogger(__name__)
-
-
-def _load_config(config_path: Optional[str]) -> GatewayConfig:
-    """从 JSON 配置文件构建 GatewayConfig.
-
-    配置文件格式:
-        {
-            "engine": {"host": "127.0.0.1", "port": 5555},
-            "gateway": {
-                "md_front": "tcp://122.51.136.165:20004",
-                "td_front": "tcp://122.51.136.165:20002",
-                "broker_id": "",
-                "user_id": "test",
-                "password": "test",
-                "underlyings": {
-                    "SHFE": ["ag", "cu"],
-                    "CFFEX": ["IF", "IC"]
-                },
-                "subscribe_options": false,
-                "resolve_timeout": 10.0
-            }
-        }
-
-        subscribe_options: 是否同时订阅期权合约（ProductClass=2）。
-            为 true 时，会对每个 underlying 额外查询并订阅其期权合约
-            （期权品种ID自动加上 ``_o`` 后缀，如 ``ag`` -> ``ag_o``）。
-    """
-    if config_path is None:
-        return GatewayConfig()
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-
-    gw_cfg = raw.get("gateway", {})
-    engine_cfg = raw.get("engine", {})
-
-    # Parse underlyings dict (exchange_id -> list of product_ids)
-    underlyings: dict = {}
-    for exchange_id, product_ids in gw_cfg.get("underlyings", {}).items():
-        underlyings[exchange_id] = list(product_ids)
-
-    return GatewayConfig(
-        md_front=gw_cfg.get("md_front", GatewayConfig.md_front),
-        td_front=gw_cfg.get("td_front", GatewayConfig.td_front),
-        broker_id=gw_cfg.get("broker_id", GatewayConfig.broker_id),
-        user_id=gw_cfg.get("user_id", GatewayConfig.user_id),
-        password=gw_cfg.get("password", GatewayConfig.password),
-        underlyings=underlyings,
-        subscribe_options=gw_cfg.get("subscribe_options", GatewayConfig.subscribe_options),
-        engine_host=engine_cfg.get("host", GatewayConfig.engine_host),
-        engine_port=engine_cfg.get("port", GatewayConfig.engine_port),
-        resolve_timeout=gw_cfg.get("resolve_timeout", GatewayConfig.resolve_timeout),
-    )
 
 
 def main() -> None:
@@ -73,8 +18,8 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default=None,
-        help="JSON 配置文件路径 (可选，默认使用 GatewayConfig 默认值)",
+        required=True,
+        help="JSON 配置文件路径",
     )
     parser.add_argument(
         "--log-level",
@@ -93,48 +38,67 @@ def main() -> None:
     )
 
     # ── Config ───────────────────────────────────────────────────
-    config = _load_config(args.config)
-    underlying_summary = [
-        f"{pid}@{eid}"
-        for eid, pids in config.underlyings.items()
-        for pid in pids
-    ]
+    from src.modules.openctp_gateway.config import GatewayConfig
+
+    config = GatewayConfig.from_file(args.config)
     logger.info(
-        "OpenCTP Gateway 配置: md_front=%s, td_front=%s, "
-        "underlyings=[%s], subscribe_options=%s, engine=%s:%d",
+        "Gateway 配置: type=%s, md_front=%s, td_front=%s, engine=%s:%d",
+        config.gateway_type,
         config.md_front,
         config.td_front,
-        ", ".join(underlying_summary),
-        config.subscribe_options,
         config.engine_host,
         config.engine_port,
     )
 
-    # ── Start ────────────────────────────────────────────────────
-    gateway = OpenCtpGateway(config)
-    stop_event = threading.Event()
+    # ── DLL Loading (MUST happen before importing gateway) ───────
+    from src.modules.openctp_gateway.dll_loader import load_api
 
-    def _shutdown(signum: int, _frame: object) -> None:  # noqa: ANN001
+    md_module, td_module = load_api(config.gateway_type)
+
+    # ── Instantiate Gateway ──────────────────────────────────────
+    from src.modules.openctp_gateway.gateway import OpenCtpGateway
+
+    module = OpenCtpGateway(config, md_module, td_module)
+    stop_event = threading.Event()
+    _cleanup_done = False
+
+    def _do_cleanup() -> None:
+        """确保 module.stop() 被调用（atexit 兜底）."""
+        nonlocal _cleanup_done
+        if _cleanup_done:
+            return
+        _cleanup_done = True
+        try:
+            module.stop()
+        except Exception:
+            pass
+        logger.info("OpenCTP Gateway 模块已停止")
+
+    atexit.register(_do_cleanup)
+
+    def _shutdown(signum: int, _frame: object) -> None:
         sig_name = signal.Signals(signum).name
-        logger.info("收到信号 %s，正在停止 Gateway...", sig_name)
+        logger.info("收到信号 %s，正在停止 OpenCTP Gateway...", sig_name)
         stop_event.set()
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
+    # ── Start ────────────────────────────────────────────────────
     try:
-        gateway.start()
+        module.start()
         logger.info("OpenCTP Gateway 已启动，按 Ctrl+C 停止")
         # Use polling with timeout to allow Ctrl+C on Windows
         while not stop_event.is_set():
             stop_event.wait(0.5)
     except KeyboardInterrupt:
-        logger.info("收到 KeyboardInterrupt，正在停止 Gateway...")
+        logger.info("收到 KeyboardInterrupt，正在停止 OpenCTP Gateway...")
     except Exception:
-        logger.exception("Gateway 运行异常")
+        logger.exception("OpenCTP Gateway 运行异常")
     finally:
-        gateway.stop()
-        logger.info("OpenCTP Gateway 已停止")
+        _do_cleanup()
+        # 强制退出：CTP API 内部线程可能阻止进程退出
+        os._exit(0)
 
 
 if __name__ == "__main__":

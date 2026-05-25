@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from tyche.dead_letter import DeadLetterStore
-from tyche.message import Message, MessageType
-from tyche.types import DurabilityLevel
+from src.tyche.dead_letter import DeadLetterStore
+from src.tyche.message import Message, MessageType
+from src.tyche.types import DurabilityLevel
 
 
 class TestDeadLetterPersist:

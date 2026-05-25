@@ -12,11 +12,11 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add repo root to path so 'src.tyche' imports resolve
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tyche.message import Message, serialize, deserialize
-from tyche.types import (
+from src.tyche.message import Message, serialize, deserialize
+from src.tyche.types import (
     MessageType,
     ModuleInfo,
     Interface,
@@ -25,7 +25,7 @@ from tyche.types import (
     DurabilityLevel,
     Endpoint,
 )
-from tyche.dead_letter import DeadLetterStore
+from src.tyche.dead_letter import DeadLetterStore
 
 
 # ── Global Resource Tracker ────────────────────────────────────────
@@ -231,7 +231,7 @@ def make_engine(tmp_path):
         heartbeat_port=15553,
         **kwargs,
     ):
-        from tyche.engine import TycheEngine
+        from src.tyche.engine import TycheEngine
         engine = TycheEngine(
             registration_endpoint=Endpoint("127.0.0.1", registration_port),
             event_endpoint=Endpoint("127.0.0.1", event_port),

@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tyche.engine import TycheEngine
-from tyche.message import Message, MessageType, serialize, deserialize
-from tyche.types import (
+from src.tyche.engine import TycheEngine
+from src.tyche.message import Message, MessageType, serialize, deserialize
+from src.tyche.types import (
     Endpoint,
     Interface,
     InterfacePattern,
@@ -18,8 +18,8 @@ from tyche.types import (
 
 
 @pytest.fixture
-def engine(tmp_path):
-    """Create a TycheEngine instance for testing."""
+def unstarted_engine(tmp_path):
+    """TycheEngine instance WITHOUT started workers. NEVER call .start()."""
     engine = TycheEngine(
         registration_endpoint=Endpoint("127.0.0.1", 17550),
         event_endpoint=Endpoint("127.0.0.1", 17551),
@@ -29,9 +29,13 @@ def engine(tmp_path):
     engine._job_router = MagicMock()
     engine._running = True
     yield engine
-    # Cleanup
+    # Robust cleanup: stop() joins daemon threads even if start() was never called
+    try:
+        engine.stop()
+    except Exception:
+        pass
     engine._running = False
-    if engine.context and not engine.context.closed:
+    if engine.context is not None and not engine.context.closed:
         engine.context.destroy(linger=0)
 
 
@@ -72,7 +76,7 @@ class TestHeartbeatAvailability:
 
     def test_heartbeat_includes_availability_dict(self):
         """Heartbeat payload has 'availability' key."""
-        from tyche.module import TycheModule
+        from src.tyche.module import TycheModule
 
         class TestHandler(TycheModule):
             def handle_compute(self, payload):
@@ -94,7 +98,7 @@ class TestHeartbeatAvailability:
 
     def test_handler_buffer_tracks_usage(self):
         """Buffer current increments/decrements correctly."""
-        from tyche.module import TycheModule
+        from src.tyche.module import TycheModule
 
         class TestHandler(TycheModule):
             def handle_compute(self, payload):
@@ -129,17 +133,17 @@ class TestHeartbeatAvailability:
 
 
 class TestAvailabilityRouting:
-    """Tests for availability-based job routing in the engine."""
+    """Tests for availability-based job routing in the unstarted_engine."""
 
     def test_unavailable_handler_skipped_in_routing(
-        self, engine, handler_module_a, handler_module_b
+        self, unstarted_engine, handler_module_a, handler_module_b
     ):
         """Engine skips handlers reporting False availability."""
-        engine.register_module(handler_module_a)
-        engine.register_module(handler_module_b)
+        unstarted_engine.register_module(handler_module_a)
+        unstarted_engine.register_module(handler_module_b)
 
         # Mark handler_a as unavailable via module_availability
-        engine._module_availability["handler_a"] = {"compute": False}
+        unstarted_engine._module_availability["handler_a"] = {"compute": False}
 
         correlation_id = str(uuid.uuid4())
         msg = Message(
@@ -153,22 +157,22 @@ class TestAvailabilityRouting:
         topic_frame = b"compute"
         message_frame = serialize(msg)
 
-        engine._handle_job_request(identity, topic_frame, message_frame, msg)
+        unstarted_engine._handle_job_request(identity, topic_frame, message_frame, msg)
 
         # Job should be routed to handler_b (the only available one)
-        info = engine._job_tracking[correlation_id]
+        info = unstarted_engine._job_tracking[correlation_id]
         assert info["handler_id"] == "handler_b"
 
     def test_all_handlers_unavailable_waits(
-        self, engine, handler_module_a, handler_module_b
+        self, unstarted_engine, handler_module_a, handler_module_b
     ):
         """If all handlers report unavailable, job enters wait state."""
-        engine.register_module(handler_module_a)
-        engine.register_module(handler_module_b)
+        unstarted_engine.register_module(handler_module_a)
+        unstarted_engine.register_module(handler_module_b)
 
         # Mark both handlers as unavailable
-        engine._unavailable_handlers["handler_a"] = {"compute"}
-        engine._unavailable_handlers["handler_b"] = {"compute"}
+        unstarted_engine._unavailable_handlers["handler_a"] = {"compute"}
+        unstarted_engine._unavailable_handlers["handler_b"] = {"compute"}
 
         correlation_id = str(uuid.uuid4())
         msg = Message(
@@ -182,23 +186,23 @@ class TestAvailabilityRouting:
         topic_frame = b"compute"
         message_frame = serialize(msg)
 
-        engine._handle_job_request(identity, topic_frame, message_frame, msg)
+        unstarted_engine._handle_job_request(identity, topic_frame, message_frame, msg)
 
         # Job should be in wait state (handler_id=None)
-        info = engine._job_tracking[correlation_id]
+        info = unstarted_engine._job_tracking[correlation_id]
         assert info["handler_id"] is None
         assert info["wait_start_time"] is not None
 
     def test_recovered_handler_receives_jobs(
-        self, engine, handler_module_a, handler_module_b
+        self, unstarted_engine, handler_module_a, handler_module_b
     ):
         """After handler becomes available again, jobs are dispatched to it."""
-        engine.register_module(handler_module_a)
-        engine.register_module(handler_module_b)
+        unstarted_engine.register_module(handler_module_a)
+        unstarted_engine.register_module(handler_module_b)
 
         # Mark both unavailable
-        engine._unavailable_handlers["handler_a"] = {"compute"}
-        engine._unavailable_handlers["handler_b"] = {"compute"}
+        unstarted_engine._unavailable_handlers["handler_a"] = {"compute"}
+        unstarted_engine._unavailable_handlers["handler_b"] = {"compute"}
 
         # Submit a job (will enter wait state)
         correlation_id = str(uuid.uuid4())
@@ -213,15 +217,15 @@ class TestAvailabilityRouting:
         topic_frame = b"compute"
         message_frame = serialize(msg)
 
-        engine._handle_job_request(identity, topic_frame, message_frame, msg)
+        unstarted_engine._handle_job_request(identity, topic_frame, message_frame, msg)
 
         # Verify it's waiting
-        assert engine._job_tracking[correlation_id]["handler_id"] is None
+        assert unstarted_engine._job_tracking[correlation_id]["handler_id"] is None
 
         # Simulate handler_a recovery via heartbeat
-        engine._recover_handler("handler_a")
+        unstarted_engine._recover_handler("handler_a")
 
         # The waiting job should now be dispatched to handler_a
-        assert correlation_id in engine._job_tracking
-        info = engine._job_tracking[correlation_id]
+        assert correlation_id in unstarted_engine._job_tracking
+        info = unstarted_engine._job_tracking[correlation_id]
         assert info["handler_id"] == "handler_a"

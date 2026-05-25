@@ -1,6 +1,9 @@
-"""OpenCTP Gateway module for Tyche Engine."""
+"""OpenCTP Gateway module for TycheEngine.
 
-from .config import GatewayConfig
-from .gateway import OpenCtpGateway
+DLL loading must happen before importing gateway classes.
+Use dll_loader.load_api() first, then import OpenCtpGateway.
+"""
 
-__all__ = ["OpenCtpGateway", "GatewayConfig"]
+from src.modules.openctp_gateway.config import GatewayConfig
+
+__all__ = ["GatewayConfig"]
