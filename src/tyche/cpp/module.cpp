@@ -8,6 +8,7 @@
 //   - DEALER socket for job request/response (addressable via module_id)
 
 #include "tyche/cpp/module.h"
+#include "tyche/cpp/message.h"
 
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
@@ -23,212 +24,6 @@
 #include <vector>
 
 namespace tyche {
-
-// ── msgpack serialization helpers ─────────────────────────────────────
-
-namespace {
-
-// Pack a std::any value into a msgpack::packer.
-// Supports: string, int, double, bool, nullptr, and nested Payload.
-void pack_any(msgpack::packer<msgpack::sbuffer>& pk, const std::any& value) {
-    if (!value.has_value()) {
-        pk.pack_nil();
-    } else if (value.type() == typeid(std::string)) {
-        pk.pack(std::any_cast<std::string>(value));
-    } else if (value.type() == typeid(const char*)) {
-        pk.pack(std::string(std::any_cast<const char*>(value)));
-    } else if (value.type() == typeid(int)) {
-        pk.pack(std::any_cast<int>(value));
-    } else if (value.type() == typeid(int64_t)) {
-        pk.pack(std::any_cast<int64_t>(value));
-    } else if (value.type() == typeid(uint64_t)) {
-        pk.pack(std::any_cast<uint64_t>(value));
-    } else if (value.type() == typeid(double)) {
-        pk.pack(std::any_cast<double>(value));
-    } else if (value.type() == typeid(float)) {
-        pk.pack(static_cast<double>(std::any_cast<float>(value)));
-    } else if (value.type() == typeid(bool)) {
-        pk.pack(std::any_cast<bool>(value));
-    } else if (value.type() == typeid(Payload)) {
-        const auto& map = std::any_cast<const Payload&>(value);
-        pk.pack_map(static_cast<uint32_t>(map.size()));
-        for (const auto& [k, v] : map) {
-            pk.pack(k);
-            pack_any(pk, v);
-        }
-    } else if (value.type() == typeid(std::vector<std::string>)) {
-        const auto& vec = std::any_cast<const std::vector<std::string>&>(value);
-        pk.pack_array(static_cast<uint32_t>(vec.size()));
-        for (const auto& s : vec) {
-            pk.pack(s);
-        }
-    } else {
-        // Unknown type -- pack as nil
-        pk.pack_nil();
-    }
-}
-
-// Convert a msgpack::object to std::any.
-std::any unpack_object(const msgpack::object& obj) {
-    switch (obj.type) {
-        case msgpack::type::NIL:
-            return std::any{};
-        case msgpack::type::BOOLEAN:
-            return std::any{obj.via.boolean};
-        case msgpack::type::POSITIVE_INTEGER:
-            return std::any{static_cast<int>(obj.via.u64)};
-        case msgpack::type::NEGATIVE_INTEGER:
-            return std::any{static_cast<int>(obj.via.i64)};
-        case msgpack::type::FLOAT32:
-        case msgpack::type::FLOAT64:
-            return std::any{obj.via.f64};
-        case msgpack::type::STR:
-            return std::any{std::string(obj.via.str.ptr, obj.via.str.size)};
-        case msgpack::type::MAP: {
-            Payload map;
-            for (uint32_t i = 0; i < obj.via.map.size; ++i) {
-                const auto& kv = obj.via.map.ptr[i];
-                std::string key(kv.key.via.str.ptr, kv.key.via.str.size);
-                map[key] = unpack_object(kv.val);
-            }
-            return std::any{std::move(map)};
-        }
-        case msgpack::type::ARRAY: {
-            std::vector<std::string> arr;
-            for (uint32_t i = 0; i < obj.via.array.size; ++i) {
-                const auto& elem = obj.via.array.ptr[i];
-                if (elem.type == msgpack::type::STR) {
-                    arr.emplace_back(elem.via.str.ptr, elem.via.str.size);
-                }
-            }
-            return std::any{std::move(arr)};
-        }
-        default:
-            return std::any{};
-    }
-}
-
-// Serialize a Message into a msgpack buffer.
-// Format matches Python: {msg_type, sender, event, payload, recipient, durability, timestamp, correlation_id}
-msgpack::sbuffer serialize_message(
-    MessageType msg_type,
-    const std::string& sender,
-    const std::string& event,
-    const Payload& payload,
-    const std::optional<std::string>& recipient = std::nullopt,
-    DurabilityLevel durability = DurabilityLevel::ASYNC_FLUSH,
-    std::optional<double> timestamp = std::nullopt,
-    const std::optional<std::string>& correlation_id = std::nullopt) {
-
-    msgpack::sbuffer buffer;
-    msgpack::packer<msgpack::sbuffer> pk(&buffer);
-
-    pk.pack_map(8);
-
-    pk.pack(std::string("msg_type"));
-    pk.pack(std::string(message_type_to_str(msg_type)));
-
-    pk.pack(std::string("sender"));
-    pk.pack(sender);
-
-    pk.pack(std::string("event"));
-    pk.pack(event);
-
-    pk.pack(std::string("payload"));
-    pk.pack_map(static_cast<uint32_t>(payload.size()));
-    for (const auto& [k, v] : payload) {
-        pk.pack(k);
-        pack_any(pk, v);
-    }
-
-    pk.pack(std::string("recipient"));
-    if (recipient.has_value()) {
-        pk.pack(*recipient);
-    } else {
-        pk.pack_nil();
-    }
-
-    pk.pack(std::string("durability"));
-    pk.pack(static_cast<int>(durability));
-
-    pk.pack(std::string("timestamp"));
-    if (timestamp.has_value()) {
-        pk.pack(*timestamp);
-    } else {
-        pk.pack_nil();
-    }
-
-    pk.pack(std::string("correlation_id"));
-    if (correlation_id.has_value()) {
-        pk.pack(*correlation_id);
-    } else {
-        pk.pack_nil();
-    }
-
-    return buffer;
-}
-
-// Deserialize a msgpack buffer into components.
-struct DeserializedMessage {
-    MessageType msg_type = MessageType::EVENT;
-    std::string sender;
-    std::string event;
-    Payload payload;
-    std::optional<std::string> recipient;
-    DurabilityLevel durability = DurabilityLevel::ASYNC_FLUSH;
-    std::optional<std::string> correlation_id;
-};
-
-DeserializedMessage deserialize_message(const void* data, size_t size) {
-    DeserializedMessage msg;
-    msgpack::object_handle oh = msgpack::unpack(static_cast<const char*>(data), size);
-    const msgpack::object& obj = oh.get();
-
-    if (obj.type != msgpack::type::MAP) return msg;
-
-    for (uint32_t i = 0; i < obj.via.map.size; ++i) {
-        const auto& kv = obj.via.map.ptr[i];
-        if (kv.key.type != msgpack::type::STR) continue;
-
-        std::string key(kv.key.via.str.ptr, kv.key.via.str.size);
-
-        if (key == "msg_type" && kv.val.type == msgpack::type::STR) {
-            std::string val(kv.val.via.str.ptr, kv.val.via.str.size);
-            msg.msg_type = message_type_from_str(val);
-        } else if (key == "sender" && kv.val.type == msgpack::type::STR) {
-            msg.sender = std::string(kv.val.via.str.ptr, kv.val.via.str.size);
-        } else if (key == "event" && kv.val.type == msgpack::type::STR) {
-            msg.event = std::string(kv.val.via.str.ptr, kv.val.via.str.size);
-        } else if (key == "payload" && kv.val.type == msgpack::type::MAP) {
-            for (uint32_t j = 0; j < kv.val.via.map.size; ++j) {
-                const auto& pkv = kv.val.via.map.ptr[j];
-                if (pkv.key.type == msgpack::type::STR) {
-                    std::string pkey(pkv.key.via.str.ptr, pkv.key.via.str.size);
-                    msg.payload[pkey] = unpack_object(pkv.val);
-                }
-            }
-        } else if (key == "recipient") {
-            if (kv.val.type == msgpack::type::STR) {
-                msg.recipient = std::string(kv.val.via.str.ptr, kv.val.via.str.size);
-            }
-        } else if (key == "durability") {
-            if (kv.val.type == msgpack::type::POSITIVE_INTEGER ||
-                kv.val.type == msgpack::type::NEGATIVE_INTEGER) {
-                msg.durability = static_cast<DurabilityLevel>(
-                    kv.val.type == msgpack::type::POSITIVE_INTEGER
-                        ? static_cast<int>(kv.val.via.u64)
-                        : static_cast<int>(kv.val.via.i64));
-            }
-        } else if (key == "correlation_id") {
-            if (kv.val.type == msgpack::type::STR) {
-                msg.correlation_id = std::string(kv.val.via.str.ptr, kv.val.via.str.size);
-            }
-        }
-    }
-    return msg;
-}
-
-}  // namespace
 
 // ── PIMPL: ZMQ state ──────────────────────────────────────────────────
 
@@ -453,12 +248,13 @@ void TycheModule::send_event(
         return;
     }
 
-    auto buffer = serialize_message(
-        MessageType::EVENT,
-        _module_id,
-        event,
-        payload,
-        recipient);
+    Message m;
+    m.msg_type = MessageType::EVENT;
+    m.sender = _module_id;
+    m.event = event;
+    m.payload = payload;
+    m.recipient = recipient;
+    auto buffer = serialize(m);
 
     std::lock_guard<std::mutex> lock(_impl->pub_lock);
     zmq::message_t topic_msg(event.data(), event.size());
@@ -549,7 +345,7 @@ bool TycheModule::_register_with_engine() {
         }
 
         // Deserialize reply
-        auto resp = deserialize_message(reply.data(), reply.size());
+        auto resp = deserialize(reply.data(), reply.size());
         if (resp.msg_type != MessageType::ACK) {
             std::cerr << "[" << _family_name << "] Registration rejected." << std::endl;
             req_socket.close();
@@ -620,7 +416,7 @@ void TycheModule::_event_receiver_loop() {
             std::string topic(static_cast<const char*>(frames[0].data()),
                               frames[0].size());
 
-            auto msg = deserialize_message(frames[1].data(), frames[1].size());
+            auto msg = deserialize(frames[1].data(), frames[1].size());
 
             // Ignore self-sent messages
             if (msg.sender == _module_id) {
@@ -644,14 +440,12 @@ void TycheModule::_event_receiver_loop() {
 void TycheModule::_heartbeat_loop() {
     while (_running.load(std::memory_order_relaxed)) {
         try {
-            Payload hb_payload;
-            hb_payload["status"] = std::string("alive");
-
-            auto buffer = serialize_message(
-                MessageType::HEARTBEAT,
-                _module_id,
-                "heartbeat",
-                hb_payload);
+            Message hb_msg;
+            hb_msg.msg_type = MessageType::HEARTBEAT;
+            hb_msg.sender = _module_id;
+            hb_msg.event = "heartbeat";
+            hb_msg.payload["status"] = std::string("alive");
+            auto buffer = serialize(hb_msg);
 
             zmq::message_t msg(buffer.data(), buffer.size());
             _impl->heartbeat_socket->send(msg, zmq::send_flags::none);
@@ -744,15 +538,13 @@ Payload TycheModule::request_event(
     }
 
     // Serialize and send: [b"", topic, message]
-    auto buffer = serialize_message(
-        MessageType::REQUEST,
-        _module_id,
-        event,
-        payload,
-        std::nullopt,
-        DurabilityLevel::ASYNC_FLUSH,
-        std::nullopt,
-        correlation_id);
+    Message req_msg;
+    req_msg.msg_type = MessageType::REQUEST;
+    req_msg.sender = _module_id;
+    req_msg.event = event;
+    req_msg.payload = payload;
+    req_msg.correlation_id = correlation_id;
+    auto buffer = serialize(req_msg);
 
     {
         std::lock_guard<std::mutex> lock(_impl->job_lock);
@@ -795,7 +587,7 @@ void TycheModule::_job_receiver_loop() {
             }
 
             // Frames from ROUTER: [b"", topic, message]
-            auto msg = deserialize_message(frames[2].data(), frames[2].size());
+            auto msg = deserialize(frames[2].data(), frames[2].size());
 
             if (msg.msg_type == MessageType::REQUEST) {
                 // Incoming job assignment -- dispatch to handler
@@ -829,10 +621,13 @@ void TycheModule::_handle_job_request(
             // No handler -- send error response
             Payload err;
             err["error"] = std::string("No handler for job '" + event + "'");
-            auto buffer = serialize_message(
-                MessageType::RESPONSE, _module_id, event, err,
-                std::nullopt, DurabilityLevel::ASYNC_FLUSH,
-                std::nullopt, correlation_id);
+            Message err_resp;
+            err_resp.msg_type = MessageType::RESPONSE;
+            err_resp.sender = _module_id;
+            err_resp.event = event;
+            err_resp.payload = err;
+            err_resp.correlation_id = correlation_id;
+            auto buffer = serialize(err_resp);
 
             std::lock_guard<std::mutex> jlock(_impl->job_lock);
             zmq::message_t empty(0);
@@ -856,10 +651,13 @@ void TycheModule::_handle_job_request(
         response_payload["error"] = std::string("Unknown handler error");
     }
 
-    auto buffer = serialize_message(
-        MessageType::RESPONSE, _module_id, event, response_payload,
-        std::nullopt, DurabilityLevel::ASYNC_FLUSH,
-        std::nullopt, correlation_id);
+    Message resp_msg;
+    resp_msg.msg_type = MessageType::RESPONSE;
+    resp_msg.sender = _module_id;
+    resp_msg.event = event;
+    resp_msg.payload = response_payload;
+    resp_msg.correlation_id = correlation_id;
+    auto buffer = serialize(resp_msg);
 
     std::lock_guard<std::mutex> jlock(_impl->job_lock);
     zmq::message_t empty(0);
