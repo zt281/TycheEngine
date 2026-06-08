@@ -196,10 +196,9 @@ backtests/
 research/
 docker/clickhouse-data/
 
-# Build directory: only keep runtime artifacts (executables, DLLs, .pyd)
-# All intermediate subdirectories are ignored; only final binaries are kept
-/build/*/
-!/build/Release/
+# Build directory: intermediate C++ build artifacts
+# build/tyche/ contains CMake cache, object files, etc.
+# build/ is already ignored above (line 11)
 
 # Test build directory
 build_test/

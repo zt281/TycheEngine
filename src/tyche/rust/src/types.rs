@@ -37,26 +37,15 @@ impl std::fmt::Display for Endpoint {
 pub struct ModuleId;
 
 impl ModuleId {
-    const DEITIES: &'static [&'static str] = &[
-        "zeus", "hera", "poseidon", "hades", "example",
-        "apollo", "artemis", "ares", "aphrodite", "hermes",
-        "dionysus", "demeter", "hephaestus", "hestia",
-    ];
-
-    /// Generate a new module ID in format `{deity}{6-char hex}`.
-    pub fn generate(deity: Option<&str>) -> String {
+    /// Generate a new module ID in format `{family}_{6-char hex}`.
+    pub fn generate(family: &str) -> String {
         let mut rng = rand::thread_rng();
-
-        let deity = deity.unwrap_or_else(|| {
-            let idx = rng.gen_range(0..Self::DEITIES.len());
-            Self::DEITIES[idx]
-        });
 
         let suffix: String = (0..6)
             .map(|_| format!("{:x}", rng.gen_range(0..16)))
             .collect();
 
-        format!("{}{}", deity, suffix)
+        format!("{}_{}", family, suffix)
     }
 }
 
@@ -106,12 +95,28 @@ pub struct ReceivedEvent {
 // Enums (for type-safe APIs)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum InterfacePattern {
     #[serde(rename = "on")]
     On,
     #[serde(rename = "send")]
     Send,
+    #[serde(rename = "handle")]
+    Handle,
+    #[serde(rename = "request")]
+    Request,
+}
+
+impl InterfacePattern {
+    /// Return the string value matching Python InterfacePattern.value.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Send => "send",
+            Self::Handle => "handle",
+            Self::Request => "request",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -130,7 +135,7 @@ impl Default for DurabilityLevel {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum MessageType {
     #[serde(rename = "cmd")]
     Command,
@@ -144,4 +149,6 @@ pub enum MessageType {
     Ack,
     #[serde(rename = "resp")]
     Response,
+    #[serde(rename = "req")]
+    Request,
 }

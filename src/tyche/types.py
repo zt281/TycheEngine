@@ -1,10 +1,9 @@
 """Core type definitions for Tyche Engine."""
 
-import random
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # Paranoid Pirate Pattern constants
 HEARTBEAT_INTERVAL = 1.0  # seconds
@@ -15,30 +14,20 @@ ADMIN_PORT_DEFAULT = 5560
 
 
 class ModuleId:
-    """Module identifier with format: {deity_name}{6-char MD5}."""
-
-    DEITIES = [
-        "zeus", "hera", "poseidon", "hades", "example",
-        "apollo", "artemis", "ares", "aphrodite", "hermes",
-        "dionysus", "demeter", "hephaestus", "hestia"
-    ]
+    """Module identifier with format: {family}_{6-char hex}."""
 
     @classmethod
-    def generate(cls, deity: Optional[str] = None) -> str:
+    def generate(cls, family: str = "unknown") -> str:
         """Generate a new module ID.
 
         Args:
-            deity: Optional deity name. If None, random selection.
+            family: Module family name (e.g. "openctp_gateway").
 
         Returns:
-            Module ID string in format {deity}{6-char hex}
+            Module ID string in format {family}_{6-char hex}
         """
-        if deity is None:
-            deity = random.choice(cls.DEITIES)
-
-        hash_suffix = secrets.token_hex(3)  # 6 hex chars
-
-        return f"{deity}{hash_suffix}"
+        suffix = secrets.token_hex(3)  # 6 hex chars
+        return f"{family}_{suffix}"
 
 
 class EventType(Enum):
@@ -108,12 +97,14 @@ class Interface:
     durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH
     backpressure: BackpressureStrategy = BackpressureStrategy.DROP_OLDEST
     max_queue_depth: int = 10000
+    wait_timeout: Optional[float] = None
 
 
 @dataclass
 class ModuleInfo:
     """Module registration information."""
     module_id: str
-    endpoint: Endpoint
     interfaces: List[Interface]
     metadata: Dict[str, Any]
+    family_name: str = ""
+    admin_handlers: Dict[str, Callable] = field(default_factory=dict)

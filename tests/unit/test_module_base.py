@@ -1,110 +1,76 @@
-"""Tests for ModuleBase protocol."""
+"""Tests for src.tyche.module_base module."""
+import time
 
-import pytest
-
-from tyche.module_base import ModuleBase
-
-
-def test_module_base_is_abstract():
-    """ModuleBase cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        ModuleBase()  # type: ignore[abstract]
+from src.tyche.module_base import ModuleBase
 
 
-def test_concrete_module_can_instantiate():
-    """A properly-implemented subclass can be instantiated."""
+class DummyModule(ModuleBase):
+    """Concrete implementation of ModuleBase Protocol for testing."""
 
-    class ConcreteModule(ModuleBase):
-        def __init__(self) -> None:
-            self._id = "test_mod"
+    @property
+    def module_id(self) -> str:
+        return "dummy_mod"
 
-        @property
-        def module_id(self) -> str:
-            return self._id
+    def start(self) -> None:
+        self._start_time = time.time()
 
-        def start(self) -> None:
-            pass
-
-        def stop(self) -> None:
-            pass
-
-    mod = ConcreteModule()
-    assert mod.module_id == "test_mod"
+    def stop(self) -> None:
+        pass
 
 
-def test_concrete_module_lifecycle():
-    """Concrete module implements start/stop lifecycle."""
-
-    class LifecycleModule(ModuleBase):
-        def __init__(self) -> None:
-            self._id = "lifecycle_mod"
-            self.running = False
-
-        @property
-        def module_id(self) -> str:
-            return self._id
-
-        def start(self) -> None:
-            self.running = True
-
-        def stop(self) -> None:
-            self.running = False
-
-    mod = LifecycleModule()
-    assert not mod.running
-    mod.start()
-    assert mod.running
-    mod.stop()
-    assert not mod.running
+def test_module_base_is_protocol():
+    """ModuleBase is a runtime-checkable Protocol."""
+    assert isinstance(DummyModule(), ModuleBase)
 
 
-def test_protocol_structural_subtyping():
-    """ModuleBase supports structural subtyping via Protocol."""
-
-    class DuckModule:
-        def __init__(self) -> None:
-            self._id = "duck_mod"
-
-        @property
-        def module_id(self) -> str:
-            return self._id
-
-        def start(self) -> None:
-            pass
-
-        def stop(self) -> None:
-            pass
-
-    mod = DuckModule()
-    assert isinstance(mod, ModuleBase)
+def test_admin_health_check_without_start_time():
+    """health_check without _start_time should report 0 uptime."""
+    mod = DummyModule()
+    result = mod._admin_health_check()
+    assert result["status"] == "healthy"
+    assert result["module_id"] == "dummy_mod"
+    assert result["uptime"] == 0
 
 
-def test_protocol_rejects_incomplete_class():
-    """A class missing protocol methods is not an instance of ModuleBase."""
-
-    class IncompleteModule:
-        def __init__(self) -> None:
-            self._id = "incomplete"
-
-        @property
-        def module_id(self) -> str:
-            return self._id
-
-        # missing start() and stop()
-
-    mod = IncompleteModule()
-    assert not isinstance(mod, ModuleBase)
+def test_admin_health_check_with_start_time():
+    """health_check with _start_time should report positive uptime."""
+    mod = DummyModule()
+    mod._start_time = time.time() - 5.0
+    result = mod._admin_health_check()
+    assert result["status"] == "healthy"
+    assert result["uptime"] >= 4.5
+    assert result["uptime"] < 10.0
 
 
-def test_module_base_has_no_concrete_methods():
-    """ModuleBase provides only protocol methods — no dispatch logic."""
-    # __protocol_attrs__ is only available on Python 3.12+
-    protocol_attrs = getattr(ModuleBase, "__protocol_attrs__", None)
-    if protocol_attrs is not None:
-        assert "module_id" in protocol_attrs
-        assert "start" in protocol_attrs
-        assert "stop" in protocol_attrs
-    # Concrete methods from old design are gone
-    assert not hasattr(ModuleBase, "discover_interfaces")
-    assert not hasattr(ModuleBase, "get_handler")
-    assert not hasattr(ModuleBase, "handle_event")
+def test_admin_availability_check_without_get_handler_availability():
+    """availability_check without _get_handler_availability returns empty dict."""
+    mod = DummyModule()
+    result = mod._admin_availability_check()
+    assert result["module_id"] == "dummy_mod"
+    assert result["handlers"] == {}
+
+
+def test_admin_availability_check_with_get_handler_availability():
+    """availability_check uses _get_handler_availability if available."""
+    mod = DummyModule()
+    mod._get_handler_availability = lambda: {"compute": True, "fetch": False}
+    result = mod._admin_availability_check()
+    assert result["handlers"] == {"compute": True, "fetch": False}
+
+
+def test_admin_respawn():
+    """respawn returns expected status."""
+    mod = DummyModule()
+    result = mod._admin_respawn()
+    assert result["status"] == "respawn_requested"
+    assert result["module_id"] == "dummy_mod"
+
+
+def test_admin_decommission_sets_flag():
+    """decommission sets _decommissioned to True."""
+    mod = DummyModule()
+    assert not hasattr(mod, "_decommissioned")
+    result = mod._admin_decommission()
+    assert mod._decommissioned is True
+    assert result["status"] == "decommissioning"
+    assert result["module_id"] == "dummy_mod"

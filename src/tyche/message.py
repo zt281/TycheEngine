@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import msgpack
 
-from tyche.types import DurabilityLevel, MessageType
+from src.tyche.types import DurabilityLevel, MessageType
 
 
 @dataclass
@@ -23,6 +23,8 @@ class Message:
         durability: Persistence level for this message
         timestamp: Optional creation timestamp
         correlation_id: Optional ID for request/response correlation
+        wait_timeout: How long to wait for a handler to become available before dead-lettering
+        run_timeout: How long to wait for a handler to respond before marking it unavailable
     """
     msg_type: MessageType
     sender: str
@@ -32,6 +34,8 @@ class Message:
     durability: DurabilityLevel = DurabilityLevel.ASYNC_FLUSH
     timestamp: Optional[float] = None
     correlation_id: Optional[str] = None
+    wait_timeout: Optional[float] = None
+    run_timeout: Optional[float] = None
 
 
 @dataclass
@@ -84,6 +88,8 @@ def serialize(message: Message) -> bytes:
         "durability": message.durability,
         "timestamp": message.timestamp,
         "correlation_id": message.correlation_id,
+        "wait_timeout": message.wait_timeout,
+        "run_timeout": message.run_timeout,
     }
     return cast(bytes, msgpack.packb(data, default=_encode_decimal, use_bin_type=True))
 
@@ -105,9 +111,11 @@ def deserialize(data: bytes) -> Message:
         event=obj["event"],
         payload=obj["payload"],
         recipient=obj.get("recipient"),
-        durability=DurabilityLevel(obj.get("durability", 1)),
+        durability=DurabilityLevel(obj.get("durability") or 1),
         timestamp=obj.get("timestamp"),
         correlation_id=obj.get("correlation_id"),
+        wait_timeout=obj.get("wait_timeout"),
+        run_timeout=obj.get("run_timeout"),
     )
 
 

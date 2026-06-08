@@ -32,34 +32,16 @@ using Payload = std::unordered_map<std::string, std::any>;
 
 namespace ModuleId {
 
-// Greek deity prefixes used by generate().
-inline constexpr std::string_view DEITIES[] = {
-    "zeus",     "hera",   "poseidon", "hades",      "example",
-    "apollo",   "artemis", "ares",    "aphrodite",  "hermes",
-    "dionysus", "demeter", "hephaestus", "hestia",
-};
-
-// Generate a new module ID in the format {deity}{6-char hex}.
-//
-// If `deity` is empty, a random one is selected from DEITIES.
-inline std::string generate(std::string_view deity = "") {
+// Generate a new module ID in the format {family}_{6-char hex}.
+inline std::string generate(std::string_view family = "unknown") {
     static thread_local std::mt19937 rng{std::random_device{}()};
-
-    std::string_view prefix;
-    if (deity.empty()) {
-        std::uniform_int_distribution<std::size_t> pick(
-            0, std::size(DEITIES) - 1);
-        prefix = DEITIES[pick(rng)];
-    } else {
-        prefix = deity;
-    }
 
     // 6 hex chars (3 bytes worth of randomness).
     std::uniform_int_distribution<unsigned int> hex_dist(0, 0xFFFFFFu);
     const unsigned int suffix = hex_dist(rng);
 
     std::ostringstream oss;
-    oss << prefix;
+    oss << family << "_";
     oss << std::hex;
     oss.fill('0');
     oss.width(6);
@@ -88,6 +70,8 @@ enum class EventType {
 enum class InterfacePattern {
     ON,
     SEND,
+    HANDLE,
+    REQUEST,
 };
 
 enum class BackpressureStrategy {
@@ -110,6 +94,7 @@ enum class MessageType {
     REGISTER,
     ACK,
     RESPONSE,
+    REQUEST,
 };
 
 // ── String conversion helpers ─────────────────────────────────────
@@ -123,6 +108,7 @@ inline const char* message_type_to_str(MessageType t) {
         case MessageType::REGISTER:  return "reg";
         case MessageType::ACK:       return "ack";
         case MessageType::RESPONSE:  return "resp";
+        case MessageType::REQUEST:   return "req";
     }
     return "evt";
 }
@@ -134,16 +120,27 @@ inline MessageType message_type_from_str(const std::string& s) {
     if (s == "reg")  return MessageType::REGISTER;
     if (s == "ack")  return MessageType::ACK;
     if (s == "resp") return MessageType::RESPONSE;
+    if (s == "req")  return MessageType::REQUEST;
     return MessageType::EVENT;
 }
 
 // String conversion for InterfacePattern (matches Python InterfacePattern.value)
 inline const char* interface_pattern_to_str(InterfacePattern p) {
     switch (p) {
-        case InterfacePattern::ON:   return "on";
-        case InterfacePattern::SEND: return "send";
+        case InterfacePattern::ON:      return "on";
+        case InterfacePattern::SEND:    return "send";
+        case InterfacePattern::HANDLE:  return "handle";
+        case InterfacePattern::REQUEST: return "request";
     }
     return "on";
+}
+
+inline InterfacePattern interface_pattern_from_str(const std::string& s) {
+    if (s == "on")      return InterfacePattern::ON;
+    if (s == "send")    return InterfacePattern::SEND;
+    if (s == "handle")  return InterfacePattern::HANDLE;
+    if (s == "request") return InterfacePattern::REQUEST;
+    return InterfacePattern::ON;
 }
 
 // ── Structs ────────────────────────────────────────────────────────
@@ -174,7 +171,6 @@ struct Interface {
 // Module registration information.
 struct ModuleInfo {
     std::string module_id;
-    Endpoint endpoint;
     std::vector<Interface> interfaces;
     Payload metadata;
 };

@@ -4,38 +4,76 @@ import logging
 import queue
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import msgpack
 import zmq
 
-from tyche.heartbeat import HeartbeatManager
-from tyche.message import Message, deserialize, serialize
-from tyche.types import (
+from src.tyche.dead_letter import DeadLetterStore
+from src.tyche.heartbeat import HeartbeatManager
+from src.tyche.message import Message, deserialize, serialize
+from src.tyche.types import (
     ADMIN_PORT_DEFAULT,
     HEARTBEAT_INTERVAL,
+    BackpressureStrategy,
     DurabilityLevel,
     Endpoint,
     Interface,
     InterfacePattern,
     MessageType,
+    ModuleId,
     ModuleInfo,
 )
 
 logger = logging.getLogger(__name__)
 
 
+class ZmqLogHandler(logging.Handler):
+    """Logging handler that publishes log records via ZeroMQ XPUB socket.
+
+    Serializes each log record as a multipart message:
+        [b"engine_log", msgpack-packed payload]
+    where payload = {"timestamp": float, "level": str, "message": str}.
+    """
+
+    def __init__(self, engine: "TycheEngine"):
+        super().__init__(level=logging.INFO)
+        self._engine = engine
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            socket = self._engine._xpub_socket
+            if socket is None:
+                return
+            payload = {
+                "event": "engine_log",
+                "timestamp": record.created,
+                "level": record.levelname,
+                "message": self.format(record),
+            }
+            data = msgpack.packb(payload)
+            with self._engine._xpub_lock:
+                socket.send_multipart([b"engine_log", data])
+        except Exception:
+            pass
+
+
 class TopicQueue:
-    """Thread-safe queue with capacity, processed, and dropped stats."""
+    """Thread-safe queue with capacity, processed, and dropped stats.
+
+    Items are stored as (enqueue_time, frames) tuples to support TTL tracking.
+    """
 
     def __init__(self, capacity: Optional[int] = None):
-        self._items: List[List[bytes]] = []
+        self._items: List[Tuple[float, List[bytes]]] = []
         self.capacity = capacity
         self.processed = 0
         self.dropped = 0
         self._lock = threading.Lock()
 
-    def put(self, item: List[bytes]) -> bool:
+    def put(self, item: Tuple[float, List[bytes]]) -> bool:
         with self._lock:
             if self.capacity is not None and len(self._items) >= self.capacity:
                 self.dropped += 1
@@ -43,14 +81,14 @@ class TopicQueue:
             self._items.append(item)
             return True
 
-    def get(self) -> Optional[List[bytes]]:
+    def get(self) -> Optional[Tuple[float, List[bytes]]]:
         with self._lock:
             if not self._items:
                 return None
             self.processed += 1
-            return self._items.pop()
+            return self._items.pop(0)
 
-    def popleft(self) -> List[bytes]:
+    def popleft(self) -> Tuple[float, List[bytes]]:
         with self._lock:
             return self._items.pop(0)
 
@@ -109,9 +147,10 @@ class TycheEngine:
         event_endpoint: Endpoint,
         heartbeat_endpoint: Endpoint,
         heartbeat_receive_endpoint: Optional[Endpoint] = None,
-        admin_endpoint: str = f"tcp://*:{ADMIN_PORT_DEFAULT}",
+        admin_endpoint: Optional[Endpoint] = None,
         job_endpoint: Optional[Endpoint] = None,
         queue_capacity: Optional[int] = 10000,
+        data_dir: Optional[str] = None,
     ):
         self.registration_endpoint = registration_endpoint
         self.event_endpoint = event_endpoint
@@ -153,6 +192,14 @@ class TycheEngine:
         self._topic_queues: Dict[str, TopicQueue] = {}
         self._topic_queues_lock = threading.Lock()
 
+        # Per-topic backpressure strategy and max depth
+        self._topic_backpressure: Dict[str, BackpressureStrategy] = {}
+        self._topic_max_depth: Dict[str, int] = {}
+
+        # Broadcast TTL configuration
+        self._default_broadcast_ttl: float = 60.0  # seconds
+        self._topic_ttl: Dict[str, float] = {}
+
         # Topic subscriber/producer maps for unified queue routing
         self._topic_subscribers: Dict[str, List[str]] = {}
         self._topic_producers: Dict[str, List[str]] = {}
@@ -185,6 +232,26 @@ class TycheEngine:
         self._pending_jobs: Dict[str, bytes] = {}           # correlation_id -> requester identity
         self._job_router: Optional[zmq.Socket] = None
 
+        # Job timeout tracking
+        # Key: correlation_id, Value: dict with tracking info
+        self._job_tracking: Dict[str, dict] = {}
+        self._job_tracking_lock = threading.Lock()
+
+        # Track handlers marked as unavailable due to timeout
+        # Key: module_id, Value: set of topic names that are unavailable
+        self._unavailable_handlers: Dict[str, Set[str]] = {}
+
+        # Module availability reported via heartbeat
+        # Key: module_id, Value: dict of handler_name -> bool (has capacity)
+        self._module_availability: Dict[str, Dict[str, bool]] = {}
+
+        # Admin handlers advertised by each module during registration
+        # Key: module_id, Value: list of admin handler names
+        self._module_admin_handlers: Dict[str, List[str]] = {}
+
+        # Dead letter store for persisting failed jobs
+        self._dead_letter_store = DeadLetterStore(base_dir=Path(data_dir or "./data"))
+
         self.context: Optional[zmq.Context] = None
         self._running = False
         self._threads: List[threading.Thread] = []
@@ -204,59 +271,75 @@ class TycheEngine:
 
     def _start_workers(self) -> None:
         """Start worker threads."""
+        logger.info("Initializing ZeroMQ context...")
         self.context = zmq.Context()
         self._running = True
         self._stop_event.clear()
 
-        self._threads = [
-            threading.Thread(
-                target=self._registration_worker, name="registration", daemon=True
-            ),
-            threading.Thread(
-                target=self._registration_egress_worker,
-                name="registration_egress",
-                daemon=True,
-            ),
-            threading.Thread(
-                target=self._heartbeat_worker, name="heartbeat", daemon=True
-            ),
-            threading.Thread(
-                target=self._heartbeat_receive_worker, name="hb_recv", daemon=True
-            ),
-            threading.Thread(
-                target=self._monitor_worker, name="monitor", daemon=True
-            ),
-            threading.Thread(
-                target=self._event_proxy_worker, name="event_proxy", daemon=True
-            ),
-            threading.Thread(
-                target=self._event_egress_worker,
-                name="event_egress",
-                daemon=True,
-            ),
-            threading.Thread(
-                target=self._admin_worker, name="admin", daemon=True
-            ),
-            threading.Thread(
-                target=self._job_router_worker, name="job_router", daemon=True
-            ),
+        workers = [
+            ("registration", self._registration_worker),
+            ("registration_egress", self._registration_egress_worker),
+            ("heartbeat", self._heartbeat_worker),
+            ("heartbeat_receive", self._heartbeat_receive_worker),
+            ("monitor", self._monitor_worker),
+            ("event_proxy", self._event_proxy_worker),
+            ("event_egress", self._event_egress_worker),
+            ("admin", self._admin_worker),
+            ("job_router", self._job_router_worker),
+            ("job_timeout", self._job_timeout_worker),
         ]
 
-        for t in self._threads:
+        self._threads = []
+        for name, target in workers:
+            t = threading.Thread(target=target, name=name, daemon=True)
+            self._threads.append(t)
             t.start()
+            logger.info("Worker '%s' started", name)
+
+        # Attach ZmqLogHandler so engine logs are published to TUI subscribers
+        self._zmq_log_handler = ZmqLogHandler(self)
+        self._zmq_log_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(self._zmq_log_handler)
+
+        logger.info(
+            "All %d workers started — TycheEngine is running", len(self._threads)
+        )
+        logger.info(
+            "Endpoints: registration=%s, event=%s, heartbeat=%s, "
+            "heartbeat_recv=%s, admin=%s, job=%s",
+            self.registration_endpoint,
+            self.event_endpoint,
+            self.heartbeat_endpoint,
+            self.heartbeat_receive_endpoint,
+            self._admin_endpoint,
+            self._job_endpoint,
+        )
 
     def stop(self) -> None:
         """Stop the engine."""
+        if not self._running:
+            return
+        logger.info("Stopping TycheEngine...")
         self._running = False
         self._stop_event.set()
 
         for t in self._threads:
             t.join(timeout=2.0)
+            if t.is_alive():
+                logger.warning("Worker '%s' did not stop within timeout", t.name)
+            else:
+                logger.info("Worker '%s' stopped", t.name)
+
+        # Remove ZmqLogHandler before destroying context to avoid send on closed socket
+        if hasattr(self, '_zmq_log_handler'):
+            logger.removeHandler(self._zmq_log_handler)
 
         if self.context:
-            # destroy(linger=0) forcibly closes any lingering sockets
+            logger.info("Destroying ZeroMQ context...")
             self.context.destroy(linger=0)
             self.context = None
+
+        logger.info("TycheEngine shutdown complete")
 
     # ── Registration ──────────────────────────────────────────────
 
@@ -323,6 +406,7 @@ class TycheEngine:
                         "event_pub_port": self.event_endpoint.port,
                         "event_sub_port": self.event_sub_endpoint.port,
                         "job_port": self._job_port,
+                        "heartbeat_recv_port": self.heartbeat_receive_endpoint.port,
                     },
                 )
                 if self._registration_socket is not None:
@@ -330,13 +414,23 @@ class TycheEngine:
                         self._registration_socket.send_multipart(
                             [identity, b"", serialize(ack)]
                         )
-                logger.info("Registered module: %s", module_info.module_id)
+                logger.info(
+                    "Module %s registered as %s",
+                    module_info.family_name, module_info.module_id,
+                )
         except Exception as e:
             logger.error("Failed to process registration: %s", e)
 
     def _create_module_info(self, msg: Message) -> ModuleInfo:
-        """Create ModuleInfo from registration message."""
-        module_id = msg.payload.get("module_id", "") or "unknown_module"
+        """Create ModuleInfo from registration message.
+
+        The Engine is the sole authority for module_id generation.
+        Modules send their family_name during registration; the Engine
+        assigns a unique module_id using ModuleId.generate(family_name),
+        producing an ID in the format {family}_{6-char hex}.
+        """
+        family_name = msg.payload.get("family_name") or msg.sender or "unknown"
+        module_id = ModuleId.generate(family_name)
         interfaces_data = msg.payload.get("interfaces", [])
 
         interfaces = [
@@ -345,15 +439,24 @@ class TycheEngine:
                 pattern=InterfacePattern(i["pattern"]),
                 event_type=i.get("event_type", i["name"]),
                 durability=DurabilityLevel(i.get("durability", 1)),
+                backpressure=BackpressureStrategy(
+                    i.get("backpressure", BackpressureStrategy.DROP_OLDEST.value)
+                ),
+                max_queue_depth=i.get("max_queue_depth", 10000),
+                wait_timeout=i.get("wait_timeout"),
             )
             for i in interfaces_data
         ]
 
+        # Extract and store admin handlers
+        admin_handlers = msg.payload.get("admin_handlers", [])
+        self._module_admin_handlers[module_id] = admin_handlers
+
         return ModuleInfo(
             module_id=module_id,
-            endpoint=Endpoint("127.0.0.1", 0),
             interfaces=interfaces,
             metadata=msg.payload.get("metadata", {}),
+            family_name=family_name,
         )
 
     def register_module(self, module_info: ModuleInfo) -> None:
@@ -374,10 +477,23 @@ class TycheEngine:
                 )
                 queue_key = interface.event_type
                 self._topic_event_map[topic] = queue_key
+
+                # Store per-topic backpressure strategy and max depth
+                self._topic_backpressure[queue_key] = interface.backpressure
+                self._topic_max_depth[queue_key] = interface.max_queue_depth
+
+                # Store per-topic TTL if the interface specifies wait_timeout
+                if hasattr(interface, 'wait_timeout') and interface.wait_timeout is not None:
+                    self._topic_ttl[queue_key] = interface.wait_timeout
+
                 with self._topic_queues_lock:
                     if queue_key not in self._topic_queues:
-                        self._topic_queues[queue_key] = TopicQueue()
-                        logger.info("Created topic queue: %s", queue_key)
+                        self._topic_queues[queue_key] = TopicQueue(
+                            capacity=interface.max_queue_depth,
+                        )
+                        logger.info("Created topic queue: %s (strategy=%s, depth=%d)",
+                                    queue_key, interface.backpressure.value,
+                                    interface.max_queue_depth)
                 # Update subscriber/producer maps (v3 unified queue)
                 if interface.pattern == InterfacePattern.ON:
                     subs = self._topic_subscribers.setdefault(queue_key, [])
@@ -438,7 +554,89 @@ class TycheEngine:
 
             del self.modules[module_id]
 
+            # Clean up job handler registrations
+            for topic, handler_list in list(self._job_handlers.items()):
+                self._job_handlers[topic] = [
+                    mid for mid in handler_list if mid != module_id
+                ]
+
+            # Clean up unavailable handlers tracking
+            self._unavailable_handlers.pop(module_id, None)
+
+            # Clean up module availability
+            self._module_availability.pop(module_id, None)
+
+            # Clean up admin handler registrations
+            self._module_admin_handlers.pop(module_id, None)
+
+        # Clean up any pending jobs tracked against this module as handler
+        with self._job_tracking_lock:
+            for corr_id, info in list(self._job_tracking.items()):
+                if info.get("handler_id") == module_id:
+                    # Handler unregistered — mark as needing re-dispatch
+                    info["handler_id"] = None
+                    info["dispatch_time"] = None
+
         self.heartbeat_manager.unregister(module_id)
+
+    # ── Admin Handler Invocation ─────────────────────────────────
+
+    def invoke_admin_handler(
+        self, module_id: str, handler_name: str, timeout: float = 10.0
+    ) -> Optional[dict]:
+        """Invoke an admin handler on a specific module.
+
+        Args:
+            module_id: Target module
+            handler_name: One of: health_check, availability_check, respawn, decommission
+            timeout: How long to wait for response
+
+        Returns:
+            Response dict from the module, or None on timeout
+        """
+        if module_id not in self._module_admin_handlers:
+            logger.warning("Module %s not registered", module_id)
+            return None
+        if handler_name not in self._module_admin_handlers[module_id]:
+            logger.warning(
+                "Module %s does not support admin handler: %s",
+                module_id, handler_name,
+            )
+            return None
+
+        # Send admin job via job router
+        topic = f"admin.{handler_name}"
+        correlation_id = str(uuid.uuid4())
+        msg = Message(
+            msg_type=MessageType.REQUEST,
+            sender="engine",
+            event=topic,
+            payload={"command": handler_name},
+            correlation_id=correlation_id,
+        )
+        # Route directly to the specific module (bypass round-robin)
+        frames = [module_id.encode(), b"", topic.encode(), serialize(msg)]
+        try:
+            if self._job_router is not None:
+                self._job_router.send_multipart(frames)
+            else:
+                logger.warning("Job router not available")
+                return None
+        except Exception as e:
+            logger.error("Failed to send admin command to %s: %s", module_id, e)
+            return None
+
+        # For now, this is fire-and-forget
+        # Full synchronous waiting can be added later
+        return {"status": "sent", "correlation_id": correlation_id}
+
+    def health_check_module(self, module_id: str) -> Optional[dict]:
+        """Check health of a specific module."""
+        return self.invoke_admin_handler(module_id, "health_check")
+
+    def decommission_module(self, module_id: str) -> Optional[dict]:
+        """Gracefully decommission a module."""
+        return self.invoke_admin_handler(module_id, "decommission")
 
     # ── Event Proxy (XPUB/XSUB) ──────────────────────────────────
 
@@ -470,6 +668,15 @@ class TycheEngine:
             self._xpub_socket.bind(str(self.event_endpoint))
             self._xsub_socket.bind(str(self.event_sub_endpoint))
 
+            # Pre-subscribe XSUB to all topics (empty prefix = match everything).
+            # This ensures upstream PUB sockets start sending immediately,
+            # solving the ZMQ "slow joiner" problem where messages are
+            # dropped if no subscription has been forwarded yet.
+            # Without this, a publisher's PUB socket silently drops all
+            # messages until XSUB forwards a matching subscription.
+            self._xsub_socket.send_multipart([b'\x01'])
+            logger.debug("XSUB pre-subscribed to all topics")
+
             poller = zmq.Poller()
             poller.register(self._xpub_socket, zmq.POLLIN)
             poller.register(self._xsub_socket, zmq.POLLIN)
@@ -486,11 +693,22 @@ class TycheEngine:
                     self._xsub_socket.send_multipart(frame)
 
                 if self._xsub_socket in events:
-                    # Batch drain — enqueue all messages to topic queues
+                    # Batch drain — forward directly to XPUB AND enqueue to topic queues.
+                    # Direct forwarding (hot path) ensures minimum latency for
+                    # live subscribers.  Topic queues serve as a secondary path
+                    # for dead-letter / TTL / monitoring.
                     batch_count = 0
                     while self._running:
                         try:
                             frames = self._xsub_socket.recv_multipart(zmq.NOBLOCK)
+                            # Hot path: direct forward to XPUB
+                            if self._xpub_socket is not None:
+                                try:
+                                    with self._xpub_lock:
+                                        self._xpub_socket.send_multipart(frames)
+                                except Exception:
+                                    pass  # egress will retry from queue
+                            # Secondary path: enqueue for monitoring / dead-letter
                             self._enqueue_from_xsub(frames)
                             batch_count += 1
                         except zmq.error.Again:
@@ -508,13 +726,58 @@ class TycheEngine:
                 self._xsub_socket.close()
                 self._xsub_socket = None
 
+    def _apply_backpressure(
+        self, q: TopicQueue, topic: str, frames: List[bytes],
+    ) -> bool:
+        """Apply backpressure strategy when queue is at max depth.
+
+        Wraps frames with an enqueue timestamp before storing.
+        Returns True if the message was enqueued, False if dropped.
+        """
+        strategy = self._topic_backpressure.get(
+            topic, BackpressureStrategy.DROP_OLDEST,
+        )
+        max_depth = self._topic_max_depth.get(topic, self._queue_capacity or 10000)
+        entry = (time.time(), frames)
+
+        if len(q) < max_depth:
+            q.put(entry)
+            return True
+
+        if strategy == BackpressureStrategy.DROP_OLDEST:
+            q.popleft()
+            q.put(entry)
+            q.dropped += 1
+            logger.debug("Queue full for %s, dropped oldest message", topic)
+            return True
+        elif strategy == BackpressureStrategy.DROP_NEWEST:
+            # Don't enqueue the new message
+            q.dropped += 1
+            logger.debug("Queue full for %s, dropped newest message", topic)
+            return False
+        elif strategy == BackpressureStrategy.BLOCK_PRODUCER:
+            # For ZMQ we can't truly block the producer in XSUB/XPUB pattern.
+            # Graceful degradation: log warning and drop newest.
+            q.dropped += 1
+            logger.warning(
+                "Queue full for %s, BLOCK_PRODUCER not fully supported "
+                "in broker pattern, dropping newest",
+                topic,
+            )
+            return False
+
+        # Default fallback
+        q.popleft()
+        q.put(entry)
+        return True
+
     def _enqueue_from_xsub(self, frames: List[bytes]) -> None:
         """Route XSUB data to the dedicated topic queue.
 
         Topic is taken from frame[0]; queue is created on-demand if a module
         has not yet registered for this topic (dynamic subscription).
         Fast path avoids the dict lock when the queue already exists.
-        Backpressure defaults to DROP_OLDEST (v3 unified queue).
+        Backpressure strategy is applied per-topic (v3 unified queue).
         """
         if len(frames) < 2:
             return
@@ -523,10 +786,7 @@ class TycheEngine:
         # Fast path: lock-free lookup for existing queues (hot path)
         q = self._topic_queues.get(queue_key)
         if q is not None:
-            # Backpressure: drop oldest when max depth exceeded
-            while len(q) >= 10000:
-                q.popleft()
-            q.put(frames)
+            self._apply_backpressure(q, queue_key, frames)
             self._topic_last_access[topic] = time.time()
             self._egress_wakeup.put(None)
             return
@@ -537,15 +797,16 @@ class TycheEngine:
                 q = TopicQueue(capacity=self._queue_capacity)
                 self._topic_queues[queue_key] = q
                 logger.debug("Created dynamic topic queue: %s", queue_key)
-            q.put(frames)
+            self._apply_backpressure(q, queue_key, frames)
         self._egress_wakeup.put(None)
 
     def _event_egress_worker(self) -> None:
-        """Background drainer for all topic queues (v3 unified queue).
+        """Background drainer for all topic queues.
 
-        Blocks on a wakeup queue so it does not spin.  The proxy worker
-        handles ingress (enqueues all events); this worker handles egress
-        (dequeues and broadcasts via XPUB).
+        The proxy worker now directly forwards XSUB→XPUB (hot path), so
+        this worker only drains topic queues for monitoring, TTL checking,
+        and dead-lettering expired messages.  It does NOT re-send via XPUB
+        (that would duplicate messages already sent directly).
         """
         while self._running:
             try:
@@ -559,21 +820,44 @@ class TycheEngine:
 
             for topic, q in queues:
                 while self._running:
-                    frames = q.get()
-                    if frames is None:
+                    item = q.get()
+                    if item is None:
                         break
 
-                    if self._xpub_socket is not None:
+                    enqueue_time, frames = item
+                    now = time.time()
+
+                    # Determine effective TTL for this topic
+                    topic_ttl = self._topic_ttl.get(
+                        topic, self._default_broadcast_ttl
+                    )
+
+                    if now - enqueue_time > topic_ttl:
+                        # Message expired — dead-letter it
                         try:
-                            with self._xpub_lock:
-                                self._xpub_socket.send_multipart(frames)
-                            with self._lock:
-                                self._event_count += 1
-                            self._topic_last_access[topic] = time.time()
+                            # Deserialize only for dead-letter persistence
+                            if len(frames) >= 2:
+                                msg = deserialize(frames[1])
+                            else:
+                                msg = deserialize(frames[0])
+                            self._dead_letter_store.persist(
+                                message=msg,
+                                topic=topic,
+                                reason="broadcast_ttl_expired",
+                            )
                         except Exception as e:
-                            if self._running:
-                                logger.error("Event egress error: %s", e)
-                            break
+                            logger.debug(
+                                "Failed to dead-letter expired broadcast "
+                                "for topic %s: %s", topic, e,
+                            )
+                        logger.debug(
+                            "Broadcast message expired for topic %s, "
+                            "dead-lettered (age=%.2fs, ttl=%.2fs)",
+                            topic, now - enqueue_time, topic_ttl,
+                        )
+
+                    # Update last access time for monitoring
+                    self._topic_last_access[topic] = time.time()
 
     # ── Heartbeat ─────────────────────────────────────────────────
 
@@ -635,8 +919,13 @@ class TycheEngine:
                             msg = deserialize(msg_data)
                             if msg.msg_type == MessageType.HEARTBEAT:
                                 self.heartbeat_manager.update(msg.sender)
+                                # Extract availability from heartbeat payload
+                                if msg.payload and "availability" in msg.payload:
+                                    self._module_availability[msg.sender] = msg.payload["availability"]
                                 # Forward module heartbeat to PUB socket via queue
                                 self._heartbeat_queue.put(msg)
+                                # Recovery: if handler was marked unavailable, restore it
+                                self._recover_handler(msg.sender)
                         except Exception:
                             pass  # Ignore malformed heartbeat messages
                 except zmq.error.Again:
@@ -743,6 +1032,17 @@ class TycheEngine:
                 self._job_router.close()
                 self._job_router = None
 
+    def _publish_job_event(self, msg: Message) -> None:
+        """Mirror a job message to the XPUB socket so TUI subscribers can see it."""
+        if self._xpub_socket is None:
+            return
+        try:
+            data = serialize(msg)
+            with self._xpub_lock:
+                self._xpub_socket.send_multipart([msg.event.encode(), data])
+        except Exception:
+            pass
+
     def _handle_job_request(
         self,
         identity: bytes,
@@ -752,34 +1052,86 @@ class TycheEngine:
     ) -> None:
         """Route a job request to the appropriate handler via round-robin."""
         topic = msg.event
+        now = time.time()
+
+        # Extract timeouts from message payload (with defaults)
+        wait_timeout = msg.payload.get("wait_timeout", 30.0) if msg.payload else 30.0
+        run_timeout = msg.payload.get("run_timeout", 60.0) if msg.payload else 60.0
+
         handlers = self._job_handlers.get(topic, [])
 
-        if not handlers:
-            # No handler registered — send error response back to requester
-            error_resp = Message(
-                msg_type=MessageType.RESPONSE,
-                sender="engine",
-                event=msg.event,
-                payload={"error": f"No handler registered for job '{topic}'"},
-                correlation_id=msg.correlation_id,
-            )
-            try:
-                assert self._job_router is not None
-                self._job_router.send_multipart(
-                    [identity, b"", topic_frame, serialize(error_resp)]
+        # Filter out unavailable handlers
+        available_handlers = [
+            h for h in handlers
+            if self._is_handler_available(h, topic)
+        ]
+
+        if not available_handlers:
+            if not handlers:
+                # No handler registered at all — send error response immediately
+                error_resp = Message(
+                    msg_type=MessageType.RESPONSE,
+                    sender="engine",
+                    event=msg.event,
+                    payload={"error": f"No handler registered for job '{topic}'"},
+                    correlation_id=msg.correlation_id,
                 )
-            except Exception as e:
-                logger.error("Job router: failed to send error response: %s", e)
-            logger.warning("Job router: no handler for topic '%s'", topic)
+                try:
+                    assert self._job_router is not None
+                    self._job_router.send_multipart(
+                        [identity, b"", topic_frame, serialize(error_resp)]
+                    )
+                except Exception as e:
+                    logger.error("Job router: failed to send error response: %s", e)
+                logger.warning("Job router: no handler for topic '%s'", topic)
+                return
+
+            # Handlers exist but all unavailable — queue for wait_timeout
+            tracking_info = {
+                "requester_id": identity,
+                "handler_id": None,
+                "dispatch_time": None,
+                "wait_start_time": now,
+                "wait_timeout": wait_timeout,
+                "run_timeout": run_timeout,
+                "topic": topic,
+                "topic_frame": topic_frame,
+                "message_frame": message_frame,
+            }
+            with self._job_tracking_lock:
+                self._job_tracking[msg.correlation_id] = tracking_info
+            self._pending_jobs[msg.correlation_id] = identity
+            logger.debug(
+                "Job router: all handlers unavailable for '%s' (corr=%s), waiting",
+                topic, msg.correlation_id,
+            )
             return
 
-        # Round-robin selection
-        idx = self._job_round_robin.get(topic, 0) % len(handlers)
+        # Round-robin selection among available handlers
+        idx = self._job_round_robin.get(topic, 0) % len(available_handlers)
         self._job_round_robin[topic] = idx + 1
-        handler_module_id = handlers[idx]
+        handler_module_id = available_handlers[idx]
 
         # Store pending job mapping: correlation_id -> requester identity
         self._pending_jobs[msg.correlation_id] = identity
+
+        # Track the job with timeout info
+        tracking_info = {
+            "requester_id": identity,
+            "handler_id": handler_module_id,
+            "dispatch_time": now,
+            "wait_start_time": now,
+            "wait_timeout": wait_timeout,
+            "run_timeout": run_timeout,
+            "topic": topic,
+            "topic_frame": topic_frame,
+            "message_frame": message_frame,
+        }
+        with self._job_tracking_lock:
+            self._job_tracking[msg.correlation_id] = tracking_info
+
+        # Mirror request to XPUB so TUI can observe job traffic
+        self._publish_job_event(msg)
 
         # Forward request to handler
         try:
@@ -798,6 +1150,8 @@ class TycheEngine:
             )
             # Clean up pending job on failure
             self._pending_jobs.pop(msg.correlation_id, None)
+            with self._job_tracking_lock:
+                self._job_tracking.pop(msg.correlation_id, None)
 
     def _handle_job_response(
         self,
@@ -815,6 +1169,13 @@ class TycheEngine:
                 msg.correlation_id, msg.sender,
             )
             return
+
+        # Remove from timeout tracking
+        with self._job_tracking_lock:
+            self._job_tracking.pop(msg.correlation_id, None)
+
+        # Mirror response to XPUB so TUI can observe job traffic
+        self._publish_job_event(msg)
 
         # Forward response to requester
         try:
@@ -834,13 +1195,208 @@ class TycheEngine:
         finally:
             del self._pending_jobs[msg.correlation_id]
 
+    def _job_timeout_worker(self) -> None:
+        """Periodically check for timed-out jobs."""
+        while self._running:
+            now = time.time()
+            timed_out: List[tuple] = []
+
+            with self._job_tracking_lock:
+                for corr_id, info in list(self._job_tracking.items()):
+                    if info["handler_id"] is not None:
+                        # Job is dispatched — check run_timeout
+                        if now - info["dispatch_time"] > info["run_timeout"]:
+                            timed_out.append((corr_id, "run_timeout"))
+                    else:
+                        # Job is waiting for handler — check wait_timeout
+                        if now - info["wait_start_time"] > info["wait_timeout"]:
+                            timed_out.append((corr_id, "wait_timeout"))
+
+            for corr_id, reason in timed_out:
+                self._handle_job_timeout(corr_id, reason)
+
+            time.sleep(1.0)  # Check every second
+
+    def _handle_job_timeout(self, correlation_id: str, reason: str) -> None:
+        """Handle a job that has timed out."""
+        with self._job_tracking_lock:
+            info = self._job_tracking.pop(correlation_id, None)
+        if info is None:
+            return
+
+        if reason == "run_timeout" and info["handler_id"]:
+            # Mark handler as unavailable for this topic
+            handler_id = info["handler_id"]
+            if handler_id not in self._unavailable_handlers:
+                self._unavailable_handlers[handler_id] = set()
+            self._unavailable_handlers[handler_id].add(info["topic"])
+            logger.warning(
+                "Handler '%s' timed out for topic '%s', marked unavailable",
+                handler_id, info["topic"],
+            )
+
+            # Try to retry on another handler
+            if self._retry_job(correlation_id, info):
+                return  # Successfully retried — do not send error
+
+            # No other handler available — put back as waiting (subject to wait_timeout)
+            info["handler_id"] = None
+            info["dispatch_time"] = None
+            with self._job_tracking_lock:
+                self._job_tracking[correlation_id] = info
+            logger.info(
+                "Job %s: no alternative handler for '%s', waiting for recovery",
+                correlation_id, info["topic"],
+            )
+            return
+
+        if reason == "wait_timeout":
+            # Dead-letter the job
+            logger.warning(
+                "Job %s wait_timeout for topic '%s'", correlation_id, info["topic"]
+            )
+            # Reconstruct message from stored frame for dead-lettering
+            try:
+                msg = deserialize(info["message_frame"])
+                self._dead_letter_store.persist(
+                    message=msg, topic=info["topic"], reason="wait_timeout"
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to dead-letter job %s: %s", correlation_id, e
+                )
+
+        # Remove from pending jobs and send error to requester
+        self._pending_jobs.pop(correlation_id, None)
+
+        error_msg = Message(
+            msg_type=MessageType.RESPONSE,
+            sender="engine",
+            event=info["topic"],
+            payload={"error": reason, "correlation_id": correlation_id},
+            correlation_id=correlation_id,
+        )
+        requester_id = info["requester_id"]
+        error_frames = [
+            requester_id if isinstance(requester_id, bytes) else requester_id.encode(),
+            b"",
+            info["topic_frame"],
+            serialize(error_msg),
+        ]
+        try:
+            if self._job_router is not None:
+                self._job_router.send_multipart(error_frames)
+                logger.debug(
+                    "Job router: sent timeout error (reason=%s, corr=%s) to requester",
+                    reason, correlation_id,
+                )
+        except Exception as e:
+            logger.error(
+                "Job router: failed to send timeout error (corr=%s): %s",
+                correlation_id, e,
+            )
+
+    def _retry_job(self, correlation_id: str, info: dict) -> bool:
+        """Try to assign the job to another available handler.
+
+        Returns True if successfully retried, False if no handler available.
+        """
+        topic = info["topic"]
+        handlers = self._job_handlers.get(topic, [])
+
+        # Filter out unavailable handlers
+        available_handlers = [
+            h for h in handlers
+            if self._is_handler_available(h, topic)
+        ]
+
+        if not available_handlers:
+            return False
+
+        # Round-robin selection among available handlers
+        idx = self._job_round_robin.get(topic, 0) % len(available_handlers)
+        self._job_round_robin[topic] = idx + 1
+        handler_module_id = available_handlers[idx]
+
+        # Dispatch to the new handler
+        try:
+            assert self._job_router is not None
+            self._job_router.send_multipart(
+                [handler_module_id.encode(), b"", info["topic_frame"], info["message_frame"]]
+            )
+        except Exception as e:
+            logger.error(
+                "Job router: retry dispatch to '%s' failed: %s",
+                handler_module_id, e,
+            )
+            return False
+
+        # Update tracking with new handler
+        info["handler_id"] = handler_module_id
+        info["dispatch_time"] = time.time()
+        with self._job_tracking_lock:
+            self._job_tracking[correlation_id] = info
+
+        logger.info(
+            "Job %s retried: dispatched to handler '%s' for topic '%s'",
+            correlation_id, handler_module_id, topic,
+        )
+        return True
+
+    def _is_handler_available(self, module_id: str, topic: str) -> bool:
+        """Check if a handler is available for routing."""
+        # Check timeout-based unavailability
+        if module_id in self._unavailable_handlers:
+            if topic in self._unavailable_handlers[module_id]:
+                return False
+        # Check reported availability from heartbeat
+        availability = self._module_availability.get(module_id, {})
+        if topic in availability and not availability[topic]:
+            return False
+        return True
+
+    def _recover_handler(self, module_id: str) -> None:
+        """Restore a handler that was marked unavailable when it sends a heartbeat.
+
+        If the handler had topics marked unavailable, clear them and attempt
+        to dispatch any waiting jobs (handler_id=None) for those topics.
+        """
+        if module_id not in self._unavailable_handlers:
+            return
+
+        recovered_topics = self._unavailable_handlers.pop(module_id)
+        if not recovered_topics:
+            return
+
+        logger.info(
+            "Handler '%s' recovered, clearing unavailable status for topics: %s",
+            module_id, recovered_topics,
+        )
+
+        # Check if any waiting jobs can now be dispatched
+        with self._job_tracking_lock:
+            waiting_jobs = [
+                (corr_id, info)
+                for corr_id, info in self._job_tracking.items()
+                if info["handler_id"] is None and info["topic"] in recovered_topics
+            ]
+
+        for corr_id, info in waiting_jobs:
+            # Remove from tracking (retry_job will re-add it)
+            with self._job_tracking_lock:
+                self._job_tracking.pop(corr_id, None)
+            if not self._retry_job(corr_id, info):
+                # Put back as waiting if still no handler
+                with self._job_tracking_lock:
+                    self._job_tracking[corr_id] = info
+
     def _admin_worker(self) -> None:
         """Admin ROUTER socket for querying engine state."""
         assert self.context is not None
         socket = self.context.socket(zmq.ROUTER)
         socket.setsockopt(zmq.LINGER, 0)
         try:
-            socket.bind(self._admin_endpoint)
+            socket.bind(str(self._admin_endpoint))
             socket.setsockopt(zmq.RCVTIMEO, 100)
 
             while self._running:
@@ -911,6 +1467,8 @@ class TycheEngine:
                             "interfaces": [i.name for i in module_info.interfaces],
                             "liveness": liveness,
                             "last_seen": last_seen,
+                            "admin_handlers": self._module_admin_handlers.get(module_id, []),
+                            "availability": self._module_availability.get(module_id, {}),
                         })
                     response = {"modules": modules_list}
             elif query == "QUEUES":
@@ -941,6 +1499,26 @@ class TycheEngine:
                     "dropped": hbq.dropped,
                 })
                 response = {"queues": queues}
+            elif query == "JOBS":
+                with self._job_tracking_lock:
+                    jobs_list = []
+                    for corr_id, info in self._job_tracking.items():
+                        requester_id = info["requester_id"]
+                        if isinstance(requester_id, bytes):
+                            requester_id = requester_id.decode(errors="replace")
+                        jobs_list.append({
+                            "correlation_id": corr_id,
+                            "topic": info["topic"],
+                            "requester_id": requester_id,
+                            "handler_id": info["handler_id"],
+                            "dispatch_time": info["dispatch_time"],
+                            "wait_timeout": info["wait_timeout"],
+                            "run_timeout": info["run_timeout"],
+                        })
+                    response = {"jobs": jobs_list}
+            elif query == "DEAD_LETTERS":
+                records = self._dead_letter_store.replay()
+                response = {"dead_letters": records[-100:]}
             elif query == "STATS":
                 with self._lock:
                     response = {

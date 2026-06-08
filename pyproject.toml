@@ -10,18 +10,23 @@ requires-python = ">=3.9"
 dependencies = [
     "pyzmq>=25.0.0",
     "msgpack>=1.0.5",
+    "requests>=2.28.0",
 ]
 
 [project.optional-dependencies]
 ctp = [
     "openctp-ctp>=6.7.0",
+    "openctp-ctpopt>=3.5.8",
+]
+quant = [
+    "numpy>=1.24.0",
 ]
 persistence = [
     "clickhouse-connect>=0.7.0",
 ]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
+    "pytest>=7.4.0,<9.0",
+    "pytest-asyncio>=0.21.0,<0.24",
     "pytest-timeout>=2.2.0",
     "pytest-cov>=4.1.0",
     "mypy>=1.5.0",
@@ -34,7 +39,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
-asyncio_mode = "auto"
+norecursedirs = ["third_party", "research", "target", "build", ".cache", "tui", "ctp_flow"]
 timeout = 30
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

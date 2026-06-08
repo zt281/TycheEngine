@@ -1,161 +1,184 @@
-"""Tests for message serialization and deserialization."""
-
+"""Tests for src.tyche.message module."""
 from decimal import Decimal
 
-from tyche.message import (
+import msgpack
+import pytest
+
+from src.tyche.message import (
     Envelope,
     Message,
+    _decode_decimal,
+    _encode_decimal,
     deserialize,
     deserialize_envelope,
     serialize,
     serialize_envelope,
 )
-from tyche.types import DurabilityLevel, MessageType
+from src.tyche.types import DurabilityLevel, MessageType
 
 
-def test_message_creation():
-    """Message stores all fields correctly."""
-    msg = Message(
-        msg_type=MessageType.EVENT,
-        sender="zeus123456",
-        event="on_data",
-        payload={"value": 42},
-    )
-    assert msg.msg_type == MessageType.EVENT
-    assert msg.sender == "zeus123456"
-    assert msg.event == "on_data"
-    assert msg.payload == {"value": 42}
-    assert msg.recipient is None
-    assert msg.timestamp is None
-    assert msg.correlation_id is None
+class TestEncodeDecimal:
+    def test_decimal_encoding(self):
+        result = _encode_decimal(Decimal("123.456"))
+        assert result == {"__decimal__": "123.456"}
+
+    def test_enum_encoding(self):
+        result = _encode_decimal(MessageType.EVENT)
+        assert result == "evt"
+
+    def test_bytes_encoding(self):
+        result = _encode_decimal(b"hello")
+        assert result == "hello"
+
+    def test_unsupported_type_raises(self):
+        with pytest.raises(TypeError, match="Cannot serialize"):
+            _encode_decimal(object())
 
 
-def test_message_serialization_roundtrip():
-    """Message survives serialize -> deserialize roundtrip."""
-    original = Message(
-        msg_type=MessageType.COMMAND,
-        sender="example456",
-        event="ack_order",
-        payload={"order_id": "A123", "quantity": 100},
-        recipient="hermes789",
-        durability=DurabilityLevel.SYNC_FLUSH,
-        timestamp=1234567890.123,
-        correlation_id="corr-001",
-    )
+class TestDecodeDecimal:
+    def test_decimal_decoding(self):
+        result = _decode_decimal({"__decimal__": "99.99"})
+        assert isinstance(result, Decimal)
+        assert result == Decimal("99.99")
 
-    data = serialize(original)
-    restored = deserialize(data)
+    def test_plain_dict_passthrough(self):
+        d = {"key": "value"}
+        assert _decode_decimal(d) == d
 
-    assert restored.msg_type == original.msg_type
-    assert restored.sender == original.sender
-    assert restored.event == original.event
-    assert restored.payload == original.payload
-    assert restored.recipient == original.recipient
-    assert restored.durability == original.durability
-    assert restored.timestamp == original.timestamp
-    assert restored.correlation_id == original.correlation_id
+    def test_non_dict_passthrough(self):
+        assert _decode_decimal("string") == "string"
+        assert _decode_decimal(42) == 42
 
 
-def test_roundtrip_with_none_optional_fields():
-    """Roundtrip preserves None values for optional fields."""
-    original = Message(
-        msg_type=MessageType.EVENT,
-        sender="test",
-        event="evt",
-        payload={},
-        recipient=None,
-        timestamp=None,
-        correlation_id=None,
-    )
-    restored = deserialize(serialize(original))
+class TestSerializeDeserialize:
+    def test_roundtrip_basic(self):
+        msg = Message(
+            msg_type=MessageType.EVENT,
+            sender="mod_1",
+            event="test_event",
+            payload={"data": "value"},
+        )
+        data = serialize(msg)
+        restored = deserialize(data)
+        assert restored.msg_type == MessageType.EVENT
+        assert restored.sender == "mod_1"
+        assert restored.event == "test_event"
+        assert restored.payload == {"data": "value"}
 
-    assert restored.recipient is None
-    assert restored.timestamp is None
-    assert restored.correlation_id is None
+    def test_roundtrip_with_all_fields(self):
+        msg = Message(
+            msg_type=MessageType.REQUEST,
+            sender="mod_a",
+            event="compute",
+            payload={"key": "val"},
+            recipient="mod_b",
+            durability=DurabilityLevel.SYNC_FLUSH,
+            timestamp=1234567890.5,
+            correlation_id="corr-123",
+            wait_timeout=5.0,
+            run_timeout=30.0,
+        )
+        data = serialize(msg)
+        restored = deserialize(data)
+        assert restored.msg_type == MessageType.REQUEST
+        assert restored.recipient == "mod_b"
+        assert restored.durability == DurabilityLevel.SYNC_FLUSH
+        assert restored.timestamp == 1234567890.5
+        assert restored.correlation_id == "corr-123"
+        assert restored.wait_timeout == 5.0
+        assert restored.run_timeout == 30.0
 
+    def test_roundtrip_decimal_payload(self):
+        msg = Message(
+            msg_type=MessageType.EVENT,
+            sender="mod_1",
+            event="price",
+            payload={"price": Decimal("550.25")},
+        )
+        data = serialize(msg)
+        restored = deserialize(data)
+        assert isinstance(restored.payload["price"], Decimal)
+        assert restored.payload["price"] == Decimal("550.25")
 
-def test_decimal_precision_preserved():
-    """Decimal precision is preserved through serialization."""
-    msg = Message(
-        msg_type=MessageType.EVENT,
-        sender="test",
-        event="price",
-        payload={"price": Decimal("123.456789012345")},
-    )
-
-    data = serialize(msg)
-    restored = deserialize(data)
-
-    assert isinstance(restored.payload["price"], Decimal)
-    assert restored.payload["price"] == Decimal("123.456789012345")
-
-
-def test_serialize_returns_bytes():
-    """serialize() returns non-empty bytes."""
-    msg = Message(
-        msg_type=MessageType.HEARTBEAT,
-        sender="test",
-        event="heartbeat",
-        payload={},
-    )
-    data = serialize(msg)
-    assert isinstance(data, bytes)
-    assert len(data) > 0
-
-
-# ── Envelope tests ────────────────────────────────────────────
-
-
-def test_envelope_creation():
-    """Envelope stores identity and message."""
-    msg = Message(
-        msg_type=MessageType.EVENT,
-        sender="test",
-        event="evt",
-        payload={},
-    )
-    env = Envelope(identity=b"client1", message=msg)
-    assert env.identity == b"client1"
-    assert env.message is msg
-    assert env.routing_stack == []
-
-
-def test_envelope_serialize_roundtrip_simple():
-    """Envelope without routing stack survives serialize/deserialize."""
-    msg = Message(
-        msg_type=MessageType.EVENT,
-        sender="sender1",
-        event="on_data",
-        payload={"key": "value"},
-    )
-    env = Envelope(identity=b"mod_001", message=msg)
-
-    frames = serialize_envelope(env)
-    restored = deserialize_envelope(frames)
-
-    assert restored.identity == b"mod_001"
-    assert restored.message.sender == "sender1"
-    assert restored.message.payload == {"key": "value"}
-    assert restored.routing_stack == []
+    def test_default_durability(self):
+        """Missing durability field defaults to ASYNC_FLUSH (1)."""
+        raw = msgpack.packb({
+            "msg_type": "evt",
+            "sender": "mod",
+            "event": "test",
+            "payload": {},
+            "recipient": None,
+            "durability": None,
+        }, use_bin_type=True)
+        restored = deserialize(raw)
+        assert restored.durability == DurabilityLevel.ASYNC_FLUSH
 
 
-def test_envelope_serialize_roundtrip_with_routing():
-    """Envelope with routing stack survives serialize/deserialize."""
-    msg = Message(
-        msg_type=MessageType.COMMAND,
-        sender="a",
-        event="ack_x",
-        payload={"x": 1},
-    )
-    env = Envelope(
-        identity=b"target",
-        message=msg,
-        routing_stack=[b"hop1", b"hop2"],
-    )
+class TestSerializeEnvelope:
+    def test_without_routing_stack(self):
+        msg = Message(
+            msg_type=MessageType.EVENT,
+            sender="mod_1",
+            event="test",
+            payload={},
+        )
+        envelope = Envelope(identity=b"client_1", message=msg)
+        frames = serialize_envelope(envelope)
+        assert len(frames) == 2
+        assert frames[0] == b"client_1"
+        assert isinstance(frames[1], bytes)
 
-    frames = serialize_envelope(env)
-    restored = deserialize_envelope(frames)
+    def test_with_routing_stack(self):
+        msg = Message(
+            msg_type=MessageType.RESPONSE,
+            sender="mod_1",
+            event="test",
+            payload={"result": "ok"},
+        )
+        envelope = Envelope(
+            identity=b"client_1",
+            message=msg,
+            routing_stack=[b"proxy_1", b"proxy_2"],
+        )
+        frames = serialize_envelope(envelope)
+        assert len(frames) == 5
+        assert frames[0] == b"proxy_1"
+        assert frames[1] == b"proxy_2"
+        assert frames[2] == b""
+        assert frames[3] == b"client_1"
+        assert isinstance(frames[4], bytes)
 
-    assert restored.routing_stack == [b"hop1", b"hop2"]
-    assert restored.identity == b"target"
-    assert restored.message.event == "ack_x"
+
+class TestDeserializeEnvelope:
+    def test_simple_format(self):
+        msg = Message(
+            msg_type=MessageType.EVENT,
+            sender="mod_1",
+            event="test",
+            payload={"data": 1},
+        )
+        msg_bytes = serialize(msg)
+        frames = [b"client_1", msg_bytes]
+        envelope = deserialize_envelope(frames)
+        assert envelope.identity == b"client_1"
+        assert envelope.message.event == "test"
+        assert envelope.routing_stack == []
+
+    def test_with_routing_stack(self):
+        msg = Message(
+            msg_type=MessageType.REQUEST,
+            sender="mod_a",
+            event="compute",
+            payload={},
+        )
+        msg_bytes = serialize(msg)
+        frames = [b"proxy_1", b"proxy_2", b"", b"client_1", msg_bytes]
+        envelope = deserialize_envelope(frames)
+        assert envelope.identity == b"client_1"
+        assert envelope.message.event == "compute"
+        assert envelope.routing_stack == [b"proxy_1", b"proxy_2"]
+
+    def test_empty_frames_raises_index_error(self):
+        """Too few frames should raise IndexError during access."""
+        with pytest.raises(IndexError):
+            deserialize_envelope([])

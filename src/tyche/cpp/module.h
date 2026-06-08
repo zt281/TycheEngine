@@ -12,8 +12,10 @@
 //   - PUB:    publish events to engine's XSUB
 //   - SUB:    subscribe to events from engine's XPUB
 //   - DEALER: send heartbeats to engine
+//   - DEALER: job request/response (addressable via module_id)
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -24,16 +26,18 @@
 #include <vector>
 
 #include "tyche/cpp/types.h"
+#include "tyche/cpp/string_intern.h"
 
 namespace tyche {
 
 class TycheModule {
 public:
     using Handler = std::function<void(const Payload&)>;
+    using JobHandler = std::function<Payload(const Payload&)>;
 
     TycheModule(
         Endpoint engine_endpoint,
-        std::string module_id,
+        std::string family_name,
         std::optional<Endpoint> heartbeat_receive_endpoint = std::nullopt);
 
     virtual ~TycheModule();
@@ -56,7 +60,15 @@ public:
 
     // ── Accessors ───────────────────────────────────────────────────
 
-    const std::string& module_id() const noexcept { return _module_id; }
+    // Return the family name (module type identifier).
+    const std::string& family_name() const noexcept { return _family_name; }
+
+    // Return the module ID.  Before registration completes the engine-assigned
+    // ID is not yet available, so we fall back to family_name.
+    const std::string& module_id() const noexcept {
+        return _module_id.empty() ? _family_name : _module_id;
+    }
+
     const std::vector<Interface>& interfaces() const noexcept { return _interfaces; }
     const Endpoint& engine_endpoint() const noexcept { return _engine_endpoint; }
 
@@ -73,6 +85,17 @@ public:
         const Payload& payload,
         std::optional<std::string> recipient = std::nullopt);
 
+    // ── Job Request/Response ────────────────────────────────────────
+
+    // Send a job request and block until a response is received.
+    //
+    // Returns the response payload. Throws std::runtime_error on timeout
+    // or if the job socket is not connected.
+    Payload request_event(
+        const std::string& event,
+        const Payload& payload,
+        float timeout = 5.0f);
+
 protected:
     // Hook for subclasses to extend startup. Subclasses MUST call
     // TycheModule::_start_workers() in their override before performing
@@ -88,6 +111,15 @@ protected:
         const std::string& name,
         Handler handler,
         InterfacePattern pattern = InterfacePattern::ON,
+        DurabilityLevel durability = DurabilityLevel::ASYNC_FLUSH);
+
+    // Register a job handler (handle_* pattern) programmatically.
+    //
+    // Job handlers receive a request payload and return a response payload.
+    // They are dispatched via the engine's ROUTER/DEALER job socket.
+    void _register_job_handler(
+        const std::string& name,
+        JobHandler handler,
         DurabilityLevel durability = DurabilityLevel::ASYNC_FLUSH);
 
     // Register a producer declaration programmatically.
@@ -111,14 +143,32 @@ protected:
 
 private:
     // Identity / configuration.
-    std::string _module_id;
+    std::string _family_name;
+    std::string _module_id;  // assigned by engine on registration; empty until then
     Endpoint _engine_endpoint;
     std::optional<Endpoint> _heartbeat_receive_endpoint;
 
-    // Handler registry (event_type -> {handler, pattern}).
+    // OPT-3: String interner maps event names to dense uint32_t IDs.
+    // Eliminates repeated hashing and string comparisons on dispatch hot path.
+    StringIntern _intern;
+
+    // Handler registry (event_type_id -> {handler, pattern}).
     mutable std::mutex _handlers_lock;
-    std::unordered_map<std::string,
+    std::unordered_map<InternId,
                        std::pair<Handler, InterfacePattern>> _handlers;
+
+    // Job handler registry (event_type_id -> job_handler).
+    std::unordered_map<InternId, JobHandler> _job_handlers;
+
+    // Pending job requests: correlation_id -> {payload, ready flag}.
+    struct PendingRequest {
+        Payload result;
+        bool ready = false;
+        std::condition_variable cv;
+    };
+    mutable std::mutex _pending_lock;
+    std::unordered_map<std::string,
+                       std::shared_ptr<PendingRequest>> _pending_requests;
 
     // PIMPL: ZMQ context, sockets, and worker threads live in module.cpp,
     // so this header doesn't pull in cppzmq / msgpack-cxx.
@@ -131,6 +181,16 @@ private:
     void _event_receiver_loop();
     void _heartbeat_loop();
     void _dispatch(const std::string& topic, const Payload& payload);
+
+    // Job socket helpers.
+    void _connect_job_socket();
+    void _job_receiver_loop();
+    void _handle_job_request(const std::string& event,
+                             const Payload& payload,
+                             const std::optional<std::string>& correlation_id);
+    void _handle_job_response(const Payload& payload,
+                              const std::optional<std::string>& correlation_id);
+    static std::string _generate_correlation_id();
 };
 
 }  // namespace tyche
