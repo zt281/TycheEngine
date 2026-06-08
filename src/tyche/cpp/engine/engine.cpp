@@ -5,6 +5,7 @@
 // Inter-thread communication uses lock-protected queues.
 
 #include "tyche/cpp/engine/engine.h"
+#include "tyche/cpp/engine/shared_memory_bridge.h"
 
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
@@ -79,7 +80,8 @@ TycheEngine::TycheEngine(
       _job_endpoint(std::move(job_endpoint)),
       _queue_capacity(queue_capacity),
       _heartbeat_manager(HEARTBEAT_INTERVAL_SEC, HEARTBEAT_LIVENESS_DEFAULT),
-      _dead_letter_store(data_dir + "/dead_letters") {
+      _dead_letter_store(data_dir + "/dead_letters"),
+      _shm_bridge(std::make_unique<SharedMemoryBridge>()) {
     _start_time = _now();
 }
 
@@ -104,6 +106,11 @@ void TycheEngine::start_nonblocking() {
     _threads.emplace_back(&TycheEngine::_job_router_worker, this);
     _threads.emplace_back(&TycheEngine::_job_timeout_worker, this);
 
+    // Start shared memory bridge if configured
+    if (_shm_bridge) {
+        _shm_bridge->start(this);
+    }
+
     std::cerr << "[TycheEngine] All 10 workers started\n"
               << "[TycheEngine] Endpoints:"
               << " reg=" << _registration_endpoint.to_string()
@@ -126,6 +133,11 @@ void TycheEngine::stop() {
     std::cerr << "[TycheEngine] Stopping..." << std::endl;
     _running.store(false, std::memory_order_release);
 
+    // Stop shared memory bridge first (before ZMQ context is destroyed)
+    if (_shm_bridge) {
+        _shm_bridge->stop();
+    }
+
     _egress_wakeup_cv.notify_all();
     _reg_in_cv.notify_all();
 
@@ -135,6 +147,26 @@ void TycheEngine::stop() {
     _threads.clear();
     _zmq_ctx.reset();
     std::cerr << "[TycheEngine] Shutdown complete" << std::endl;
+}
+
+// ── Event injection (for SharedMemoryBridge) ────────────────────────
+
+void TycheEngine::inject_event(const std::string& topic,
+                                const std::vector<uint8_t>& message_data) {
+    // Build Frame-based QueueItem and enqueue to topic queue
+    std::vector<Frame> frames;
+    frames.emplace_back(reinterpret_cast<const uint8_t*>(topic.data()), topic.size());
+    frames.emplace_back(message_data.data(), message_data.size());
+
+    auto q = _topic_queues.get_or_create(topic, static_cast<size_t>(_queue_capacity));
+    q->put(QueueItem(_now(), std::move(frames)));
+    _topic_queues.touch(topic, _now());
+
+    {
+        std::lock_guard lock(_egress_wakeup_lock);
+        _egress_wakeup_flag = true;
+    }
+    _egress_wakeup_cv.notify_one();
 }
 
 // ── Module ID generation ────────────────────────────────────────────
@@ -155,38 +187,34 @@ void TycheEngine::register_module(const ModuleInfo& info) {
         _modules[info.module_id] = info;
 
         for (const auto& iface : info.interfaces) {
-            const auto& qkey = iface.event_type;
+            // OPT-3: Intern topic strings once at registration to eliminate
+            // repeated hashing/comparison on hot lookup paths.
+            InternId topic_id = _intern.intern(iface.event_type);
 
-            // Ensure topic queue exists
-            {
-                std::lock_guard qlock(_topic_queues_lock);
-                if (_topic_queues.find(qkey) == _topic_queues.end()) {
-                    _topic_queues[qkey] = std::make_shared<TopicQueue>(
-                        static_cast<size_t>(_queue_capacity));
-                }
-            }
+            // Ensure topic queue exists (OPT-2: sharded map, no global lock)
+            _topic_queues.get_or_create(iface.event_type, static_cast<size_t>(_queue_capacity));
 
             if (iface.pattern == InterfacePattern::ON) {
-                auto& subs = _topic_subscribers[qkey];
+                auto& subs = _topic_subscribers[topic_id];
                 if (std::find(subs.begin(), subs.end(), info.module_id) == subs.end())
                     subs.push_back(info.module_id);
             } else if (iface.pattern == InterfacePattern::SEND) {
-                auto& prods = _topic_producers[qkey];
+                auto& prods = _topic_producers[topic_id];
                 if (std::find(prods.begin(), prods.end(), info.module_id) == prods.end())
                     prods.push_back(info.module_id);
             } else if (iface.pattern == InterfacePattern::HANDLE) {
-                auto& handlers = _job_handlers[iface.event_type];
+                auto& handlers = _job_handlers[topic_id];
                 if (std::find(handlers.begin(), handlers.end(), info.module_id) == handlers.end())
                     handlers.push_back(info.module_id);
                 {
                     std::lock_guard jlock(_job_lock);
-                    if (_job_round_robin.find(iface.event_type) == _job_round_robin.end())
-                        _job_round_robin[iface.event_type] = 0;
+                    if (_job_round_robin.find(topic_id) == _job_round_robin.end())
+                        _job_round_robin[topic_id] = 0;
                 }
                 std::cerr << "[TycheEngine] Registered job handler: " << info.module_id
                           << " for '" << iface.event_type << "'" << std::endl;
             } else if (iface.pattern == InterfacePattern::REQUEST) {
-                auto& prods = _topic_producers[qkey];
+                auto& prods = _topic_producers[topic_id];
                 if (std::find(prods.begin(), prods.end(), info.module_id) == prods.end())
                     prods.push_back(info.module_id);
             }
@@ -243,22 +271,23 @@ bool TycheEngine::_is_handler_available(const std::string& module_id,
 
 // ── Enqueue from XSUB ──────────────────────────────────────────────
 
+// OPT-2: Sharded topic queue lookup eliminates global mutex contention.
+// The event proxy thread (single writer) acquires only a per-bucket spinlock.
+// Hashing spreads topics across 256 buckets; collisions are rare and short.
 void TycheEngine::_enqueue_from_xsub(
     const std::vector<std::vector<uint8_t>>& frames) {
     if (frames.size() < 2) return;
-    std::string topic = bytes_to_str(frames[0]);
+    std::string topic(frames[0].begin(), frames[0].end());
 
-    {
-        std::lock_guard lock(_topic_queues_lock);
-        auto it = _topic_queues.find(topic);
-        if (it == _topic_queues.end()) {
-            _topic_queues[topic] = std::make_shared<TopicQueue>(
-                static_cast<size_t>(_queue_capacity));
-            it = _topic_queues.find(topic);
-        }
-        it->second->put(QueueItem(_now(), frames));
-        _topic_last_access[topic] = _now();
+    auto q = _topic_queues.get_or_create(topic, static_cast<size_t>(_queue_capacity));
+    // Convert to SSO-optimized Frame storage to eliminate to_bytes allocation
+    std::vector<Frame> fframes;
+    fframes.reserve(frames.size());
+    for (const auto& f : frames) {
+        fframes.emplace_back(f.data(), f.size());
     }
+    q->put(QueueItem(_now(), std::move(fframes)));
+    _topic_queues.touch(topic, _now());
 
     {
         std::lock_guard lock(_egress_wakeup_lock);
@@ -537,9 +566,11 @@ void TycheEngine::_job_router_worker() {
     std::function<bool(const std::string&, JobTrackingInfo&)> retry_job =
         [&](const std::string& corr_id, JobTrackingInfo& info) -> bool {
         std::vector<std::string> available;
+        // OPT-3: resolve topic string to InternId once for fast lookup
+        InternId topic_id = _intern.intern(info.topic);
         {
             std::shared_lock lock(_modules_lock);
-            auto hit = _job_handlers.find(info.topic);
+            auto hit = _job_handlers.find(topic_id);
             if (hit != _job_handlers.end())
                 for (const auto& h : hit->second)
                     if (_is_handler_available(h, info.topic)) available.push_back(h);
@@ -548,8 +579,8 @@ void TycheEngine::_job_router_worker() {
         size_t idx;
         {
             std::lock_guard l(_job_lock);
-            idx = _job_round_robin[info.topic] % available.size();
-            _job_round_robin[info.topic] = idx + 1;
+            idx = _job_round_robin[topic_id] % available.size();
+            _job_round_robin[topic_id] = idx + 1;
         }
         std::string hid = available[idx];
         send_job({str_to_bytes(hid), {}, info.topic_frame, info.message_frame});
@@ -589,9 +620,11 @@ void TycheEngine::_job_router_worker() {
         }
 
         std::vector<std::string> handlers, available;
+        // OPT-3: resolve topic string to InternId once for fast lookup
+        InternId topic_id = _intern.intern(topic);
         {
             std::shared_lock l(_modules_lock);
-            auto h = _job_handlers.find(topic);
+            auto h = _job_handlers.find(topic_id);
             if (h != _job_handlers.end()) handlers = h->second;
             for (const auto& hh : handlers)
                 if (_is_handler_available(hh, topic)) available.push_back(hh);
@@ -630,8 +663,8 @@ void TycheEngine::_job_router_worker() {
         size_t idx;
         {
             std::lock_guard l(_job_lock);
-            idx = _job_round_robin[topic] % available.size();
-            _job_round_robin[topic] = idx + 1;
+            idx = _job_round_robin[topic_id] % available.size();
+            _job_round_robin[topic_id] = idx + 1;
         }
         std::string handler_id = available[idx];
 
@@ -841,29 +874,27 @@ void TycheEngine::_monitor_worker() {
         }
 
         // Topic queue GC — snapshot activity under _modules_lock first,
-        // then GC under _topic_queues_lock only (avoids ABBA deadlock
-        // with register_module which locks _modules_lock then _topic_queues_lock).
+        // then GC using sharded map per-bucket locks (OPT-2).
+        // _topic_subscribers / _topic_producers use InternId keys; we resolve
+        // them to strings via _intern for comparison with ShardedTopicQueueMap.
         double now = _now();
         std::unordered_set<std::string> active_topics;
         {
             std::shared_lock mlock(_modules_lock);
-            for (const auto& [topic, subs] : _topic_subscribers)
-                if (!subs.empty()) active_topics.insert(topic);
-            for (const auto& [topic, prods] : _topic_producers)
-                if (!prods.empty()) active_topics.insert(topic);
+            for (const auto& [topic_id, subs] : _topic_subscribers)
+                if (!subs.empty()) active_topics.insert(std::string(_intern.resolve(topic_id)));
+            for (const auto& [topic_id, prods] : _topic_producers)
+                if (!prods.empty()) active_topics.insert(std::string(_intern.resolve(topic_id)));
         }
         {
-            std::lock_guard qlock(_topic_queues_lock);
-            std::vector<std::string> dead;
-            for (const auto& [topic, q] : _topic_queues) {
+            auto queues = _topic_queues.snapshot();
+            for (const auto& [topic, q] : queues) {
                 if (active_topics.count(topic)) continue;
-                auto la = _topic_last_access.find(topic);
-                double last = (la != _topic_last_access.end()) ? la->second : now;
-                if (now - last > _topic_queue_ttl) dead.push_back(topic);
-            }
-            for (const auto& t : dead) {
-                _topic_queues.erase(t);
-                _topic_last_access.erase(t);
+                double last = _topic_queues.last_access(topic);
+                if (last == 0.0) last = now;
+                if (now - last > _topic_queue_ttl) {
+                    _topic_queues.erase(topic);
+                }
             }
         }
 
@@ -934,9 +965,15 @@ void TycheEngine::_event_proxy_worker() {
                 } catch (...) {}
 
                 // Cold path: enqueue for monitoring / dead-letter
+                // OPT-1: Pass zmq::message_t frames directly to avoid to_bytes()
+                // allocation. _enqueue_from_xsub converts to SSO-optimized Frame.
                 std::vector<std::vector<uint8_t>> bframes;
                 bframes.reserve(frames.size());
-                for (const auto& f : frames) bframes.push_back(to_bytes(f));
+                for (const auto& f : frames) {
+                    bframes.emplace_back(
+                        static_cast<const uint8_t*>(f.data()),
+                        static_cast<const uint8_t*>(f.data()) + f.size());
+                }
                 _enqueue_from_xsub(bframes);
                 ++batch;
             }
@@ -961,12 +998,8 @@ void TycheEngine::_event_egress_worker() {
         if (!_running.load()) break;
 
         // Snapshot topic queues — hold shared_ptr to prevent use-after-free
-        std::vector<std::pair<std::string, std::shared_ptr<TopicQueue>>> queues;
-        {
-            std::lock_guard lock(_topic_queues_lock);
-            for (auto& [topic, q] : _topic_queues)
-                queues.emplace_back(topic, q);
-        }
+        // OPT-2: sharded map snapshot acquires each bucket lock sequentially.
+        auto queues = _topic_queues.snapshot();
 
         for (auto& [topic, q] : queues) {
             while (_running.load(std::memory_order_relaxed)) {
@@ -983,10 +1016,7 @@ void TycheEngine::_event_egress_worker() {
                     } catch (...) {}
                 }
 
-                {
-                    std::lock_guard lock(_topic_queues_lock);
-                    _topic_last_access[topic] = _now();
-                }
+                _topic_queues.touch(topic, _now());
             }
         }
     }
@@ -1047,10 +1077,10 @@ void TycheEngine::_admin_worker() {
                     } else { pk.pack_map(0); }
                 }
             } else if (query == "QUEUES") {
-                std::lock_guard l(_topic_queues_lock);
+                auto queues = _topic_queues.snapshot();
                 pk.pack_map(1); pk.pack(std::string("queues"));
-                pk.pack_array(static_cast<uint32_t>(_topic_queues.size()));
-                for (const auto& [t, q] : _topic_queues) {
+                pk.pack_array(static_cast<uint32_t>(queues.size()));
+                for (const auto& [t, q] : queues) {
                     pk.pack_map(5);
                     pk.pack(std::string("name")); pk.pack(t);
                     pk.pack(std::string("size")); pk.pack(static_cast<uint64_t>(q->size()));

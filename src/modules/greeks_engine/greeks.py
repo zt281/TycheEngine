@@ -195,6 +195,7 @@ class GreeksEngine(TycheModule):
 
         仅处理标的(期货) tick，更新本地 underlying_prices 缓存。
         所有 GreeksEngine 实例都会收到并独立更新缓存。
+        期权行情通过 handle_compute_greeks job handler 接收（由 gateway 发起）。
         """
         instrument_id = payload.get("instrument_id", "")
 

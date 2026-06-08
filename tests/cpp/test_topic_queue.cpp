@@ -15,6 +15,11 @@ QueueItem make_item(double t, const std::string& content) {
     return QueueItem(t, {frame});
 }
 
+// Helper to convert Frame back to string for assertions
+std::string frame_to_str(const Frame& f) {
+    return std::string(f.data(), f.data() + f.size());
+}
+
 // ── Construction ──────────────────────────────────────────────────────
 
 TEST(TopicQueueTest, DefaultConstruction) {
@@ -45,7 +50,7 @@ TEST(TopicQueueTest, PutAndGet) {
     EXPECT_DOUBLE_EQ(result->enqueue_time, 1.0);
     EXPECT_EQ(result->frames.size(), 1u);
 
-    std::string content(result->frames[0].begin(), result->frames[0].end());
+    std::string content(result->frames[0].data(), result->frames[0].data() + result->frames[0].size());
     EXPECT_EQ(content, "test_event");
 }
 
@@ -146,8 +151,8 @@ TEST(TopicQueueTest, MultiFrameItems) {
     auto result = q.get();
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->frames.size(), 2u);
-    EXPECT_EQ(std::string(result->frames[0].begin(), result->frames[0].end()), "topic");
-    EXPECT_EQ(std::string(result->frames[1].begin(), result->frames[1].end()), "payload");
+    EXPECT_EQ(frame_to_str(result->frames[0]), "topic");
+    EXPECT_EQ(frame_to_str(result->frames[1]), "payload");
 }
 
 // ── FIFO Order ────────────────────────────────────────────────────────

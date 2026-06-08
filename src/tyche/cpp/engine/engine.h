@@ -20,11 +20,16 @@
 
 #include "tyche/cpp/types.h"
 #include "tyche/cpp/message.h"
+#include "tyche/cpp/string_intern.h"
 #include "tyche/cpp/engine/topic_queue.h"
+#include "tyche/cpp/engine/sharded_topic_map.h"
 #include "tyche/cpp/engine/heartbeat_manager.h"
 #include "tyche/cpp/engine/dead_letter_store.h"
 
 namespace tyche {
+
+// Forward declaration to avoid circular include
+class SharedMemoryBridge;
 
 /// Job timeout tracking information
 struct JobTrackingInfo {
@@ -71,6 +76,13 @@ public:
     /// Unregister a module (thread-safe)
     void unregister_module(const std::string& module_id);
 
+    /// Inject an event directly into the engine's topic queues.
+    /// Used by the SharedMemoryBridge to forward messages from DLL/SO modules.
+    void inject_event(const std::string& topic, const std::vector<uint8_t>& message_data);
+
+    /// Access the shared memory bridge (for configuration after construction).
+    SharedMemoryBridge* shm_bridge() const { return _shm_bridge.get(); }
+
     bool is_running() const noexcept { return _running.load(std::memory_order_relaxed); }
 
 private:
@@ -98,19 +110,25 @@ private:
     struct ZmqContext;
     std::unique_ptr<ZmqContext> _zmq_ctx;
 
+    // ── String interning (OPT-3) ──
+    // Maps topic strings and module IDs to dense uint32_t IDs at registration
+    // time. Eliminates repeated hashing and string comparisons on hot paths.
+    StringIntern _intern;
+
     // ── Module management (shared_mutex for concurrent reads) ──
     mutable std::shared_mutex _modules_lock;
     std::unordered_map<std::string, ModuleInfo> _modules;
-    std::unordered_map<std::string, std::vector<std::string>> _topic_subscribers;
-    std::unordered_map<std::string, std::vector<std::string>> _topic_producers;
-    std::unordered_map<std::string, std::vector<std::string>> _job_handlers;
+    std::unordered_map<InternId, std::vector<std::string>> _topic_subscribers;
+    std::unordered_map<InternId, std::vector<std::string>> _topic_producers;
+    std::unordered_map<InternId, std::vector<std::string>> _job_handlers;
     std::unordered_map<std::string, std::unordered_map<std::string, bool>> _module_availability;
     std::unordered_map<std::string, std::unordered_set<std::string>> _unavailable_handlers;
 
-    // ── Topic queue system ──
-    mutable std::mutex _topic_queues_lock;
-    std::unordered_map<std::string, std::shared_ptr<TopicQueue>> _topic_queues;
-    std::unordered_map<std::string, double> _topic_last_access;
+    // ── Topic queue system (OPT-2: sharded lock-free lookup) ──
+    // Replaces global std::mutex + unordered_map with per-bucket spinlocks.
+    // Event proxy (single writer) and egress/monitor/registration threads
+    // contend only when hashing to the same bucket.
+    ShardedTopicQueueMap _topic_queues;
 
     // ── Egress wakeup ──
     std::mutex _egress_wakeup_lock;
@@ -136,7 +154,7 @@ private:
     mutable std::mutex _job_lock;
     std::unordered_map<std::string, std::vector<uint8_t>> _pending_jobs;
     std::unordered_map<std::string, JobTrackingInfo> _job_tracking;
-    std::unordered_map<std::string, size_t> _job_round_robin;
+    std::unordered_map<InternId, size_t> _job_round_robin;
 
     // ── Job inter-thread queues ──
     struct JobTimeoutEvent {
@@ -156,6 +174,9 @@ private:
     // ── Subsystems ──
     HeartbeatManager _heartbeat_manager;
     DeadLetterStore _dead_letter_store;
+
+    // ── Shared memory bridge ──
+    std::unique_ptr<SharedMemoryBridge> _shm_bridge;
 
     // ── Worker threads ──
     std::vector<std::thread> _threads;

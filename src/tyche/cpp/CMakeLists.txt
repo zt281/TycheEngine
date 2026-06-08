@@ -1,15 +1,3 @@
-cmake_minimum_required(VERSION 3.16)
-project(tyche CXX)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# MSVC: 使用 UTF-8 编码处理源文件，避免 C4819 警告
-if(MSVC)
-    add_compile_options(/utf-8)
-endif()
-
 # msgpack-c: 使用内置 endian 检测，不依赖 Boost
 add_definitions(-DMSGPACK_NO_BOOST)
 
@@ -79,6 +67,7 @@ include_directories(
     ${TYCHE_ROOT}/src                       # 让 #include "tyche/cpp/types.h" 工作
     ${THIRD_PARTY_DIR}/cppzmq              # zmq.hpp, zmq_addon.hpp
     ${THIRD_PARTY_DIR}/msgpack-c/include   # msgpack.hpp
+    ${THIRD_PARTY_DIR}                     # nlohmann_json.hpp
     ${ZMQ_INCLUDE_DIR}                     # zmq.h
 )
 
@@ -92,8 +81,12 @@ add_executable(tyche_engine
     engine/main.cpp
     engine/engine.cpp
     engine/topic_queue.cpp
+    engine/sharded_topic_map.cpp
     engine/heartbeat_manager.cpp
     engine/dead_letter_store.cpp
+    engine/shared_memory_queue.cpp
+    engine/dynamic_library.cpp
+    engine/shared_memory_bridge.cpp
     message.cpp
 )
 
@@ -129,6 +122,23 @@ else()
     target_link_libraries(tyche_module PUBLIC pthread)
 endif()
 
+# ── Perf benchmark executable ──
+add_executable(serialization_bench
+    ${TYCHE_ROOT}/tests/perf/serialization_bench.cpp
+    message.cpp
+)
+target_link_libraries(serialization_bench PRIVATE
+    ${ZMQ_LIBRARY}
+)
+if(ZMQ_LIBRARIES)
+    target_link_libraries(serialization_bench PRIVATE ${ZMQ_LIBRARIES})
+endif()
+if(WIN32)
+    target_link_libraries(serialization_bench PRIVATE ws2_32 iphlpapi)
+else()
+    target_link_libraries(serialization_bench PRIVATE pthread)
+endif()
+
 # ── 安装规则 ──
 install(TARGETS tyche_engine DESTINATION bin)
 install(TARGETS tyche_module DESTINATION lib)
@@ -143,4 +153,8 @@ install(FILES
     engine/dead_letter_store.h
     engine/topic_queue.h
     engine/ring_buffer.h
+    engine/shared_memory_queue.h
+    engine/dynamic_library.h
+    engine/shared_memory_bridge.h
+    engine/module_interface.h
     DESTINATION include/tyche/cpp/engine)

@@ -195,7 +195,9 @@ void TycheModule::_register_handler(
         bare = name;
     }
 
-    _handlers[bare] = {std::move(handler), pattern};
+    // OPT-3: intern event name once at registration; dispatch uses uint32_t ID
+    InternId id = _intern.intern(bare);
+    _handlers[id] = {std::move(handler), pattern};
 
     Interface iface;
     iface.name = name;
@@ -214,7 +216,9 @@ void TycheModule::_register_job_handler(
     const std::string bare =
         (name.rfind("handle_", 0) == 0) ? name.substr(7) : name;
 
-    _job_handlers[bare] = std::move(handler);
+    // OPT-3: intern event name once at registration; dispatch uses uint32_t ID
+    InternId id = _intern.intern(bare);
+    _job_handlers[id] = std::move(handler);
 
     Interface iface;
     iface.name = name;
@@ -230,10 +234,18 @@ void TycheModule::_register_producer(
     DurabilityLevel durability) {
     std::lock_guard<std::mutex> lock(_handlers_lock);
 
+    // Strip prefix to get bare event type for routing lookup
+    std::string event_type = name;
+    if (name.rfind("send_", 0) == 0) {
+        event_type = name.substr(5);
+    } else if (name.rfind("request_", 0) == 0) {
+        event_type = name.substr(8);
+    }
+
     Interface iface;
     iface.name = name;
     iface.pattern = pattern;
-    iface.event_type = name;
+    iface.event_type = event_type;
     iface.durability = durability;
     _interfaces.push_back(std::move(iface));
 }
@@ -397,7 +409,9 @@ bool TycheModule::_register_with_engine() {
 
 void TycheModule::_subscribe_to_interfaces() {
     std::lock_guard<std::mutex> lock(_handlers_lock);
-    for (const auto& [topic, _] : _handlers) {
+    for (const auto& [topic_id, _] : _handlers) {
+        // OPT-3: resolve interned ID back to string for ZMQ subscribe
+        std::string_view topic = _intern.resolve(topic_id);
         _impl->sub_socket->set(zmq::sockopt::subscribe, topic);
     }
 }
@@ -467,10 +481,14 @@ void TycheModule::_dispatch(const std::string& topic, const Payload& payload) {
     const std::string lookup =
         (topic.rfind("on_", 0) == 0) ? topic.substr(3) : topic;
 
+    // OPT-3: resolve string to interned ID for O(1) integer-key lookup
+    InternId id = _intern.lookup(lookup);
+    if (id == INVALID_INTERN_ID) return;
+
     Handler handler;
     {
         std::lock_guard<std::mutex> lock(_handlers_lock);
-        auto it = _handlers.find(lookup);
+        auto it = _handlers.find(id);
         if (it == _handlers.end()) {
             return;
         }
@@ -613,10 +631,13 @@ void TycheModule::_handle_job_request(
     const Payload& payload,
     const std::optional<std::string>& correlation_id) {
 
+    // OPT-3: resolve string to interned ID for O(1) integer-key lookup
+    InternId event_id = _intern.lookup(event);
+
     JobHandler handler;
     {
         std::lock_guard<std::mutex> lock(_handlers_lock);
-        auto it = _job_handlers.find(event);
+        auto it = _job_handlers.find(event_id);
         if (it == _job_handlers.end()) {
             // No handler -- send error response
             Payload err;

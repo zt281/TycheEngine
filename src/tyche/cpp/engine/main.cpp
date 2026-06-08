@@ -1,4 +1,7 @@
 #include "tyche/cpp/engine/engine.h"
+#include "tyche/cpp/engine/shared_memory_bridge.h"
+
+#include <nlohmann_json.hpp>
 
 #include <atomic>
 #include <csignal>
@@ -31,27 +34,15 @@ void signal_handler(int sig) {
 }
 #endif
 
-// ── Simple JSON config parser ────────────────────────────────────────
-
-static std::string trim(const std::string& s) {
-    size_t start = s.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return "";
-    size_t end = s.find_last_not_of(" \t\r\n");
-    return s.substr(start, end - start + 1);
-}
-
-static std::string strip_quotes(const std::string& s) {
-    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
-        return s.substr(1, s.size() - 2);
-    }
-    return s;
-}
+// ── Configuration ───────────────────────────────────────────────────
 
 struct Config {
     std::string host = "127.0.0.1";
     int port = 5555;
     std::string data_dir = "data";
     int queue_capacity = 10000;
+    std::vector<tyche::ShmModuleConfig> shm_modules;
+    std::vector<tyche::ShmBridgeConfig> shm_bridges;
 };
 
 static bool parse_json_config(const std::string& path, Config& cfg) {
@@ -61,39 +52,60 @@ static bool parse_json_config(const std::string& path, Config& cfg) {
         return false;
     }
 
-    std::string line;
-    while (std::getline(file, line)) {
-        line = trim(line);
-        // Skip braces, empty lines, comments
-        if (line.empty() || line[0] == '{' || line[0] == '}' || line[0] == '/') {
-            continue;
-        }
-        // Remove trailing comma
-        if (!line.empty() && line.back() == ',') {
-            line.pop_back();
+    try {
+        nlohmann::json j;
+        file >> j;
+
+        if (j.contains("host") && j["host"].is_string())
+            cfg.host = j["host"].get<std::string>();
+        if (j.contains("port") && j["port"].is_number())
+            cfg.port = j["port"].get<int>();
+        if (j.contains("data_dir") && j["data_dir"].is_string())
+            cfg.data_dir = j["data_dir"].get<std::string>();
+        if (j.contains("queue_capacity") && j["queue_capacity"].is_number())
+            cfg.queue_capacity = j["queue_capacity"].get<int>();
+
+        // Parse shared-memory modules
+        if (j.contains("shm_modules") && j["shm_modules"].is_array()) {
+            for (const auto& m : j["shm_modules"]) {
+                tyche::ShmModuleConfig mc;
+                if (m.contains("library_path") && m["library_path"].is_string())
+                    mc.library_path = m["library_path"].get<std::string>();
+                if (m.contains("shm_queue_name") && m["shm_queue_name"].is_string())
+                    mc.shm_queue_name = m["shm_queue_name"].get<std::string>();
+                if (m.contains("zmq_topics") && m["zmq_topics"].is_array()) {
+                    for (const auto& t : m["zmq_topics"]) {
+                        if (t.is_string()) mc.zmq_topics.push_back(t.get<std::string>());
+                    }
+                }
+                if (!mc.library_path.empty() && !mc.shm_queue_name.empty()) {
+                    cfg.shm_modules.push_back(std::move(mc));
+                }
+            }
         }
 
-        size_t colon = line.find(':');
-        if (colon == std::string::npos) continue;
-
-        std::string key = trim(strip_quotes(trim(line.substr(0, colon))));
-        std::string value = trim(line.substr(colon + 1));
-        value = strip_quotes(value);
-
-        if (key == "host") {
-            cfg.host = value;
-        } else if (key == "port") {
-            cfg.port = std::stoi(value);
-        } else if (key == "data_dir") {
-            cfg.data_dir = value;
-        } else if (key == "queue_capacity") {
-            cfg.queue_capacity = std::stoi(value);
+        // Parse shared-memory bridges
+        if (j.contains("shm_bridges") && j["shm_bridges"].is_array()) {
+            for (const auto& b : j["shm_bridges"]) {
+                tyche::ShmBridgeConfig bc;
+                if (b.contains("shm_queue_name") && b["shm_queue_name"].is_string())
+                    bc.shm_queue_name = b["shm_queue_name"].get<std::string>();
+                if (b.contains("zmq_topic") && b["zmq_topic"].is_string())
+                    bc.zmq_topic = b["zmq_topic"].get<std::string>();
+                if (!bc.shm_queue_name.empty() && !bc.zmq_topic.empty()) {
+                    cfg.shm_bridges.push_back(std::move(bc));
+                }
+            }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "[TycheEngine] Error parsing config file: " << e.what() << "\n";
+        return false;
     }
+
     return true;
 }
 
-// ── Usage ────────────────────────────────────────────────────────────
+// ── Usage ───────────────────────────────────────────────────────────
 
 static void print_usage(const char* prog) {
     std::cout << "Usage: " << prog << " [OPTIONS]\n"
@@ -113,10 +125,31 @@ static void print_usage(const char* prog) {
               << "  Admin ROUTER:         base_port + 3  (5558)\n"
               << "  Heartbeat PUB:        base_port + 4  (5559)\n"
               << "  Heartbeat Recv:       base_port + 5  (5560)\n"
-              << "  Job ROUTER:           base_port + 9  (5564)\n";
+              << "  Job ROUTER:           base_port + 9  (5564)\n"
+              << "\n"
+              << "Config file fields:\n"
+              << "  {\n"
+              << "    \"host\": \"127.0.0.1\",\n"
+              << "    \"port\": 5555,\n"
+              << "    \"data_dir\": \"data\",\n"
+              << "    \"queue_capacity\": 10000,\n"
+              << "    \"shm_modules\": [\n"
+              << "      {\n"
+              << "        \"library_path\": \"modules/example.dll\",\n"
+              << "        \"shm_queue_name\": \"tyche_shm_example\",\n"
+              << "        \"zmq_topics\": [\"tick\", \"quote\"]\n"
+              << "      }\n"
+              << "    ],\n"
+              << "    \"shm_bridges\": [\n"
+              << "      {\n"
+              << "        \"shm_queue_name\": \"tyche_shm_external\",\n"
+              << "        \"zmq_topic\": \"market_data\"\n"
+              << "      }\n"
+              << "    ]\n"
+              << "  }\n";
 }
 
-// ── Main ─────────────────────────────────────────────────────────────
+// ── Main ────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
     Config cfg;
@@ -215,6 +248,13 @@ int main(int argc, char* argv[]) {
               << "[TycheEngine] Data dir:     " << cfg.data_dir << "\n"
               << "[TycheEngine] Queue cap:    " << cfg.queue_capacity << "\n";
 
+    if (!cfg.shm_modules.empty()) {
+        std::cout << "[TycheEngine] SHM modules:  " << cfg.shm_modules.size() << "\n";
+    }
+    if (!cfg.shm_bridges.empty()) {
+        std::cout << "[TycheEngine] SHM bridges:  " << cfg.shm_bridges.size() << "\n";
+    }
+
     // Install signal handlers
 #ifdef _WIN32
     SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
@@ -223,7 +263,7 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, signal_handler);
 #endif
 
-    // Create and run engine
+    // Create and configure engine
     try {
         tyche::TycheEngine engine(
             registration_ep,
@@ -234,6 +274,13 @@ int main(int argc, char* argv[]) {
             job_ep,
             cfg.queue_capacity,
             cfg.data_dir);
+
+        // Configure shared memory bridge before starting
+        if (!cfg.shm_modules.empty() || !cfg.shm_bridges.empty()) {
+            engine.shm_bridge()->configure(
+                std::move(cfg.shm_modules),
+                std::move(cfg.shm_bridges));
+        }
 
         g_engine = &engine;
 

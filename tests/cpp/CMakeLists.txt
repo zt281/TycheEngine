@@ -55,15 +55,9 @@ if(NOT TYCHE_BUILD_LIBZMQ)
     endif()
 endif()
 
+# libzmq is already built by parent src/tyche/cpp/CMakeLists.txt;
+# we just reuse its variables here.  Do NOT add_subdirectory libzmq again.
 if(TYCHE_BUILD_LIBZMQ)
-    message(STATUS "Building libzmq from ${THIRD_PARTY_DIR}/libzmq")
-    set(ZMQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_SHARED OFF CACHE BOOL "" FORCE)
-    set(BUILD_STATIC ON CACHE BOOL "" FORCE)
-    set(WITH_DOCS OFF CACHE BOOL "" FORCE)
-    set(WITH_PERF_TOOL OFF CACHE BOOL "" FORCE)
-    add_subdirectory("${THIRD_PARTY_DIR}/libzmq" "${CMAKE_BINARY_DIR}/libzmq" EXCLUDE_FROM_ALL)
     set(ZMQ_INCLUDE_DIR "${THIRD_PARTY_DIR}/libzmq/include")
     set(ZMQ_LIBRARY libzmq-static)
 endif()
@@ -73,6 +67,7 @@ include_directories(
     ${TYCHE_ROOT}/src
     ${THIRD_PARTY_DIR}/cppzmq
     ${THIRD_PARTY_DIR}/msgpack-c/include
+    ${THIRD_PARTY_DIR}
     ${ZMQ_INCLUDE_DIR}
 )
 
@@ -90,13 +85,18 @@ set(TYCHE_TEST_SOURCES
     test_message.cpp
     test_types.cpp
     test_dead_letter_store.cpp
+    test_shared_memory_queue.cpp
+    test_dynamic_library.cpp
 )
 
 set(TYCHE_LIB_SOURCES
     ${TYCHE_SRC_DIR}/message.cpp
     ${TYCHE_SRC_DIR}/engine/topic_queue.cpp
+    ${TYCHE_SRC_DIR}/engine/sharded_topic_map.cpp
     ${TYCHE_SRC_DIR}/engine/heartbeat_manager.cpp
     ${TYCHE_SRC_DIR}/engine/dead_letter_store.cpp
+    ${TYCHE_SRC_DIR}/engine/shared_memory_queue.cpp
+    ${TYCHE_SRC_DIR}/engine/dynamic_library.cpp
 )
 
 # ── 测试可执行文件 ──
@@ -115,6 +115,42 @@ if(WIN32)
     target_link_libraries(tyche_tests PRIVATE ws2_32 iphlpapi)
 else()
     target_link_libraries(tyche_tests PRIVATE pthread)
+endif()
+
+# ── Performance benchmark executables ──
+add_executable(tyche_perf
+    ../perf/topic_queue_bench.cpp
+    ${TYCHE_LIB_SOURCES}
+)
+
+target_link_libraries(tyche_perf PRIVATE
+    ${ZMQ_LIBRARY}
+)
+if(ZMQ_LIBRARIES)
+    target_link_libraries(tyche_perf PRIVATE ${ZMQ_LIBRARIES})
+endif()
+
+if(WIN32)
+    target_link_libraries(tyche_perf PRIVATE ws2_32 iphlpapi)
+else()
+    target_link_libraries(tyche_perf PRIVATE pthread)
+endif()
+
+add_executable(ring_buffer_bench
+    ../perf/ring_buffer_bench.cpp
+)
+
+target_link_libraries(ring_buffer_bench PRIVATE
+    ${ZMQ_LIBRARY}
+)
+if(ZMQ_LIBRARIES)
+    target_link_libraries(ring_buffer_bench PRIVATE ${ZMQ_LIBRARIES})
+endif()
+
+if(WIN32)
+    target_link_libraries(ring_buffer_bench PRIVATE ws2_32 iphlpapi)
+else()
+    target_link_libraries(ring_buffer_bench PRIVATE pthread)
 endif()
 
 # ── CTest 集成 ──

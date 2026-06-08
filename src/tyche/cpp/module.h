@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "tyche/cpp/types.h"
+#include "tyche/cpp/string_intern.h"
 
 namespace tyche {
 
@@ -147,13 +148,17 @@ private:
     Endpoint _engine_endpoint;
     std::optional<Endpoint> _heartbeat_receive_endpoint;
 
-    // Handler registry (event_type -> {handler, pattern}).
+    // OPT-3: String interner maps event names to dense uint32_t IDs.
+    // Eliminates repeated hashing and string comparisons on dispatch hot path.
+    StringIntern _intern;
+
+    // Handler registry (event_type_id -> {handler, pattern}).
     mutable std::mutex _handlers_lock;
-    std::unordered_map<std::string,
+    std::unordered_map<InternId,
                        std::pair<Handler, InterfacePattern>> _handlers;
 
-    // Job handler registry (event_type -> job_handler).
-    std::unordered_map<std::string, JobHandler> _job_handlers;
+    // Job handler registry (event_type_id -> job_handler).
+    std::unordered_map<InternId, JobHandler> _job_handlers;
 
     // Pending job requests: correlation_id -> {payload, ready flag}.
     struct PendingRequest {
