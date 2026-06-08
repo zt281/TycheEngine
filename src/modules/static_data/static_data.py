@@ -5,12 +5,11 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from src.tyche.module import TycheModule
-from src.tyche.types import Endpoint
-
 from src.modules.static_data.client import OpenCtpDataClient
 from src.modules.static_data.config import StaticDataConfig
 from src.modules.static_data.storage import StaticDataStorage
+from src.tyche.module import TycheModule
+from src.tyche.types import Endpoint
 
 logger = logging.getLogger(__name__)
 

@@ -1,12 +1,10 @@
 """Tests for src.tyche.module_base module."""
 import time
 
-import pytest
-
 from src.tyche.module_base import ModuleBase
 
 
-class DummyModule:
+class DummyModule(ModuleBase):
     """Concrete implementation of ModuleBase Protocol for testing."""
 
     @property

@@ -111,7 +111,7 @@ def deserialize(data: bytes) -> Message:
         event=obj["event"],
         payload=obj["payload"],
         recipient=obj.get("recipient"),
-        durability=DurabilityLevel(obj.get("durability", 1)),
+        durability=DurabilityLevel(obj.get("durability") or 1),
         timestamp=obj.get("timestamp"),
         correlation_id=obj.get("correlation_id"),
         wait_timeout=obj.get("wait_timeout"),

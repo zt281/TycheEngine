@@ -1,20 +1,14 @@
 """Tests for admin lifecycle hooks."""
-import time
 import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.tyche.engine import TycheEngine
+from src.tyche.message import Message, MessageType, deserialize
 from src.tyche.module import TycheModule
-from src.tyche.message import Message, MessageType, serialize, deserialize
 from src.tyche.types import (
     Endpoint,
-    Interface,
-    InterfacePattern,
-    BackpressureStrategy,
-    DurabilityLevel,
-    ModuleInfo,
 )
 
 

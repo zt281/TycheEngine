@@ -198,7 +198,6 @@ def implied_vol(market_price, S, K, T, r, is_call, tol=1e-8, max_iter=100):
 
     # 初始猜测
     sigma = 0.3
-    cp_flag = "Call" if is_call else "Put"
 
     for i in range(max_iter):
         price = bs_price(S, K, T, r, sigma, is_call)

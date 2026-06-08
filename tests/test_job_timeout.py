@@ -1,18 +1,18 @@
 """Tests for job wait/run timeout scenarios."""
 import time
 import uuid
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.tyche.engine import TycheEngine
-from src.tyche.message import Message, MessageType, serialize, deserialize
+from src.tyche.message import Message, MessageType, deserialize, serialize
 from src.tyche.types import (
+    BackpressureStrategy,
+    DurabilityLevel,
     Endpoint,
     Interface,
     InterfacePattern,
-    BackpressureStrategy,
-    DurabilityLevel,
     ModuleInfo,
 )
 

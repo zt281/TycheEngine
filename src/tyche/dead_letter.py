@@ -12,7 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.tyche.message import Message, serialize as serialize_message
+from src.tyche.message import Message
 
 __all__ = ["DeadLetterStore"]
 

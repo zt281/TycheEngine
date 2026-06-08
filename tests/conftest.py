@@ -5,28 +5,27 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 import uuid
 import weakref
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add repo root to path so 'src.tyche' imports resolve
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.tyche.message import Message, serialize, deserialize
+from src.tyche.dead_letter import DeadLetterStore
+from src.tyche.message import Message
 from src.tyche.types import (
-    MessageType,
-    ModuleInfo,
-    Interface,
-    InterfacePattern,
     BackpressureStrategy,
     DurabilityLevel,
     Endpoint,
+    Interface,
+    InterfacePattern,
+    MessageType,
+    ModuleInfo,
 )
-from src.tyche.dead_letter import DeadLetterStore
-
 
 # ── Global Resource Tracker ────────────────────────────────────────
 
@@ -83,7 +82,6 @@ class _ResourceTracker:
                     pass
 
         # 3. Destroy any lingering ZMQ contexts
-        import zmq
         for ref in list(self._zmq_contexts):
             ctx = ref()
             if ctx is not None and not ctx.closed:

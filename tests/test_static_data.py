@@ -1,6 +1,5 @@
 """Tests for the Static Data module."""
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,9 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from modules.static_data.client import OpenCtpDataClient
 from modules.static_data.config import StaticDataConfig
-from modules.static_data.storage import StaticDataStorage
 from modules.static_data.static_data import StaticDataModule
-
+from modules.static_data.storage import StaticDataStorage
 
 # ── Fixtures ─────────────────────────────────────────────────────
 

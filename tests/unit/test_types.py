@@ -1,32 +1,29 @@
 """Tests for src.tyche.types module."""
-import secrets
 from unittest.mock import patch
 
-import pytest
-
 from src.tyche.types import (
-    ModuleId,
-    EventType,
-    InterfacePattern,
-    BackpressureStrategy,
-    DurabilityLevel,
-    MessageType,
-    Endpoint,
-    Interface,
-    ModuleInfo,
+    ADMIN_PORT_DEFAULT,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_LIVENESS,
-    ADMIN_PORT_DEFAULT,
+    BackpressureStrategy,
+    DurabilityLevel,
+    Endpoint,
+    EventType,
+    Interface,
+    InterfacePattern,
+    MessageType,
+    ModuleId,
+    ModuleInfo,
 )
 
 
 class TestModuleId:
     def test_generate_format(self):
         """Module ID has format family_6hexchars."""
-        mid = ModuleId.generate("test_family")
+        mid = ModuleId.generate("testfamily")
         parts = mid.split("_")
         assert len(parts) == 2
-        assert parts[0] == "test_family"
+        assert parts[0] == "testfamily"
         assert len(parts[1]) == 6
         assert all(c in "0123456789abcdef" for c in parts[1])
 

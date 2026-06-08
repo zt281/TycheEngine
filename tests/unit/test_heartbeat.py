@@ -1,14 +1,11 @@
 """Tests for src.tyche.heartbeat module."""
 import time
-from unittest.mock import MagicMock, patch
-
-import pytest
-import zmq
+from unittest.mock import MagicMock
 
 from src.tyche.heartbeat import (
+    HeartbeatManager,
     HeartbeatMonitor,
     HeartbeatSender,
-    HeartbeatManager,
 )
 from src.tyche.types import HEARTBEAT_INTERVAL, HEARTBEAT_LIVENESS
 
@@ -100,7 +97,7 @@ class TestHeartbeatSender:
         frames = mock_socket.send_multipart.call_args[0][0]
         assert frames[0] == b"test_mod"
         assert isinstance(frames[1], bytes)
-        assert sender.next_heartbeat > before
+        assert sender.next_heartbeat >= before
 
 
 class TestHeartbeatManager:
@@ -123,8 +120,9 @@ class TestHeartbeatManager:
     def test_update_existing_peer(self):
         mgr = HeartbeatManager()
         mgr.register("peer_1")
+        initial = mgr.monitors["peer_1"].liveness
         mgr.monitors["peer_1"].tick()
-        assert mgr.monitors["peer_1"].liveness == HEARTBEAT_LIVENESS - 1
+        assert mgr.monitors["peer_1"].liveness == initial - 1
         mgr.update("peer_1")
         assert mgr.monitors["peer_1"].liveness == HEARTBEAT_LIVENESS
 

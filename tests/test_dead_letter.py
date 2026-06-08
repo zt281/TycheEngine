@@ -1,15 +1,10 @@
 """Tests for dead letter persistence."""
 import json
 import threading
-import time
 from datetime import date
 from pathlib import Path
 
-import pytest
-
 from src.tyche.dead_letter import DeadLetterStore
-from src.tyche.message import Message, MessageType
-from src.tyche.types import DurabilityLevel
 
 
 class TestDeadLetterPersist:

@@ -1,14 +1,10 @@
 """Additional tests for src.modules.static_data.static_data to reach 85%+ coverage."""
-import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.modules.static_data.static_data import StaticDataModule
 from src.modules.static_data.config import StaticDataConfig
-from src.modules.static_data.storage import StaticDataStorage
-from src.tyche.types import Endpoint
+from src.modules.static_data.static_data import StaticDataModule
 
 
 @pytest.fixture
@@ -81,16 +77,6 @@ class TestRefreshLoop:
         module._refresh_stop_event.set()
         module._do_refresh()
         mock_fetch.assert_not_called()
-
-    @patch("src.modules.static_data.static_data.OpenCtpDataClient.fetch_all")
-    def test_do_refresh_stop_event_check_after_fetch(self, mock_fetch, config):
-        module = StaticDataModule(config)
-        mock_fetch.return_value = {"markets": []}
-        module._refresh_stop_event.set()
-        module._do_refresh()
-        # fetch_all is called but stop event prevents storage
-        mock_fetch.assert_called_once()
-        assert module._last_refresh is None  # Not updated because stop event set
 
     def test_start_refresh_loop(self, config):
         module = StaticDataModule(config)

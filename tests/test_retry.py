@@ -1,18 +1,16 @@
 """Tests for handler failure retry logic."""
 import time
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.tyche.engine import TycheEngine
-from src.tyche.message import Message, MessageType, serialize, deserialize
+from src.tyche.message import Message, MessageType, deserialize, serialize
 from src.tyche.types import (
     Endpoint,
     Interface,
     InterfacePattern,
-    BackpressureStrategy,
-    DurabilityLevel,
     ModuleInfo,
 )
 

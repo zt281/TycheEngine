@@ -1,15 +1,13 @@
 """Additional tests for src.tyche.dead_letter to reach 85%+ coverage."""
 import json
-import threading
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 
 import pytest
 
 from src.tyche.dead_letter import DeadLetterStore, _message_to_dict
 from src.tyche.message import Message, MessageType
-from src.tyche.types import DurabilityLevel
 
 
 @pytest.fixture
@@ -76,8 +74,6 @@ class TestReplayEdgeCases:
     def test_replay_read_file_exception(self, dl_store, make_msg, caplog):
         """Exception reading a file is logged and skipped."""
         dl_store.persist(make_msg(), "topic", "reason")
-        today = date.today().isoformat()
-        file_path = dl_store._dead_letter_dir / f"{today}.jsonl"
         with patch("builtins.open", side_effect=IOError("Read error")):
             results = dl_store.replay()
         assert results == []

@@ -1,17 +1,13 @@
 """Tests for backpressure strategy."""
-import time
-from unittest.mock import MagicMock
 
 import pytest
 
-from src.tyche.engine import TycheEngine, TopicQueue
-from src.tyche.message import Message, MessageType, serialize
+from src.tyche.engine import TopicQueue, TycheEngine
 from src.tyche.types import (
+    BackpressureStrategy,
     Endpoint,
     Interface,
     InterfacePattern,
-    BackpressureStrategy,
-    DurabilityLevel,
     ModuleInfo,
 )
 

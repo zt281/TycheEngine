@@ -1,21 +1,20 @@
 """Tests for src.tyche.message module."""
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import msgpack
 import pytest
 
 from src.tyche.message import (
-    Message,
     Envelope,
-    _encode_decimal,
+    Message,
     _decode_decimal,
-    serialize,
+    _encode_decimal,
     deserialize,
-    serialize_envelope,
     deserialize_envelope,
+    serialize,
+    serialize_envelope,
 )
-from src.tyche.types import MessageType, DurabilityLevel
+from src.tyche.types import DurabilityLevel, MessageType
 
 
 class TestEncodeDecimal:

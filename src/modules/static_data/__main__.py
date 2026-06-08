@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import signal
-import sys
 import threading
 from typing import Optional
 
