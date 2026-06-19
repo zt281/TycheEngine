@@ -1,0 +1,11 @@
+name: binance-derivatives-gateway
+description: Development guide for Binance USD-M and COIN-M derivatives trading gateway
+version: 1.0.0
+triggers:
+  - binance futures
+  - binance derivatives
+  - binance gateway
+  - USD-M futures
+  - COIN-M futures
+  - fapi
+  - dapi

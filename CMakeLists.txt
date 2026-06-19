@@ -10,6 +10,20 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
+# ── 覆盖率支持 ──────────────────────────────────────────────────────
+option(TYCHE_ENABLE_COVERAGE "Enable code coverage reporting" OFF)
+if(TYCHE_ENABLE_COVERAGE)
+    if(MSVC)
+        message(STATUS "Code coverage enabled for MSVC: adding /PROFILE linker option")
+        # /PROFILE enables code coverage profiling with VS Enterprise/CodeCoverage
+        add_link_options(/PROFILE)
+    else()
+        message(STATUS "Code coverage enabled: adding -fprofile-arcs -ftest-coverage")
+        add_compile_options(-fprofile-arcs -ftest-coverage)
+        add_link_options(-fprofile-arcs -ftest-coverage)
+    endif()
+endif()
+
 # ── 自动检测 Visual Studio 生成器（仅限 Windows）───────────────
 # CMake 3.16+ 支持通过 -G 指定生成器。若用户未显式指定，且当前为 Windows
 # 平台，则尝试用 vswhere 自动查找最新可用的 Visual Studio 实例。
@@ -40,20 +54,53 @@ if(WIN32 AND NOT CMAKE_GENERATOR MATCHES "Visual Studio")
     endif()
 endif()
 
-# 统一产物输出目录（所有子项目共享）
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/runtime/engine)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/runtime/engine)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/runtime/engine)
+# 统一产物输出目录（按平台分离）
+if(WIN32)
+    set(TYCHE_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/runtime/win")
+else()
+    set(TYCHE_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/runtime/linux")
+endif()
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
 
 # 按配置区分子目录（Debug / Release / RelWithDebInfo / MinSizeRel）
 foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
     string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG_UPPER)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${CMAKE_SOURCE_DIR}/runtime/engine)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${CMAKE_SOURCE_DIR}/runtime/engine)
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${CMAKE_SOURCE_DIR}/runtime/engine)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
 endforeach()
 
 # ── 子项目 ──────────────────────────────────────────────────────
 add_subdirectory(src/tyche/cpp)
 add_subdirectory(src/modules/ctp_gateway_cpp)
-add_subdirectory(tests/cpp)
+add_subdirectory(tests)
+
+# ── 覆盖率报告目标 ───────────────────────────────
+if(TYCHE_ENABLE_COVERAGE)
+    if(MSVC)
+        # Windows: provide instructions for VS Enterprise CodeCoverage or OpenCppCoverage
+        add_custom_target(coverage
+            COMMAND ${CMAKE_COMMAND} -E echo "Windows coverage: use OpenCppCoverage or VS Enterprise CodeCoverage"
+            COMMAND ${CMAKE_COMMAND} -E echo "Example: OpenCppCoverage.exe --modules tyche_tests.exe --export_type=html:coverage_report -- runtime\\win\\tyche_tests.exe"
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            COMMENT "Coverage instructions for Windows..."
+        )
+    else()
+        find_program(LCOV lcov)
+        find_program(GENHTML genhtml)
+        if(LCOV AND GENHTML)
+            add_custom_target(coverage
+                COMMAND ${LCOV} --capture --directory . --output-file coverage.info
+                COMMAND ${LCOV} --remove coverage.info '/usr/*' '*/third_party/*' '*/tests/*' --output-file coverage.info
+                COMMAND ${GENHTML} coverage.info --output-directory coverage_report
+                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+                COMMENT "Generating coverage report..."
+            )
+        else()
+            message(WARNING "lcov/genhtml not found; coverage target will not be available")
+        endif()
+    endif()
+endif()

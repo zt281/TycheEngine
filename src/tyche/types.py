@@ -9,8 +9,17 @@ from typing import Any, Callable, Dict, List, Optional
 HEARTBEAT_INTERVAL = 1.0  # seconds
 HEARTBEAT_LIVENESS = 3    # missed heartbeats before considered dead
 
-# Admin endpoint default port
-ADMIN_PORT_DEFAULT = 5560
+# Admin endpoint default port.
+#
+# Port layout (mirrors C++ engine in src/tyche/cpp/engine/main.cpp):
+#   Registration ROUTER:  base_port + 0  (5555)
+#   Event XPUB:           base_port + 1  (5556)
+#   Event XSUB:           base_port + 2  (5557)
+#   Admin ROUTER:         base_port + 3  (5558)  ← ADMIN_PORT_DEFAULT
+#   Heartbeat PUB:        base_port + 4  (5559)
+#   Heartbeat Recv:       base_port + 5  (5560)
+#   Job ROUTER:           base_port + 9  (5564)
+ADMIN_PORT_DEFAULT = 5558
 
 
 class ModuleId:

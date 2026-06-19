@@ -237,10 +237,16 @@ Makefile
 compile_commands.json
 .cache/clangd/
 
-# C++ intermediate files (never distributed)
+# C++ intermediate files and compiled binaries (never distributed)
 *.obj
 *.exp
 *.lib
+*.exe
+*.dll
+*.pyd
+*.out
+*.a
+*.dylib
 
 # Node.js / npm
 node_modules/

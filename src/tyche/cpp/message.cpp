@@ -6,6 +6,7 @@
 #include "tyche/cpp/message.h"
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -298,6 +299,147 @@ Message deserialize(const uint8_t* data, size_t size) {
         }
     }
     return msg;
+}
+
+// ── TLS Buffer Serialization ────────────────────────────────────────
+
+BufferView serialize_tls(const Message& msg) noexcept {
+    thread_local msgpack::sbuffer tls_buffer(4096);
+    tls_buffer.clear();
+
+    msgpack::packer<msgpack::sbuffer> pk(&tls_buffer);
+
+    // 10 fields: msg_type, sender, event, payload, recipient,
+    //            durability, timestamp, correlation_id, wait_timeout, run_timeout
+    pk.pack_map(10);
+
+    pk.pack(std::string("msg_type"));
+    pk.pack(std::string(message_type_to_str(msg.msg_type)));
+
+    pk.pack(std::string("sender"));
+    pk.pack(msg.sender);
+
+    pk.pack(std::string("event"));
+    pk.pack(msg.event);
+
+    pk.pack(std::string("payload"));
+    pk.pack_map(static_cast<uint32_t>(msg.payload.size()));
+    for (const auto& [k, v] : msg.payload) {
+        pk.pack(k);
+        pack_any(pk, v);
+    }
+
+    pk.pack(std::string("recipient"));
+    if (msg.recipient.has_value()) {
+        pk.pack(*msg.recipient);
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("durability"));
+    pk.pack(static_cast<int>(msg.durability));
+
+    pk.pack(std::string("timestamp"));
+    if (msg.timestamp.has_value()) {
+        pk.pack(*msg.timestamp);
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("correlation_id"));
+    if (msg.correlation_id.has_value()) {
+        pk.pack(*msg.correlation_id);
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("wait_timeout"));
+    if (msg.wait_timeout.has_value()) {
+        pk.pack(static_cast<double>(*msg.wait_timeout));
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("run_timeout"));
+    if (msg.run_timeout.has_value()) {
+        pk.pack(static_cast<double>(*msg.run_timeout));
+    } else {
+        pk.pack_nil();
+    }
+
+    return BufferView{
+        reinterpret_cast<const uint8_t*>(tls_buffer.data()),
+        tls_buffer.size()};
+}
+
+size_t serialize_into(const Message& msg, uint8_t* buffer, size_t capacity) noexcept {
+    if (!buffer || capacity == 0) return 0;
+
+    msgpack::sbuffer sbuf(capacity < 512 ? 512 : static_cast<int>(capacity));
+    msgpack::packer<msgpack::sbuffer> pk(&sbuf);
+
+    pk.pack_map(10);
+
+    pk.pack(std::string("msg_type"));
+    pk.pack(std::string(message_type_to_str(msg.msg_type)));
+
+    pk.pack(std::string("sender"));
+    pk.pack(msg.sender);
+
+    pk.pack(std::string("event"));
+    pk.pack(msg.event);
+
+    pk.pack(std::string("payload"));
+    pk.pack_map(static_cast<uint32_t>(msg.payload.size()));
+    for (const auto& [k, v] : msg.payload) {
+        pk.pack(k);
+        pack_any(pk, v);
+    }
+
+    pk.pack(std::string("recipient"));
+    if (msg.recipient.has_value()) {
+        pk.pack(*msg.recipient);
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("durability"));
+    pk.pack(static_cast<int>(msg.durability));
+
+    pk.pack(std::string("timestamp"));
+    if (msg.timestamp.has_value()) {
+        pk.pack(*msg.timestamp);
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("correlation_id"));
+    if (msg.correlation_id.has_value()) {
+        pk.pack(*msg.correlation_id);
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("wait_timeout"));
+    if (msg.wait_timeout.has_value()) {
+        pk.pack(static_cast<double>(*msg.wait_timeout));
+    } else {
+        pk.pack_nil();
+    }
+
+    pk.pack(std::string("run_timeout"));
+    if (msg.run_timeout.has_value()) {
+        pk.pack(static_cast<double>(*msg.run_timeout));
+    } else {
+        pk.pack_nil();
+    }
+
+    if (static_cast<size_t>(sbuf.size()) > capacity) {
+        return 0;  // Overflow
+    }
+
+    std::memcpy(buffer, sbuf.data(), sbuf.size());
+    return static_cast<size_t>(sbuf.size());
 }
 
 }  // namespace tyche

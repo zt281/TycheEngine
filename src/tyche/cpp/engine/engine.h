@@ -80,6 +80,10 @@ public:
     /// Used by the SharedMemoryBridge to forward messages from DLL/SO modules.
     void inject_event(const std::string& topic, const std::vector<uint8_t>& message_data);
 
+    /// Inject raw bytes directly into topic queues (zero-copy, no msgpack).
+    /// Used by SharedMemoryBridge to bypass serialization overhead.
+    void inject_event_raw(const std::string& topic, const uint8_t* data, size_t size);
+
     /// Access the shared memory bridge (for configuration after construction).
     SharedMemoryBridge* shm_bridge() const { return _shm_bridge.get(); }
 

@@ -17,21 +17,39 @@
 
 # Tyche Engine
 
-Tyche Engine is a high-performance distributed event-driven framework written in Python, built on ZeroMQ. It serves as a central processing system for orchestrating multi-process applications, with a focus on quantitative trading workflows. The system consists of two core components:
+Tyche Engine is a high-performance distributed event-driven framework for quantitative trading, built on ZeroMQ with a hybrid Python/C++ architecture. It serves as a central processing system for orchestrating multi-process applications, with a focus on low-latency market data processing and derivatives trading workflows.
+
+The system consists of three core layers:
 - **Event Management** — ZeroMQ-based message broker with topic routing, unified per-topic queues, and async persistence
-- **Module Management** — Pluggable module lifecycle, heartbeat-based liveness, and v3 auto-discovery interface model
+- **Module Management** — Pluggable module lifecycle, heartbeat-based liveness, and v2 auto-discovery interface model
+- **C++ Engine Core** — High-performance C++ components for hot-path message serialization, shared-memory IPC, and lock-free data structures
 
 ## Architecture Overview
 
-Tyche Engine is designed as a **multi-process distributed system**. The Engine and each Module run as separate operating system processes, communicating exclusively via ZeroMQ. This provides true process isolation, CPU scaling across cores, and the ability to distribute across machines.
+Tyche Engine is designed as a **multi-process distributed system** with a hybrid Python orchestration layer and C++ performance layer. The Engine and each Module run as separate operating system processes, communicating via ZeroMQ (with shared-memory IPC for ultra-low-latency paths). This provides true process isolation, CPU scaling across cores, and the ability to distribute across machines.
 
 ```
 Process A                    Process B                    Process C
 +------------------+         +------------------+         +------------------+
-|   TycheEngine    |<──ZMQ──>|  ExampleModule   |<──ZMQ──>|  ExampleModule   |
-|    (engine.py)   |         |  (module.py)     |         |  (module.py)     |
+|   TycheEngine    |<──ZMQ──>|  CtpGatewayCpp   |<──ZMQ──>|  GreeksEngine    |
+|  (Python/C++)    |         |    (C++)        |         |  (Python)       |
 +------------------+         +------------------+         +------------------+
+       ^                                                        ^
+       |                                                        |
+       +------------------ Shared Memory (optional) ------------+
 ```
+
+### Language Stack
+
+| Component | Language | Purpose |
+|-----------|----------|---------|
+| **Engine Core** | Python 3.9+ | Module orchestration, heartbeat, admin API |
+| **C++ Engine** | C++17 | Hot-path message serialization, flat buffers, shared memory |
+| **CTP Gateway** | C++17 | Exchange connectivity with sub-100μs tick-to-engine latency |
+| **Greeks Engine** | Python | Real-time option Greeks computation (Black-Scholes) |
+| **Static Data** | Python | Exchange metadata caching and query service |
+| **TycheApp** | TypeScript/Vue | Electron desktop GUI for monitoring and control |
+| **TycheTUI** | Python/Textual | Terminal dashboard for process supervision |
 
 Tyche Engine uses ZeroMQ as its messaging backbone. The engine runs **8 daemon threads** managing a unified topic-queue system:
 
@@ -44,6 +62,23 @@ Tyche Engine uses ZeroMQ as its messaging backbone. The engine runs **8 daemon t
 | Heartbeat Recv | ROUTER | Receive module heartbeats |
 | Monitor | (internal) | Check liveness, unregister expired modules |
 | Admin | ROUTER | Respond to STATUS/MODULES/QUEUES/STATS queries |
+
+### C++ Engine Core
+
+The C++ layer (`src/tyche/cpp/`) provides high-performance primitives for the hot path:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **FlatMessage** | `flat_message.h` | Zero-allocation fixed-layout message struct |
+| **FlatSerializer** | `flat_serializer.h` | Fast msgpack-like serialization without `std::any` |
+| **RingBuffer** | `engine/ring_buffer.h` | Lock-free SPSC queue for inter-thread communication |
+| **ShardedTopicMap** | `engine/sharded_topic_map.h` | Lock-free topic-to-handler routing |
+| **SharedMemoryBridge** | `engine/shared_memory_bridge.h` | Zero-copy IPC between C++ modules |
+| **ObjectPool** | `engine/object_pool.h` | Pre-allocated object cache to eliminate heap allocation |
+| **RCUSnapshot** | `engine/rcu_snapshot.h` | Read-copy-update for lock-free config updates |
+| **FastClock** | `engine/fast_clock.h` | High-resolution timestamping (`QueryPerformanceCounter` on Windows) |
+| **AdaptiveSpin** | `engine/adaptive_spin.h` | Exponential backoff spinlock for sub-μs synchronization |
+| **TopicQueue** | `engine/topic_queue.h` | Per-topic queue with configurable backpressure policies |
 
 Module socket architecture:
 
@@ -61,6 +96,22 @@ When running multiple Tyche Engine instances for high availability:
 - Shared configuration via distributed consensus (Raft/Paxos) or shared storage
 - Message queue state replication between instances
 - Automatic failover with client retry via Lazy Pirate pattern
+
+### C++ Build System
+
+The C++ components use CMake with automatic Visual Studio generator detection:
+
+```bash
+# Windows (auto-detects VS 2022/2026)
+mkdir build && cd build
+cmake .. -A x64
+cmake --build . --config Release
+
+# With tests
+cmake .. -A x64 -DBUILD_TESTS=ON
+cmake --build . --config Release
+ctest -C Release --output-on-failure
+```
 
 ## Modules and Events
 
@@ -80,21 +131,33 @@ A standard module must have the following:
 - **Module Settings**: Including CPU core binding, heartbeat interval, timeout thresholds, and restart limits
 - **Interface Contract**: Methods following the v3 naming conventions below
 
-#### v3 Unified Queue Interface Model
+#### v2 Unified Queue Interface Model
 
-Modules declare handlers using naming conventions discovered automatically at registration:
+Modules declare handlers using naming conventions discovered automatically at registration. No manual registration is required.
 
-| Pattern | Prefix | Semantics | Example |
-|---------|--------|-----------|---------|
-| **ON** | `on_*` | Consumer interface — receives events on this topic | `on_data`, `on_order_submit`, `on_fill` |
-| **SEND** | `send_*` | Producer declaration — declares intent to publish | `send_ping`, `send_pong` |
+| Category | Fire-and-forget | Request-response | ZeroMQ Pattern | Behavior |
+|----------|----------------|------------------|----------------|----------|
+| **Broadcast** | `on_broadcasted_{event}` | `handle_broadcasted_{event}` | PUB-SUB / XPUB | All subscribers receive |
+| **P2P (Whisper)** | `on_whispered_{event}` | `handle_whispered_{event}` | DEALER-ROUTER | Direct module-to-module |
+| **Streaming** | `on_streaming_{event}` | `handle_streaming_{event}` | PUSH-PULL | Continuous data stream |
 
-Routing semantics (broadcast, stream, or targeted) are determined by subscriber configuration, not method name prefixes. The v3 model uses unified per-topic queues with configurable backpressure (`DROP_OLDEST`, `DROP_NEWEST`, `BLOCK_PRODUCER`).
+**Prefix semantics:**
+- `on_*` — Fire-and-forget. Handler returns `None`. No ACK expected.
+- `handle_*` — Request-response. Handler must return a `dict` response. Return value is preserved by the dispatch layer.
+
+**Suffix semantics:**
+- `_broadcasted` — Event is broadcast to all subscribers via the Engine's XPUB/XSUB proxy.
+- `_whispered` — Event is sent directly to a specific module via P2P routing.
+- `_streaming` — Continuous stream of messages (e.g., market data, logs).
+
+> **Note:** The v1 `whisper_{target}_{event}` pattern embedded the target module ID in the method name. In v2, the target is specified in the message payload (`recipient` field), not in the method name.
+
+Routing semantics (broadcast, stream, or targeted) are determined by subscriber configuration, not method name prefixes. The v2 model uses unified per-topic queues with configurable backpressure (`DROP_OLDEST`, `DROP_NEWEST`, `BLOCK_PRODUCER`).
 
 **Handler registration details:**
 - Methods defined on `TycheModule` itself are skipped
 - Abstract methods are skipped (subclasses implement these as callbacks)
-- For `on_*` handlers, both the full name and bare topic name are registered (e.g., `on_data` subscribes to both `on_data` and `data`)
+- For `on_*` handlers, both the full name and bare topic name are registered (e.g., `on_streaming_market_data` subscribes to both `on_streaming_market_data` and `streaming_market_data`)
 
 ### Events
 
@@ -117,33 +180,80 @@ Each event consists of:
 
 ## Trading Domain Modules
 
-Built on top of the core framework, Tyche Engine provides a complete quantitative trading domain:
+Built on top of the core framework, Tyche Engine provides a complete quantitative trading domain for China futures and options markets:
 
-| Module | Purpose | Location |
-|--------|---------|----------|
-| **Gateway** | Exchange connectivity (CTP, simulated) | `src/modules/trading/gateway/` |
-| **OMS** | Order lifecycle management and routing | `src/modules/trading/oms/` |
-| **Risk** | Pre-trade risk validation rules engine | `src/modules/trading/risk/` |
-| **Portfolio** | Position tracking and P&L calculation | `src/modules/trading/portfolio/` |
-| **Strategy** | Strategy framework with context and callbacks | `src/modules/trading/strategy/` |
-| **Persistence** | Pluggable event storage (ClickHouse, JSONL) | `src/modules/trading/persistence/` |
-| **Store** | Data recording and deterministic replay | `src/modules/trading/store/` |
-| **Clock** | Live and simulated time synchronization | `src/modules/trading/clock/` |
+| Module | Purpose | Language | Location |
+|--------|---------|----------|----------|
+| **CTP Gateway (C++)** | CTP/TTS exchange connectivity with sub-100μs tick latency | C++17 | `src/modules/ctp_gateway_cpp/` |
+| **Static Data** | Exchange metadata caching (OpenCTP DataCenter) | Python | `src/modules/static_data/` |
+| **Greeks Engine** | Real-time option Greeks (IV, delta, gamma, vega, theta, rho) | Python | `src/modules/greeks_engine/` |
+| **OMS** | Order lifecycle management and routing | Python | `src/modules/trading/oms/` (planned) |
+| **Risk** | Pre-trade risk validation rules engine | Python | `src/modules/trading/risk/` (planned) |
+| **Portfolio** | Position tracking and P&L calculation | Python | `src/modules/trading/portfolio/` (planned) |
+| **Strategy** | Strategy framework with context and callbacks | Python | `src/modules/trading/strategy/` (planned) |
+| **Persistence** | Pluggable event storage (ClickHouse, JSONL) | Python | `src/modules/trading/persistence/` (planned) |
+| **Clock** | Live and simulated time synchronization | Python | `src/modules/trading/clock/` (planned) |
 
-### Order Submission Flow
+### CTP Gateway (C++)
+
+The C++ CTP gateway is the primary exchange connectivity module, replacing the earlier Python implementation. Key features:
+
+- **RAII resource management** — CTP API objects and DLL handles managed via custom deleters
+- **QuoteTick POD** — Zero-allocation fixed struct for internal tick representation
+- **Mixed routing** — Futures broadcast via `send_event`, options dispatched via async job
+- **Quote validation** — Price jump detection, stale data detection (>30s), timestamp validation
+- **Auto-reconnect** — Automatic re-subscription after CTP SDK internal reconnect
+- **Performance targets** — <100μs tick-to-engine latency (tcp loopback), <5μs with shared memory
+
+### Greeks Engine
+
+Computes real-time implied volatility and Greeks for China futures options using a pure-Python Black-Scholes implementation:
+
+- **Standard normal CDF:** Abramowitz & Stegun formula 26.2.17 (Hastings rational approximation), absolute error < 7.5e-8
+- **Greeks scaling:** Vega per 1% vol, Theta per day, Rho per 1% rate
+- **IV solver:** Newton-Raphson with tolerance 1e-8, max 100 iterations
+- **No NumPy/Numba dependency** — pure Python for portability
+- **Round-robin job dispatch** — `handle_compute_greeks` distributed across all registered instances
+
+### Static Data
+
+Fetches and caches exchange reference data from the OpenCTP DataCenter REST API:
+
+- **Dual cache** — In-memory + disk (`data/static/*.json`)
+- **Background refresh** — Configurable interval (default 6 hours)
+- **Job query API** — `handle_query_markets`, `handle_query_products`, `handle_query_instruments`, etc.
+
+### Data Flow — Market Data to Greeks
+
+```
+CTP Gateway (C++)
+    -> OnRtnDepthMarketData callback
+    -> QuoteTick POD (zero allocation)
+    -> Mixed routing:
+       - Futures: send_event("quote", tick) -> broadcast
+       - Options: async send_event("compute_greeks", tick) -> job dispatch
+    -> TycheEngine XSUB socket -> TopicQueue -> XPUB socket
+    -> GreeksEngine (on_streaming_quote for futures, handle_compute_greeks for options)
+       -> Caches underlying prices
+       -> Computes IV + Greeks via Black-Scholes
+       -> send_event("greeks_update", result)
+    -> TycheApp / TycheTUI (subscribes to greeks_update)
+```
+
+### Order Submission Flow (Planned)
 
 ```
 StrategyModule
     -> submit_order() via StrategyContext
     -> send_event("order.submit", order_dict)
     -> TycheEngine XSUB socket -> TopicQueue -> XPUB socket
-    -> RiskModule (on_order_submit handler)
+    -> RiskModule (handle_broadcasted_order_submit)
        -> Evaluates risk rules via RiskRuleEngine
        -> If approved: send_event("order.approved", order_dict)
        -> If rejected: send_event("order.rejected", {...})
-    -> OMSModule (on_order_approved handler)
+    -> OMSModule (handle_broadcasted_order_approved)
        -> Stores order in OrderStore, routes to Gateway
-    -> GatewayModule (on_order_execute handler)
+    -> GatewayModule (handle_broadcasted_order_execute)
        -> Calls venue API, publishes fills and order updates
 ```
 
@@ -250,10 +360,13 @@ All events captured with rich metadata:
 
 | Metric | Target | Notes |
 |--------|--------|-------|
-| Hot path latency | <10μs | Python + ZeroMQ inproc |
+| Hot path latency (C++ SHM) | <5μs | Shared memory zero-copy path |
+| Hot path latency (C++ tcp) | <100μs | C++ gateway to engine via tcp loopback |
+| Hot path latency (Python) | <10μs | Python + ZeroMQ inproc (engine internal) |
 | Persistence latency | 1s (batched) | Amortized via batching |
 | Recovery time | <1s | From WAL checkpoint |
 | Backtest throughput | >100K events/sec | Limited by CPU, not I/O |
+| C++ tick throughput | >50,000 ticks/s | Sustained via async option dispatch |
 
 ## Module Management
 
@@ -363,7 +476,7 @@ ZeroMQ provides the right balance of performance and reliability patterns for Ty
 
 | Decision | Alternative | Rationale |
 |----------|-------------|-----------|
-| v3 Unified Queue (on_*/send_*) | ack_/whisper_/on_common_ prefixes | Simpler interface model; routing by subscriber config, not method name |
+| v2 Unified Queue (on_*/handle_*) | ack_/whisper_/on_common_ prefixes | Simpler interface model; routing by subscriber config, not method name |
 | PUB-SUB for broadcasts | Message queue | True broadcast needed for consensus events |
 | PUSH-PULL for load balancing | Round-robin REQ-REP | Better back-pressure, natural load distribution |
 | Async persistence (ClickHouse/JSONL) | Synchronous disk write | Keeps hot path fast; supports backtesting/research |
@@ -392,10 +505,13 @@ ZeroMQ provides the right balance of performance and reliability patterns for Ty
 
 ## Terminal UI Dashboard
 
-Tyche Engine includes a real-time terminal dashboard that is both a **monitor** and a **process supervisor**. Built with OpenTUI and Bun, it displays live events, module health, and engine stats while also managing the lifecycle of engine and module processes directly from the terminal.
+Tyche Engine includes two UI options for monitoring and control:
 
-### Features
+### TycheTUI (Terminal)
 
+A real-time terminal dashboard built with Textual that is both a **monitor** and a **process supervisor**. It displays live events, module health, and engine stats while also managing the lifecycle of engine and module processes directly from the terminal.
+
+**Features:**
 - **Live monitoring**: Real-time event stream, module health, heartbeat status, and engine statistics
 - **Process management**: Start, stop, restart, and force-kill engine and module processes
 - **Dependency resolution**: Auto-starts processes in topological order based on `dependsOn`
@@ -409,23 +525,106 @@ See [tui/README.md](tui/README.md) for full documentation.
 
 ```bash
 # Terminal 1: Start the TUI (auto-launches engine and modules)
-cd tui && bun install && bun run start --config tyche-processes.json
+cd tui && pip install -r requirements.txt && python -m tychetui --config tyche-processes.json
 ```
 
-**Quick Start — Connect to Existing Engine:**
+### TycheApp (Desktop)
+
+An Electron + Vue desktop application providing a modern GUI for trading operations:
+
+- **Event Panel**: Real-time event stream with filtering
+- **Greeks Panel**: Live option Greeks visualization
+- **Market Making Panel**: Market making controls and spread monitoring
+- **Order Panel**: Order submission and lifecycle tracking
+- **System Status Panel**: Module health and engine statistics
+- **Volatility Curve Panel**: Implied volatility surface visualization
+
+**Quick Start:**
 
 ```bash
-# Terminal 1: Start the engine
-python examples/run_engine.py
-
-# Terminal 2: Start the TUI dashboard
-cd tui && bun run start
+cd app && npm install && npm run dev
 ```
 
-## References
+## Testing
 
-- [ZeroMQ Guide](https://zguide.zeromq.org/) - The definitive guide to ZeroMQ patterns
-- Paranoid Pirate Pattern - Reliable worker heartbeating
-- Async Persistence Pattern - Lock-free ring buffers with background writers
-- Disruptor Pattern - High-performance inter-thread messaging (LMAX)
-- Binary Star Pattern - High availability primary-backup
+Tyche Engine maintains a comprehensive test suite across Python and C++:
+
+### Python Tests
+
+```bash
+pytest tests/ -v
+```
+
+| Category | Location | Coverage Target |
+|----------|----------|-----------------|
+| Unit tests | `tests/unit/` | >= 80% line coverage |
+| Integration tests | `tests/integration/` | Full stack minus external venues |
+| Property tests | `tests/property/` | Serialization round-trips |
+
+### C++ Tests
+
+```bash
+mkdir build && cd build
+cmake .. -A x64 -DBUILD_TESTS=ON
+cmake --build . --config Release
+ctest -C Release --output-on-failure
+```
+
+| Category | Location | Coverage Target |
+|----------|----------|-----------------|
+| Unit tests | `tests/cpp/` | Core engine + gateway logic |
+| Gateway unit tests | `tests/unit/ctp_gateway/` | Config, routing, validation, loader |
+| Performance tests | `tests/perf/` | Latency benchmarks, throughput |
+
+### C++ Test Categories
+
+| Test File | Coverage |
+|-----------|----------|
+| `test_config.cpp` | JSON parsing, field validation, boundary values |
+| `test_ctp_loader.cpp` | DLL path validation, resolve logic |
+| `test_quote_routing.cpp` | Mixed futures/options routing |
+| `test_quote_validator.cpp` | Price jump detection, stale data |
+| `test_option_dispatch.cpp` | Queue overflow, graceful stop |
+| `test_engine.cpp` | C++ engine core: message serialization, topic queues |
+| `test_flat_message.cpp` | FlatMessage serialization round-trips |
+| `test_shared_memory_bridge.cpp` | SHM IPC correctness |
+| `test_ring_buffer.cpp` | Lock-free queue correctness |
+| `test_adaptive_spin.cpp` | Spinlock behavior under contention |
+
+## Project Structure
+
+```
+TycheEngine/
+├── src/
+│   ├── tyche/                    # Core framework (Python + C++)
+│   │   ├── engine.py             # Python engine orchestration
+│   │   ├── module.py             # Python module base class
+│   │   ├── message.py            # Event message model
+│   │   ├── heartbeat.py          # Heartbeat protocol
+│   │   ├── dead_letter.py        # Dead letter queue
+│   │   ├── cpp/                  # C++ engine core
+│   │   │   ├── engine/           # Engine primitives
+│   │   │   ├── flat_message.h    # Zero-allocation message struct
+│   │   │   ├── flat_serializer.h # Fast binary serialization
+│   │   │   ├── message.h/cpp     # C++ message system
+│   │   │   └── module.h/cpp     # C++ module base
+│   │   └── rust/                 # Rust components (future)
+│   └── modules/                  # Domain modules
+│       ├── ctp_gateway_cpp/      # C++ CTP exchange gateway
+│       ├── greeks_engine/        # Option Greeks computation
+│       └── static_data/          # Exchange metadata service
+├── tests/                        # Test suite (Python + C++)
+│   ├── unit/                     # Python unit tests
+│   ├── cpp/                      # C++ engine tests
+│   ├── unit/ctp_gateway/         # C++ gateway unit tests
+│   └── perf/                     # Performance benchmarks
+├── app/                          # Electron + Vue desktop app
+├── tui/                          # Textual terminal dashboard
+├── docs/                         # Design specs, plans, ADRs
+├── runtime/                      # Compiled binaries
+│   ├── engine/                   # Engine executable
+│   └── gateway/                  # Gateway executable
+└── data/                         # Runtime data
+    └── static/                   # Cached exchange metadata
+```
+

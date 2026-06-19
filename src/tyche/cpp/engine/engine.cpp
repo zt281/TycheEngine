@@ -6,6 +6,7 @@
 
 #include "tyche/cpp/engine/engine.h"
 #include "tyche/cpp/engine/shared_memory_bridge.h"
+#include "tyche/cpp/engine/adaptive_spin.h"
 
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
@@ -141,6 +142,9 @@ void TycheEngine::stop() {
     _egress_wakeup_cv.notify_all();
     _reg_in_cv.notify_all();
 
+    // Give threads a moment to observe _running == false and exit their loops
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     for (auto& t : _threads) {
         if (t.joinable()) t.join();
     }
@@ -157,6 +161,24 @@ void TycheEngine::inject_event(const std::string& topic,
     std::vector<Frame> frames;
     frames.emplace_back(reinterpret_cast<const uint8_t*>(topic.data()), topic.size());
     frames.emplace_back(message_data.data(), message_data.size());
+
+    auto q = _topic_queues.get_or_create(topic, static_cast<size_t>(_queue_capacity));
+    q->put(QueueItem(_now(), std::move(frames)));
+    _topic_queues.touch(topic, _now());
+
+    {
+        std::lock_guard lock(_egress_wakeup_lock);
+        _egress_wakeup_flag = true;
+    }
+    _egress_wakeup_cv.notify_one();
+}
+
+void TycheEngine::inject_event_raw(const std::string& topic,
+                                    const uint8_t* data, size_t size) {
+    // Zero-copy path: directly construct Frame and enqueue, skip msgpack serialization
+    std::vector<Frame> frames;
+    frames.emplace_back(reinterpret_cast<const uint8_t*>(topic.data()), topic.size());
+    frames.emplace_back(data, size);
 
     auto q = _topic_queues.get_or_create(topic, static_cast<size_t>(_queue_capacity));
     q->put(QueueItem(_now(), std::move(frames)));
@@ -274,21 +296,37 @@ bool TycheEngine::_is_handler_available(const std::string& module_id,
 // OPT-2: Sharded topic queue lookup eliminates global mutex contention.
 // The event proxy thread (single writer) acquires only a per-bucket spinlock.
 // Hashing spreads topics across 256 buckets; collisions are rare and short.
+// OPT-FAST: Use string_view for zero-allocation topic extraction, stack Frame
+// array, and avoid shared_ptr refcount on hot path.
 void TycheEngine::_enqueue_from_xsub(
     const std::vector<std::vector<uint8_t>>& frames) {
     if (frames.size() < 2) return;
-    std::string topic(frames[0].begin(), frames[0].end());
 
-    auto q = _topic_queues.get_or_create(topic, static_cast<size_t>(_queue_capacity));
-    // Convert to SSO-optimized Frame storage to eliminate to_bytes allocation
-    std::vector<Frame> fframes;
-    fframes.reserve(frames.size());
-    for (const auto& f : frames) {
-        fframes.emplace_back(f.data(), f.size());
+    // 1. string_view 提取 topic（零分配）
+    std::string_view topic_sv(
+        reinterpret_cast<const char*>(frames[0].data()), frames[0].size());
+
+    // 2. 直接获取 TopicQueue 裸指针（避免 shared_ptr 引用计数）
+    TopicQueue* q = _topic_queues.get_raw(std::string(topic_sv));
+    if (!q) {
+        // Cold path: first time seeing this topic, create queue
+        q = _topic_queues.get_or_create(std::string(topic_sv), static_cast<size_t>(_queue_capacity)).get();
     }
-    q->put(QueueItem(_now(), std::move(fframes)));
-    _topic_queues.touch(topic, _now());
+    if (!q) return;
 
+    // 3. 栈上 Frame 数组（零分配）
+    static constexpr size_t MAX_FRAMES = 4;
+    Frame fixed_frames[MAX_FRAMES];
+    size_t n = std::min(frames.size(), MAX_FRAMES);
+    for (size_t i = 0; i < n; ++i) {
+        fixed_frames[i] = Frame(frames[i].data(), frames[i].size());
+    }
+
+    // 4. 入队
+    q->put(QueueItem(_now(), std::vector<Frame>(fixed_frames, fixed_frames + n)));
+    _topic_queues.touch(std::string(topic_sv), _now());
+
+    // 5. 唤醒 egress worker
     {
         std::lock_guard lock(_egress_wakeup_lock);
         _egress_wakeup_flag = true;
@@ -988,23 +1026,20 @@ void TycheEngine::_event_proxy_worker() {
 // ── 7. Event Egress Worker ──────────────────────────────────────────
 
 void TycheEngine::_event_egress_worker() {
+    AdaptiveSpin spinner(1000, 10000, 10);
     while (_running.load(std::memory_order_relaxed)) {
-        {
-            std::unique_lock lock(_egress_wakeup_lock);
-            _egress_wakeup_cv.wait_for(lock, std::chrono::seconds(1),
-                [this]() { return _egress_wakeup_flag || !_running.load(); });
-            _egress_wakeup_flag = false;
-        }
-        if (!_running.load()) break;
-
         // Snapshot topic queues — hold shared_ptr to prevent use-after-free
         // OPT-2: sharded map snapshot acquires each bucket lock sequentially.
         auto queues = _topic_queues.snapshot();
 
+        bool had_work = false;
         for (auto& [topic, q] : queues) {
             while (_running.load(std::memory_order_relaxed)) {
                 auto item = q->get();
                 if (!item.has_value()) break;
+
+                had_work = true;
+                spinner.reset();
 
                 double now = _now();
                 if (now - item->enqueue_time > _broadcast_ttl) {
@@ -1018,6 +1053,10 @@ void TycheEngine::_event_egress_worker() {
 
                 _topic_queues.touch(topic, _now());
             }
+        }
+
+        if (!had_work) {
+            spinner.wait();
         }
     }
 }

@@ -280,5 +280,60 @@ TEST(MessageTest, LargePayload) {
     EXPECT_EQ(std::any_cast<std::string>(decoded.payload["key_50"]), "value_50");
 }
 
+TEST(MessageTest, AllAnyTypesInPayload) {
+    Message msg;
+    msg.msg_type = MessageType::EVENT;
+    msg.sender = "type_test";
+    msg.event = "all_types";
+
+    // Cover various pack_any branches
+    msg.payload["str"] = std::string("hello");
+    msg.payload["cstr"] = "const_char_star";
+    msg.payload["bool_t"] = true;
+    msg.payload["bool_f"] = false;
+    msg.payload["int"] = 42;
+    msg.payload["int64"] = int64_t{-9007199254740992LL};
+    msg.payload["uint64"] = uint64_t{18446744073709551615ULL};
+    msg.payload["double"] = 3.141592653589793;
+    msg.payload["float"] = 2.7182818f;
+    msg.payload["empty_any"] = std::any{};
+
+    // Nested Payload map
+    Payload nested;
+    nested["inner_key"] = std::string("inner_value");
+    msg.payload["nested"] = nested;
+
+    // Vector of std::string
+    std::vector<std::string> vec_str{"a", "b", "c"};
+    msg.payload["vec_str"] = vec_str;
+
+    // Vector of std::any (mixed array)
+    std::vector<std::any> vec_any;
+    vec_any.push_back(std::string("vec_str"));
+    vec_any.push_back(123);
+    vec_any.push_back(4.56);
+    msg.payload["vec_any"] = vec_any;
+
+    // Should not throw during serialization
+    EXPECT_NO_THROW({
+        auto bytes = serialize(msg);
+        EXPECT_FALSE(bytes.empty());
+    });
+}
+
+TEST(MessageTest, UnknownTypePacksAsNil) {
+    // Verify that empty any packs as nil and deserializes correctly
+    Message msg;
+    msg.msg_type = MessageType::EVENT;
+    msg.sender = "s";
+    msg.event = "e";
+    msg.payload["nil"] = std::any{};
+
+    auto bytes = serialize(msg);
+    Message decoded = deserialize(bytes.data(), bytes.size());
+    // Empty any -> nil -> empty any on deserialize
+    EXPECT_FALSE(decoded.payload["nil"].has_value());
+}
+
 }  // namespace
 }  // namespace tyche

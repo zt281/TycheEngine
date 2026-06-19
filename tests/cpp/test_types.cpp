@@ -128,7 +128,9 @@ TEST(InterfaceTest, DefaultValues) {
 TEST(TypesTest, HeartbeatConstants) {
     EXPECT_DOUBLE_EQ(HEARTBEAT_INTERVAL, 1.0);
     EXPECT_EQ(HEARTBEAT_LIVENESS, 3);
-    EXPECT_EQ(ADMIN_PORT_DEFAULT, 5560);
+    // Admin port is base_port + 3 (registration=5555 → admin=5558),
+    // matching the port layout documented in src/tyche/cpp/engine/main.cpp.
+    EXPECT_EQ(ADMIN_PORT_DEFAULT, 5558);
 }
 
 // ── DurabilityLevel Values ────────────────────────────────────────────
