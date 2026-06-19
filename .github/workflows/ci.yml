@@ -50,7 +50,7 @@ jobs:
       - name: Build and run C++ tests
         run: |
           cmake -B build -S . -DTYCHE_BUILD_LIBZMQ=ON
-          cmake --build build --config Release --target tyche_tests
+          cmake --build build --config Release --target tyche_tests --target ctp_gateway_tests
           ctest --test-dir build -C Release --output-on-failure
       - name: Run Python tests
         run: pytest tests/unit/ -v --timeout=30 --cov=src/tyche --cov-report=xml --cov-report=term
