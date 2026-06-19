@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include <thread>
+
 #include "tyche/cpp/engine/dead_letter_store.h"
 #include "tyche/cpp/message.h"
 #include "tyche/cpp/types.h"
@@ -270,7 +272,7 @@ TEST_F(DeadLetterStoreTest, AllAnyTypesInPayload) {
     msg.payload["int"] = 42;
     msg.payload["int64"] = int64_t{-9007199254740992LL};
     msg.payload["uint64"] = uint64_t{18446744073709551615ULL};
-    msg.payload["uint"] = unsigned int{99};
+    msg.payload["uint"] = static_cast<unsigned int>(99);
     msg.payload["long_v"] = long{-123456789L};
     msg.payload["ulong_v"] = uint64_t{9876543210UL};
     msg.payload["double"] = 3.141592653589793;

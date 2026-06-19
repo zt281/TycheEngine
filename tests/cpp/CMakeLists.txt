@@ -158,30 +158,8 @@ else()
 endif()
 
 # ── Performance benchmark executables ──
-add_executable(tyche_perf
-    ../perf/topic_queue_bench.cpp
-    ../perf/flat_message_bench.cpp
-    ../perf/serialization_bench.cpp
-    ../perf/shm_bridge_bench.cpp
-    ../perf/alloc_bench.cpp
-    ../perf/e2e_latency_bench.cpp
-    ../perf/ctp_dispatch_bench.cpp
-    ${TYCHE_LIB_SOURCES}
-)
-
-target_link_libraries(tyche_perf PRIVATE
-    ${ZMQ_LIBRARY}
-)
-if(ZMQ_LIBRARIES)
-    target_link_libraries(tyche_perf PRIVATE ${ZMQ_LIBRARIES})
-endif()
-
-if(WIN32)
-    target_link_libraries(tyche_perf PRIVATE ws2_32 iphlpapi)
-else()
-    target_link_libraries(tyche_perf PRIVATE pthread)
-endif()
-
+# Note: Most perf benchmarks are defined in src/tyche/cpp/CMakeLists.txt
+# Only ring_buffer_bench is defined here as it has no TYCHE_LIB dependencies
 add_executable(ring_buffer_bench
     ../perf/ring_buffer_bench.cpp
 )

@@ -160,7 +160,14 @@ add_executable(ctp_dispatch_bench
     engine/fast_clock.cpp
 )
 
-foreach(bench_target serialization_bench flat_message_bench shm_bridge_bench alloc_bench e2e_latency_bench ctp_dispatch_bench)
+add_executable(topic_queue_bench
+    ${TYCHE_ROOT}/tests/perf/topic_queue_bench.cpp
+    engine/topic_queue.cpp
+    engine/sharded_topic_map.cpp
+    message.cpp
+)
+
+foreach(bench_target serialization_bench flat_message_bench shm_bridge_bench alloc_bench e2e_latency_bench ctp_dispatch_bench topic_queue_bench)
     target_link_libraries(${bench_target} PRIVATE ${ZMQ_LIBRARY})
     if(ZMQ_LIBRARIES)
         target_link_libraries(${bench_target} PRIVATE ${ZMQ_LIBRARIES})

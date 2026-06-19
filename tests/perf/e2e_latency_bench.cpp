@@ -118,7 +118,7 @@ int main() {
     // 1. Full msgpack round-trip (simulates: serialize -> copy -> deserialize)
     auto lat_msgpack = measure_latencies(
         [&tick_msg]() {
-            volatile auto buf = tyche::serialize(tick_msg);
+            auto buf = tyche::serialize(tick_msg);
             volatile auto msg = tyche::deserialize(buf.data(), buf.size());
             (void)msg;
         },
