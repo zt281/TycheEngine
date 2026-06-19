@@ -34,8 +34,10 @@ int64_t FastClock::_system_now_ns() noexcept {
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&count);
     // Convert to nanoseconds: count * 1e9 / freq
+    // Use double intermediate to avoid overflow on high counter values
     return static_cast<int64_t>(
-        (count.QuadPart * 1'000'000'000LL) / freq.QuadPart);
+        static_cast<double>(count.QuadPart) * 1'000'000'000.0 /
+        static_cast<double>(freq.QuadPart));
 #else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);

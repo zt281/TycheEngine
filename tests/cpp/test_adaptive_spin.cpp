@@ -37,8 +37,8 @@ TEST(AdaptiveSpinTest, SpinPhase) {
         spinner.wait();
     }
     EXPECT_EQ(spinner.idle_count(), 10);
-    // Should not have reached yield phase yet
-    EXPECT_LT(spinner.idle_count(), spinner.idle_count());  // Just checking it runs
+    // Should not have reached yield phase yet (idle_count < spin_threshold)
+    EXPECT_LT(spinner.idle_count(), 1000);
 }
 
 TEST(AdaptiveSpinTest, YieldPhase) {

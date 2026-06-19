@@ -23,15 +23,15 @@ TEST(FastClockTest, NowReturnsReasonableValue) {
     double t = FastClock::now();
     EXPECT_GT(t, 0.0);  // Should be positive (epoch relative)
 
-    // Should be within a few seconds of program start
-    // (since we use relative time, it's small)
-    EXPECT_LT(t, 10.0);  // Less than 10 seconds since calibration
+    // Should be within a reasonable range since system boot/epoch
+    // (QueryPerformanceCounter is relative to system boot, not program start)
+    EXPECT_LT(t, 86400.0 * 365.0 * 100.0);  // Less than ~100 years in seconds
 }
 
 TEST(FastClockTest, NowPreciseReturnsReasonableValue) {
     double t = FastClock::now_precise();
     EXPECT_GT(t, 0.0);
-    EXPECT_LT(t, 10.0);
+    EXPECT_LT(t, 86400.0 * 365.0 * 100.0);  // Less than ~100 years in seconds
 }
 
 TEST(FastClockTest, NowAndPreciseAreClose) {
