@@ -90,7 +90,7 @@ jobs:
           cd build
           lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch,negative,gcov
           lcov --remove coverage.info '/usr/*' '*/third_party/*' '*/tests/*' --output-file coverage.info --ignore-errors mismatch,negative,gcov
-          genhtml coverage.info --output-directory coverage_report --ignore-errors mismatch,negative,gcov
+          genhtml coverage.info --output-directory coverage_report --ignore-errors mismatch,negative
       - name: Check coverage threshold
         run: |
           cd build
