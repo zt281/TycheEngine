@@ -18,10 +18,9 @@
 #include <time.h>
 #endif
 
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(_MSC_VER)
+// MSVC: intrin.h provides __rdtsc()
 #include <intrin.h>
-#elif defined(__aarch64__)
-#include <arm_neon.h>
 #endif
 
 namespace tyche {
@@ -48,9 +47,11 @@ int64_t FastClock::_system_now_ns() noexcept {
 // ── RDTSC / ARM counter read ────────────────────────────────────────
 
 static inline uint64_t read_tsc() noexcept {
-#if defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+    // MSVC x86/x64: use compiler intrinsic
     return __rdtsc();
 #elif defined(__x86_64__) || defined(__i386__)
+    // GCC/Clang x86/x64: use inline assembly
     unsigned int lo, hi;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
     return (static_cast<uint64_t>(hi) << 32) | lo;
