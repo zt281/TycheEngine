@@ -84,7 +84,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           cd build
-          ../runtime/linux/tyche_tests --gtest_filter='-AdaptiveSpinTest.SpinPhase:FastClockTest.*:EngineTest.DestructorStopsIfRunning:EngineTest.StopIdempotent:EngineTest.ShmBridgeAfterStart'
+          ../runtime/linux/tyche_tests --gtest_filter='-AdaptiveSpinTest.SpinPhase:FastClockTest.*:EngineTest.DestructorStopsIfRunning:EngineTest.StopIdempotent:EngineTest.ShmBridgeAfterStart:EngineIntegrationTest.*'
       - name: Collect coverage
         run: |
           cd build
