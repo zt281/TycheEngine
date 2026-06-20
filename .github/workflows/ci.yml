@@ -88,9 +88,9 @@ jobs:
       - name: Collect coverage
         run: |
           cd build
-          lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch
-          lcov --remove coverage.info '/usr/*' '*/third_party/*' '*/tests/*' --output-file coverage.info --ignore-errors mismatch
-          genhtml coverage.info --output-directory coverage_report --ignore-errors mismatch
+          lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch,negative,gcov
+          lcov --remove coverage.info '/usr/*' '*/third_party/*' '*/tests/*' --output-file coverage.info --ignore-errors mismatch,negative,gcov
+          genhtml coverage.info --output-directory coverage_report --ignore-errors mismatch,negative,gcov
       - name: Check coverage threshold
         run: |
           cd build
