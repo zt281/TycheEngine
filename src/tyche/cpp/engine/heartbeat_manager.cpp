@@ -1,6 +1,7 @@
 #include "tyche/cpp/engine/heartbeat_manager.h"
 
 #include <chrono>
+#include <mutex>
 #include <shared_mutex>
 
 namespace tyche {

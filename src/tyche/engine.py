@@ -162,11 +162,19 @@ class TycheEngine:
         self.event_sub_endpoint = Endpoint(
             event_endpoint.host, event_endpoint.port + 1
         )
-        self._admin_endpoint = admin_endpoint
+        # Admin endpoint defaults to ADMIN_PORT_DEFAULT (base_port + 3) so
+        # callers can construct an engine with just the three primary ports.
+        # Without this, _admin_worker would try to bind tcp://None:None and
+        # silently die, leaving the frontend unable to issue admin queries.
+        self._admin_endpoint = admin_endpoint or Endpoint(
+            registration_endpoint.host, ADMIN_PORT_DEFAULT
+        )
 
-        # Job ROUTER endpoint (default: ADMIN_PORT_DEFAULT + 4 = 5564)
+        # Job ROUTER endpoint. Default offset matches the C++ engine layout
+        # (registration port + 9) so the Python and C++ engines use the same
+        # port map when started with the same registration port.
         self._job_endpoint = job_endpoint or Endpoint(
-            registration_endpoint.host, ADMIN_PORT_DEFAULT + 4
+            registration_endpoint.host, registration_endpoint.port + 9
         )
         self._job_port = self._job_endpoint.port
 

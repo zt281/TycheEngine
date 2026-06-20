@@ -12,6 +12,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -35,6 +37,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -43,12 +47,68 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Run tests
+      - name: Build and run C++ tests
+        run: |
+          cmake -B build -S . -DTYCHE_BUILD_LIBZMQ=ON
+          cmake --build build --config Release --target tyche_tests --target ctp_gateway_tests
+          ctest --test-dir build -C Release --output-on-failure
+      - name: Run Python tests
         run: pytest tests/unit/ -v --timeout=30 --cov=src/tyche --cov-report=xml --cov-report=term
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         uses: codecov/codecov-action@v4
         with:
+          fail_ci_if_error: false
+          verbose: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  cpp-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov libzmq3-dev
+      - name: Configure with coverage
+        run: |
+          cmake -B build -S . \
+            -DTYCHE_BUILD_LIBZMQ=OFF \
+            -DTYCHE_ENABLE_COVERAGE=ON \
+            -DCMAKE_BUILD_TYPE=Debug
+      - name: Build tests
+        run: cmake --build build --config Debug --target tyche_tests
+      - name: Run tests with coverage
+        run: |
+          cd build
+          ../runtime/linux/tyche_tests --gtest_filter='-AdaptiveSpinTest.SpinPhase:FastClockTest.*:EngineTest.DestructorStopsIfRunning:EngineTest.StopIdempotent:EngineTest.ShmBridgeAfterStart:EngineIntegrationTest.*:ObjectPoolTest.MultiThreadedStressTest:RcuSnapshotTest.StressTest10MOperations'
+      - name: Collect coverage
+        run: |
+          cd build
+          lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch,negative,gcov
+          lcov --remove coverage.info '/usr/*' '*/third_party/*' '*/tests/*' --output-file coverage.info --ignore-errors mismatch,negative,gcov
+          genhtml coverage.info --output-directory coverage_report --ignore-errors mismatch,negative
+      - name: Check coverage threshold
+        run: |
+          cd build
+          LINE_PCT=$(lcov --summary coverage.info | grep 'lines' | grep -oP '\d+\.?\d*' | head -1)
+          echo "Line coverage: ${LINE_PCT}%"
+          python3 -c "import sys; pct=float('${LINE_PCT}'); sys.exit(0 if pct>=30 else 1)" || {
+            echo "ERROR: Coverage ${LINE_PCT}% is below threshold 30%"
+            exit 1
+          }
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-coverage-report
+          path: build/coverage_report
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build/coverage.info
           fail_ci_if_error: false
           verbose: true
           token: ${{ secrets.CODECOV_TOKEN }}

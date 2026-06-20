@@ -42,6 +42,21 @@ std::vector<uint8_t> serialize(const Message& msg);
 Message deserialize(const uint8_t* data, size_t size);
 Message deserialize(const void* data, size_t size);
 
+// ── TLS Buffer Serialization (zero-allocation hot path) ────────────
+
+// Buffer view referencing thread-local storage. Valid only until next serialize_tls call.
+struct BufferView {
+    const uint8_t* data;
+    size_t size;
+};
+
+// Serialize into thread-local buffer. Zero heap allocation. Not thread-safe across calls.
+// The returned BufferView is valid only until the next call to serialize_tls on this thread.
+BufferView serialize_tls(const Message& msg) noexcept;
+
+// Serialize into caller-provided buffer. Returns bytes written, or 0 on overflow.
+size_t serialize_into(const Message& msg, uint8_t* buffer, size_t capacity) noexcept;
+
 // ── Helper functions (public, for advanced usage) ────────────────────
 
 // Pack a std::any value into a msgpack packer.

@@ -27,6 +27,7 @@
 
 #include "tyche/cpp/types.h"
 #include "tyche/cpp/string_intern.h"
+#include "tyche/cpp/flat_message.h"
 
 namespace tyche {
 
@@ -84,6 +85,15 @@ public:
         const std::string& event,
         const Payload& payload,
         std::optional<std::string> recipient = std::nullopt);
+
+    // Send flat binary event (C++ module-to-module only, no Python interop).
+    // Directly sends FlatQuoteTick bytes via PUB socket, bypassing msgpack.
+    // Topic is prefixed with "__flat__:" so the engine can route without deserialization.
+    void send_event_flat(const std::string& event, const FlatQuoteTick& tick);
+
+    // Generic flat binary send for custom flat structs.
+    // Topic is prefixed with "__flat__:" so the engine can route without deserialization.
+    void send_event_flat(const std::string& event, const uint8_t* data, size_t size);
 
     // ── Job Request/Response ────────────────────────────────────────
 

@@ -152,4 +152,7 @@ class TestConstants:
         assert HEARTBEAT_LIVENESS == 3
 
     def test_admin_port_default(self):
-        assert ADMIN_PORT_DEFAULT == 5560
+        # Admin port is base_port + 3 (registration=5555 → admin=5558),
+        # matching the C++ engine port layout documented in
+        # src/tyche/cpp/engine/main.cpp.
+        assert ADMIN_PORT_DEFAULT == 5558

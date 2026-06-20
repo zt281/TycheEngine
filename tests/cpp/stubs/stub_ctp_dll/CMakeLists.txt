@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.16)
+project(stub_ctp_dll CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Build as shared library
+add_library(stub_ctp_dll SHARED stub_ctp_dll.cpp)
+
+# Set output directory to match test expectations
+set_target_properties(stub_ctp_dll PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+# Windows: export all symbols
+set_target_properties(stub_ctp_dll PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)

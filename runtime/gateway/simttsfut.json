@@ -4,7 +4,7 @@
         "port":5555
     },
     "gateway":{
-        "dll_dir":"./simTTSFut",
+        "dll_dir":"D:/dev/TycheEngine/runtime/gateway/simTTSFut",
         "md_dll":"",
         "td_dll":"",
         "family_name": "simttsfut_gateway",

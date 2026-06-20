@@ -87,6 +87,8 @@ add_executable(tyche_engine
     engine/shared_memory_queue.cpp
     engine/dynamic_library.cpp
     engine/shared_memory_bridge.cpp
+    engine/fast_clock.cpp
+    engine/thread_affinity.cpp
     message.cpp
 )
 
@@ -122,22 +124,60 @@ else()
     target_link_libraries(tyche_module PUBLIC pthread)
 endif()
 
-# ── Perf benchmark executable ──
+# ── Perf benchmark executables ──
 add_executable(serialization_bench
     ${TYCHE_ROOT}/tests/perf/serialization_bench.cpp
     message.cpp
 )
-target_link_libraries(serialization_bench PRIVATE
-    ${ZMQ_LIBRARY}
+
+add_executable(flat_message_bench
+    ${TYCHE_ROOT}/tests/perf/flat_message_bench.cpp
+    message.cpp
 )
-if(ZMQ_LIBRARIES)
-    target_link_libraries(serialization_bench PRIVATE ${ZMQ_LIBRARIES})
-endif()
-if(WIN32)
-    target_link_libraries(serialization_bench PRIVATE ws2_32 iphlpapi)
-else()
-    target_link_libraries(serialization_bench PRIVATE pthread)
-endif()
+
+add_executable(shm_bridge_bench
+    ${TYCHE_ROOT}/tests/perf/shm_bridge_bench.cpp
+    engine/shared_memory_queue.cpp
+    engine/dynamic_library.cpp
+    message.cpp
+)
+
+add_executable(alloc_bench
+    ${TYCHE_ROOT}/tests/perf/alloc_bench.cpp
+    engine/topic_queue.cpp
+    engine/sharded_topic_map.cpp
+    message.cpp
+)
+
+add_executable(e2e_latency_bench
+    ${TYCHE_ROOT}/tests/perf/e2e_latency_bench.cpp
+    message.cpp
+    engine/fast_clock.cpp
+)
+
+add_executable(ctp_dispatch_bench
+    ${TYCHE_ROOT}/tests/perf/ctp_dispatch_bench.cpp
+    engine/fast_clock.cpp
+)
+
+add_executable(topic_queue_bench
+    ${TYCHE_ROOT}/tests/perf/topic_queue_bench.cpp
+    engine/topic_queue.cpp
+    engine/sharded_topic_map.cpp
+    message.cpp
+)
+
+foreach(bench_target serialization_bench flat_message_bench shm_bridge_bench alloc_bench e2e_latency_bench ctp_dispatch_bench topic_queue_bench)
+    target_link_libraries(${bench_target} PRIVATE ${ZMQ_LIBRARY})
+    if(ZMQ_LIBRARIES)
+        target_link_libraries(${bench_target} PRIVATE ${ZMQ_LIBRARIES})
+    endif()
+    if(WIN32)
+        target_link_libraries(${bench_target} PRIVATE ws2_32 iphlpapi)
+    else()
+        target_link_libraries(${bench_target} PRIVATE pthread)
+    endif()
+endforeach()
 
 # ── 安装规则 ──
 install(TARGETS tyche_engine DESTINATION bin)
@@ -157,4 +197,10 @@ install(FILES
     engine/dynamic_library.h
     engine/shared_memory_bridge.h
     engine/module_interface.h
+    engine/adaptive_spin.h
+    engine/fast_clock.h
+    engine/object_pool.h
+    engine/topic_queue_index.h
+    engine/rcu_snapshot.h
+    engine/thread_affinity.h
     DESTINATION include/tyche/cpp/engine)

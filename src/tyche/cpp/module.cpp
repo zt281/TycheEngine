@@ -275,6 +275,35 @@ void TycheModule::send_event(
     _impl->pub_socket->send(data_msg, zmq::send_flags::none);
 }
 
+void TycheModule::send_event_flat(const std::string& event, const FlatQuoteTick& tick) {
+    if (!_impl->pub_socket || !_running.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    // Topic prefix: "__flat__:" + event
+    std::string flat_topic = std::string("__flat__:") + event;
+
+    std::lock_guard<std::mutex> lock(_impl->pub_lock);
+    zmq::message_t topic_msg(flat_topic.data(), flat_topic.size());
+    zmq::message_t data_msg(&tick.data, sizeof(FlatQuoteTickData));
+    _impl->pub_socket->send(topic_msg, zmq::send_flags::sndmore);
+    _impl->pub_socket->send(data_msg, zmq::send_flags::none);
+}
+
+void TycheModule::send_event_flat(const std::string& event, const uint8_t* data, size_t size) {
+    if (!_impl->pub_socket || !_running.load(std::memory_order_relaxed) || !data || size == 0) {
+        return;
+    }
+
+    std::string flat_topic = std::string("__flat__:") + event;
+
+    std::lock_guard<std::mutex> lock(_impl->pub_lock);
+    zmq::message_t topic_msg(flat_topic.data(), flat_topic.size());
+    zmq::message_t data_msg(data, size);
+    _impl->pub_socket->send(topic_msg, zmq::send_flags::sndmore);
+    _impl->pub_socket->send(data_msg, zmq::send_flags::none);
+}
+
 // ── Internal helpers ────────────────────────────────────────────────
 
 bool TycheModule::_register_with_engine() {

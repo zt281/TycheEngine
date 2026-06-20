@@ -132,6 +132,11 @@ public:
         }
     }
 
+    /// Alias for push_blocking for backward compatibility.
+    void push(T&& item) {
+        push_blocking(std::move(item));
+    }
+
     /// Pop an item from the consumer side. Returns std::nullopt if empty.
     /// Must be called from a single consumer thread only.
     std::optional<T> pop() {

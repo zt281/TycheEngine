@@ -46,6 +46,11 @@ public:
     /// @return shared_ptr if found, nullptr otherwise
     std::shared_ptr<TopicQueue> find(const std::string& topic) const;
 
+    /// Get a raw pointer to an existing queue without creating one.
+    /// Faster than find() because it avoids shared_ptr reference counting.
+    /// @return raw pointer if found, nullptr otherwise
+    TopicQueue* get_raw(const std::string& topic) const;
+
     /// Remove a topic queue. Used by GC (monitor worker).
     void erase(const std::string& topic);
 

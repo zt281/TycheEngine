@@ -288,16 +288,8 @@ void SharedMemoryBridge::_forward_to_zmq(const std::string& topic,
                                           const std::vector<uint8_t>& payload) {
     if (!_engine || topic.empty()) return;
 
-    // Build a msgpack Message and inject into engine
-    Message msg;
-    msg.msg_type = MessageType::EVENT;
-    msg.sender = "shm_bridge";
-    msg.event = topic;
-    // Store raw payload bytes in the message
-    msg.payload["raw_data"] = payload;
-
-    auto serialized = serialize(msg);
-    _engine->inject_event(topic, serialized);
+    // Fast path: inject raw bytes directly, bypassing msgpack serialization
+    _engine->inject_event_raw(topic, payload.data(), payload.size());
 }
 
 } // namespace tyche

@@ -71,6 +71,10 @@ std::shared_ptr<TopicQueue> ShardedTopicQueueMap::get_or_create(
     bucket.entries.emplace_back(topic, q);
     bucket.last_access_times.emplace_back(topic, 0.0);
 
+    if (out_last_access) {
+        *out_last_access = 0.0;
+    }
+
     bucket.release();
     return q;
 }
@@ -85,6 +89,24 @@ std::shared_ptr<TopicQueue> ShardedTopicQueueMap::find(const std::string& topic)
     for (const auto& [t, q] : bucket.entries) {
         if (t == topic) {
             auto result = q;
+            bucket.release();
+            return result;
+        }
+    }
+    bucket.release();
+    return nullptr;
+}
+
+// ── Get raw pointer (read-only, no create, no refcount) ─────────────────
+
+TopicQueue* ShardedTopicQueueMap::get_raw(const std::string& topic) const {
+    size_t idx = _bucket_index(topic);
+    const Bucket& bucket = _buckets[idx];
+
+    bucket.acquire();
+    for (const auto& [t, q] : bucket.entries) {
+        if (t == topic) {
+            auto* result = q.get();
             bucket.release();
             return result;
         }
