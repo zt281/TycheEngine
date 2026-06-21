@@ -98,7 +98,7 @@ class TestGreeksEngineOnComputeGreeks:
             result = engine.on_compute_greeks(payload)
         assert result is None
         assert any(
-            "empty instrument_id" in record.message
+            "empty or missing instrument_id" in record.message
             for record in caplog.records
         ), f"Expected warning about empty instrument_id; got: {[r.message for r in caplog.records]}"
 
