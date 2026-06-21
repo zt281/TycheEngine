@@ -241,18 +241,18 @@ class GreeksEngine(TycheModule):
         update_time, trading_day (与 ctp_gateway_cpp 的 tick_to_payload 输出对齐)
 
         跳过场景 (均记录日志):
-            - instrument_id 为空: 字段格式异常
+            - instrument_id 为空或 None: 字段格式异常
             - 未完成合约解析 (_resolved=False): 启动期 race 窗口
             - normalized_id 不在 underlying_map: 合约未配置或格式不匹配
         """
-        instrument_id = payload.get("instrument_id", "")
+        instrument_id = payload.get("instrument_id") or ""
 
         # CTP 返回的期权合约 ID 可能包含 '-' (如 ag2506-C-6000)
         # 需要转换为配置中的格式 (如 ag2506C6000)
         normalized_id = self._normalize_option_id(instrument_id)
 
         if not instrument_id:
-            logger.warning("[GreeksEngine] on_compute_greeks received empty instrument_id")
+            logger.warning("[GreeksEngine] on_compute_greeks received empty or missing instrument_id")
             return
 
         # 合约解析尚未完成时，静默跳过 (启动期 race 窗口)
@@ -317,7 +317,7 @@ class GreeksEngine(TycheModule):
         每次只有一个 GreeksEngine 实例会收到并处理该任务。
         计算完成后返回结果，同时通过事件发布给下游。
         """
-        instrument_id = payload.get("instrument_id", "")
+        instrument_id = payload.get("instrument_id") or ""
 
         # CTP 返回的期权合约 ID 可能包含 '-' (如 ag2506-C-6000)
         # 需要转换为配置中的格式 (如 ag2506C6000)
