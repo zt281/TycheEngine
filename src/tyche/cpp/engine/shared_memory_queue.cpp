@@ -7,6 +7,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <filesystem>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -256,6 +257,63 @@ size_t SharedMemoryQueue::size() const {
 
 size_t SharedMemoryQueue::capacity() const {
     return _config.slot_count;
+}
+
+// ── Zero-allocation Read ─────────────────────────────────────────────
+
+bool SharedMemoryQueue::read_into(uint8_t* buffer, size_t buffer_size, size_t& out_size) {
+    if (!_valid) return false;
+
+    auto* h = header();
+    uint32_t pos = h->read_seq.load(std::memory_order_relaxed);
+    uint32_t idx = pos % h->slot_count;
+    auto* sh = slot_header(idx);
+    if (!sh) return false;
+
+    uint32_t seq = sh->sequence.load(std::memory_order_acquire);
+    int32_t diff = static_cast<int32_t>(seq) - static_cast<int32_t>(pos + 1);
+
+    if (diff == 0) {
+        uint32_t msg_size = sh->size;
+        msg_size = (std::min)(msg_size, _config.max_msg_size);
+        out_size = msg_size;
+        size_t copy_size = (std::min)(static_cast<size_t>(msg_size), buffer_size);
+        std::memcpy(buffer, slot_data(idx), copy_size);
+
+        sh->sequence.store(pos + h->slot_count + 1, std::memory_order_release);
+        h->read_seq.store(pos + 1, std::memory_order_relaxed);
+        return true;
+    }
+
+    return false;
+}
+
+// ── Stale Segment Cleanup ────────────────────────────────────────────
+
+void SharedMemoryQueue::cleanup_stale() {
+#ifdef _WIN32
+    // Windows: kernel objects auto-cleanup via reference counting
+    // No action needed
+#else
+    // Linux: scan /dev/shm/ for stale tyche segments
+    namespace fs = std::filesystem;
+    const std::string prefix = "tyche_shm_";
+    const fs::path shm_dir = "/dev/shm";
+
+    if (!fs::exists(shm_dir)) return;
+
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(shm_dir, ec)) {
+        if (ec) break;
+        std::string filename = entry.path().filename().string();
+        if (filename.find(prefix) == 0) {
+            // Try to unlink - this is safe: if another process holds the mapping,
+            // the segment stays alive until all handles close.
+            std::string shm_name = "/" + filename;
+            shm_unlink(shm_name.c_str());
+        }
+    }
+#endif
 }
 
 } // namespace tyche

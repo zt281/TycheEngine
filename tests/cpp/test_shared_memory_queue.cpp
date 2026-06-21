@@ -176,5 +176,55 @@ TEST(SharedMemoryQueueTest, LargeMessageRoundTrip) {
     EXPECT_EQ(result.value(), large_data);
 }
 
+// ── read_into() Tests ────────────────────────────────────────────────
+
+TEST(SharedMemoryQueueTest, ReadIntoSuccess) {
+    // Create owner queue, write a message, then read_into pre-allocated buffer
+    SharedMemoryQueue owner({"test_read_into", 64, 1024}, true);
+    ASSERT_TRUE(owner.is_valid());
+
+    std::vector<uint8_t> msg = {1, 2, 3, 4, 5};
+    ASSERT_TRUE(owner.write(msg.data(), msg.size()));
+
+    uint8_t buffer[256];
+    size_t out_size = 0;
+    ASSERT_TRUE(owner.read_into(buffer, sizeof(buffer), out_size));
+    ASSERT_EQ(out_size, 5u);
+    EXPECT_EQ(std::vector<uint8_t>(buffer, buffer + out_size), msg);
+}
+
+TEST(SharedMemoryQueueTest, ReadIntoEmptyReturnsFalse) {
+    SharedMemoryQueue owner({"test_read_into_empty", 64, 1024}, true);
+    ASSERT_TRUE(owner.is_valid());
+
+    uint8_t buffer[256];
+    size_t out_size = 999;
+    ASSERT_FALSE(owner.read_into(buffer, sizeof(buffer), out_size));
+}
+
+TEST(SharedMemoryQueueTest, ReadIntoTruncatesLargeMessage) {
+    SharedMemoryQueue owner({"test_read_into_trunc", 64, 1024}, true);
+    ASSERT_TRUE(owner.is_valid());
+
+    std::vector<uint8_t> msg(100, 0xAB);
+    ASSERT_TRUE(owner.write(msg.data(), msg.size()));
+
+    uint8_t buffer[10];  // smaller than message
+    size_t out_size = 0;
+    ASSERT_TRUE(owner.read_into(buffer, sizeof(buffer), out_size));
+    ASSERT_EQ(out_size, 100u);  // reports actual size
+    // buffer contains first 10 bytes
+    for (int i = 0; i < 10; i++) {
+        EXPECT_EQ(buffer[i], 0xAB);
+    }
+}
+
+// ── cleanup_stale() Tests ────────────────────────────────────────────
+
+TEST(SharedMemoryQueueTest, CleanupStaleDoesNotCrash) {
+    // Just verify the static method is callable and doesn't throw
+    EXPECT_NO_THROW(SharedMemoryQueue::cleanup_stale());
+}
+
 }  // namespace
 }  // namespace tyche

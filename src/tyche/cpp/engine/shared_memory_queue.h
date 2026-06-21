@@ -49,12 +49,24 @@ public:
     // Read a message. Returns empty optional if queue is empty.
     std::optional<std::vector<uint8_t>> read();
 
+    /// Zero-allocation read: copies message into caller-provided buffer.
+    /// Returns true if a message was read, false if queue is empty.
+    /// out_size is set to the actual message size on success.
+    /// If buffer_size < message size, the message is truncated and out_size
+    /// reflects the actual (untruncated) size.
+    bool read_into(uint8_t* buffer, size_t buffer_size, size_t& out_size);
+
     bool empty() const;
     size_t size() const;
     size_t capacity() const;
 
     bool is_valid() const { return _valid; }
     const std::string& name() const { return _config.name; }
+
+    /// Clean up stale shared memory segments from previous crashed processes.
+    /// On Linux: scans /dev/shm/tyche_shm_* and unlinks them.
+    /// On Windows: no-op (kernel reference counting handles cleanup).
+    static void cleanup_stale();
 
 private:
     static constexpr uint32_t MAGIC = 0x54594843;  // 'TYCH'

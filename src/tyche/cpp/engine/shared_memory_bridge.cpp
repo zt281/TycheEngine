@@ -2,10 +2,13 @@
 #include "tyche/cpp/engine/shared_memory_queue.h"
 #include "tyche/cpp/engine/dynamic_library.h"
 #include "tyche/cpp/engine/engine.h"
+#include "tyche/cpp/engine/adaptive_spin.h"
+#include "tyche/cpp/engine/module_interface.h"
 #include "tyche/cpp/message.h"
 
 #include <algorithm>
 #include <chrono>
+#include <future>
 #include <iostream>
 #include <cstring>
 
@@ -22,7 +25,19 @@ static void write_u16_le(uint8_t* p, uint16_t v) {
     p[1] = static_cast<uint8_t>(v >> 8);
 }
 
-// ── Topic parsing ───────────────────────────────────────────────────
+// ── Topic parsing (new zero-allocation version) ─────────────────────
+
+bool SharedMemoryBridge::_parse_topic(const uint8_t* data, size_t data_size,
+                                       std::string& out_topic, size_t& out_payload_offset) {
+    if (data_size < 2) return false;
+    uint16_t topic_len = read_u16_le(data);
+    if (2 + topic_len > data_size) return false;
+    out_topic.assign(reinterpret_cast<const char*>(data + 2), topic_len);
+    out_payload_offset = 2 + topic_len;
+    return true;
+}
+
+// ── Topic parsing (legacy vector version) ───────────────────────────
 
 std::string SharedMemoryBridge::_parse_topic(const std::vector<uint8_t>& data,
                                               std::vector<uint8_t>& payload) {
@@ -70,42 +85,61 @@ void SharedMemoryBridge::configure(std::vector<ShmModuleConfig> modules,
     for (auto& mc : modules) {
         load_module(mc);
     }
+
+    // Rebuild snapshot if already running
+    if (_running.load(std::memory_order_relaxed)) {
+        _rebuild_snapshot();
+    }
 }
 
 void SharedMemoryBridge::start(TycheEngine* engine) {
     if (_running.load()) return;
     _engine = engine;
+
+    // P0: Clean up stale SHM segments from crashed processes
+    SharedMemoryQueue::cleanup_stale();
+
     _running.store(true, std::memory_order_release);
+
+    // Build initial snapshot
+    _rebuild_snapshot();
+
     _worker = std::thread(&SharedMemoryBridge::_worker_loop, this);
 }
 
 void SharedMemoryBridge::stop() {
-    if (!_running.load()) return;
-    _running.store(false, std::memory_order_release);
+    if (!_running.exchange(false)) return;
 
-    // Call stop functions for all loaded modules
+    // Stop worker thread first
+    if (_worker.joinable()) {
+        _worker.join();
+    }
+
+    // Stop all modules with timeout
     {
         std::lock_guard lock(_modules_lock);
         for (auto& [name, mod] : _modules) {
             if (mod.stop_fn) {
                 try { mod.stop_fn(); } catch (...) {}
             }
-        }
-    }
-
-    if (_worker.joinable()) {
-        _worker.join();
-    }
-
-    // Join all module threads
-    {
-        std::lock_guard lock(_modules_lock);
-        for (auto& [name, mod] : _modules) {
             if (mod.run_thread.joinable()) {
-                mod.run_thread.join();
+                auto future = std::async(std::launch::async, [&mod]() {
+                    mod.run_thread.join();
+                });
+                if (future.wait_for(std::chrono::seconds(MODULE_STOP_TIMEOUT_SEC)) == std::future_status::timeout) {
+                    mod.run_thread.detach();
+                    std::cerr << "[SharedMemoryBridge] Warning: module '" << name
+                              << "' failed to stop within timeout, thread detached" << std::endl;
+                }
             }
         }
         _modules.clear();
+    }
+
+    // Clear snapshot
+    {
+        std::lock_guard<std::mutex> slk(_snapshot_lock);
+        _snapshot.reset();
     }
 
     _engine = nullptr;
@@ -144,6 +178,21 @@ std::string SharedMemoryBridge::load_module(const ShmModuleConfig& config) {
         std::cerr << "[SharedMemoryBridge] Module missing required exports: "
                   << config.library_path << std::endl;
         return "";
+    }
+
+    // P0: Optional ABI version verification
+    auto version_fn = lib->get_function<const char*()>(TYCHE_MODULE_VERSION_NAME);
+    if (version_fn) {
+        const char* mod_version = version_fn();
+        if (mod_version && std::string(mod_version) != TYCHE_MODULE_ABI_VERSION) {
+            std::cerr << "[SharedMemoryBridge] Module ABI version mismatch: "
+                      << "expected " << TYCHE_MODULE_ABI_VERSION
+                      << ", got " << mod_version << std::endl;
+            return "";  // reject incompatible module
+        }
+    } else {
+        std::cerr << "[SharedMemoryBridge] Warning: module does not export "
+                  << TYCHE_MODULE_VERSION_NAME << ", skipping version check" << std::endl;
     }
 
     // Create shared memory queue (owner = true, the engine owns it)
@@ -193,6 +242,11 @@ std::string SharedMemoryBridge::load_module(const ShmModuleConfig& config) {
         _modules[config.shm_queue_name] = std::move(mod);
     }
 
+    // Rebuild snapshot so worker loop picks up the new module
+    if (_running.load(std::memory_order_relaxed)) {
+        _rebuild_snapshot();
+    }
+
     std::cerr << "[SharedMemoryBridge] Loaded module " << module_id
               << " from " << config.library_path << std::endl;
 
@@ -200,84 +254,137 @@ std::string SharedMemoryBridge::load_module(const ShmModuleConfig& config) {
 }
 
 void SharedMemoryBridge::unload_module(const std::string& shm_queue_name) {
-    std::lock_guard lock(_modules_lock);
+    std::unique_lock<std::mutex> lk(_modules_lock);
     auto it = _modules.find(shm_queue_name);
-    if (it != _modules.end()) {
-        if (it->second.stop_fn) {
-            try { it->second.stop_fn(); } catch (...) {}
+    if (it == _modules.end()) return;
+
+    // Move out to release lock before blocking operations
+    LoadedModule mod = std::move(it->second);
+    _modules.erase(it);
+    lk.unlock();
+
+    // Rebuild snapshot immediately (removes module from worker loop)
+    _rebuild_snapshot();
+
+    // Signal stop
+    if (mod.stop_fn) {
+        try { mod.stop_fn(); } catch (...) {}
+    }
+
+    // Timed join — prevent infinite blocking from unresponsive modules
+    if (mod.run_thread.joinable()) {
+        auto future = std::async(std::launch::async, [&mod]() {
+            mod.run_thread.join();
+        });
+        if (future.wait_for(std::chrono::seconds(MODULE_STOP_TIMEOUT_SEC)) == std::future_status::timeout) {
+            mod.run_thread.detach();
+            std::cerr << "[SharedMemoryBridge] Warning: module '" << shm_queue_name
+                      << "' failed to stop within " << MODULE_STOP_TIMEOUT_SEC
+                      << "s timeout, thread detached" << std::endl;
         }
-        if (it->second.run_thread.joinable()) {
-            it->second.run_thread.join();
+    }
+    // mod goes out of scope — library unloaded via RAII
+}
+
+// ── Snapshot management ─────────────────────────────────────────────
+
+void SharedMemoryBridge::_rebuild_snapshot() {
+    auto snap = std::make_shared<BridgeSnapshot>();
+
+    // Build module entries (under _modules_lock)
+    {
+        std::lock_guard<std::mutex> lk(_modules_lock);
+        for (const auto& [name, mod] : _modules) {
+            if (mod.queue) {
+                snap->modules.push_back({mod.queue.get(), mod.topics});
+            }
         }
-        _modules.erase(it);
+    }
+
+    // Build bridge entries (under _bridges_lock)
+    {
+        std::lock_guard<std::mutex> lk(_bridges_lock);
+        for (const auto& entry : _bridges) {
+            if (entry.queue) {
+                snap->bridges.push_back({entry.queue.get(), entry.zmq_topic});
+            }
+        }
+    }
+
+    // Atomically publish new snapshot
+    {
+        std::lock_guard<std::mutex> lk(_snapshot_lock);
+        _snapshot = std::move(snap);
     }
 }
 
-// ── Worker loop ─────────────────────────────────────────────────────
+// ── Worker loop (P0: zero-allocation + adaptive spin) ───────────────
 
 void SharedMemoryBridge::_worker_loop() {
+    // Pre-allocate TLS buffer for zero-allocation reads
+    thread_local std::vector<uint8_t> tls_buffer(65536);
+
     while (_running.load(std::memory_order_relaxed)) {
         bool any_activity = false;
 
-        // Poll module queues
+        // Load snapshot atomically (lock-free read path)
+        std::shared_ptr<BridgeSnapshot> snap;
         {
-            std::lock_guard lock(_modules_lock);
-            for (auto& [name, mod] : _modules) {
-                if (!mod.queue) continue;
+            std::lock_guard<std::mutex> lk(_snapshot_lock);
+            snap = _snapshot;
+        }
 
-                while (_running.load(std::memory_order_relaxed)) {
-                    auto msg = mod.queue->read();
-                    if (!msg.has_value()) break;
-
+        if (snap) {
+            // Poll module queues (no mutex held during reads!)
+            for (const auto& entry : snap->modules) {
+                if (!entry.queue) continue;
+                size_t msg_size = 0;
+                while (_running.load(std::memory_order_relaxed) &&
+                       entry.queue->read_into(tls_buffer.data(), tls_buffer.size(), msg_size)) {
                     any_activity = true;
-                    std::vector<uint8_t> payload;
 
-                    if (!mod.topics.empty()) {
-                        // Static topic mapping: ignore embedded topic, use configured topics
-                        payload = std::move(msg.value());
-                        for (const auto& topic : mod.topics) {
-                            _forward_to_zmq(topic, payload);
+                    if (!entry.topics.empty()) {
+                        // Static topic mapping: forward to all configured topics
+                        for (const auto& topic : entry.topics) {
+                            _forward_to_zmq(topic, tls_buffer.data(), msg_size);
                         }
                     } else {
-                        // Dynamic topic: extract from message
-                        std::string topic = _parse_topic(msg.value(), payload);
-                        if (!topic.empty()) {
-                            _forward_to_zmq(topic, payload);
-                        } else {
-                            std::cerr << "[SharedMemoryBridge] Module " << mod.module_id
-                                      << " sent message without valid topic prefix" << std::endl;
+                        // Dynamic: parse topic from message
+                        std::string topic;
+                        size_t payload_offset = 0;
+                        if (_parse_topic(tls_buffer.data(), msg_size, topic, payload_offset)) {
+                            _forward_to_zmq(topic, tls_buffer.data() + payload_offset, msg_size - payload_offset);
                         }
                     }
                 }
             }
-        }
 
-        // Poll raw bridge queues
-        {
-            std::lock_guard lock(_bridges_lock);
-            for (auto& entry : _bridges) {
-                if (!entry.queue) continue;
-
-                while (_running.load(std::memory_order_relaxed)) {
-                    auto msg = entry.queue->read();
-                    if (!msg.has_value()) break;
-
+            // Poll bridge queues
+            for (const auto& bridge_ref : snap->bridges) {
+                if (!bridge_ref.queue) continue;
+                size_t msg_size = 0;
+                while (_running.load(std::memory_order_relaxed) &&
+                       bridge_ref.queue->read_into(tls_buffer.data(), tls_buffer.size(), msg_size)) {
                     any_activity = true;
-                    std::vector<uint8_t> payload;
-                    std::string topic = _parse_topic(msg.value(), payload);
 
-                    if (!topic.empty()) {
-                        _forward_to_zmq(topic, payload);
+                    // Try to parse topic from message; fallback to configured topic
+                    std::string topic;
+                    size_t payload_offset = 0;
+                    if (_parse_topic(tls_buffer.data(), msg_size, topic, payload_offset)) {
+                        _forward_to_zmq(topic, tls_buffer.data() + payload_offset, msg_size - payload_offset);
                     } else {
                         // Fallback: forward entire message as payload with configured topic
-                        _forward_to_zmq(entry.zmq_topic, msg.value());
+                        _forward_to_zmq(bridge_ref.zmq_topic, tls_buffer.data(), msg_size);
                     }
                 }
             }
         }
 
-        if (!any_activity) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // Adaptive spin instead of fixed 1ms sleep
+        if (any_activity) {
+            _spinner.reset();
+        } else {
+            _spinner.wait();
         }
     }
 }
@@ -285,11 +392,14 @@ void SharedMemoryBridge::_worker_loop() {
 // ── ZMQ forwarding ──────────────────────────────────────────────────
 
 void SharedMemoryBridge::_forward_to_zmq(const std::string& topic,
-                                          const std::vector<uint8_t>& payload) {
+                                          const uint8_t* data, size_t size) {
     if (!_engine || topic.empty()) return;
+    _engine->inject_event_raw(topic, data, size);
+}
 
-    // Fast path: inject raw bytes directly, bypassing msgpack serialization
-    _engine->inject_event_raw(topic, payload.data(), payload.size());
+void SharedMemoryBridge::_forward_to_zmq(const std::string& topic,
+                                          const std::vector<uint8_t>& payload) {
+    _forward_to_zmq(topic, payload.data(), payload.size());
 }
 
 } // namespace tyche

@@ -35,4 +35,8 @@ const char* tyche_module_get_interfaces(void) {
     return R"([{"name":"on_test","pattern":"on","event_type":"test"}])";
 }
 
+const char* tyche_module_version(void) {
+    return "1.0";
+}
+
 } // extern "C"

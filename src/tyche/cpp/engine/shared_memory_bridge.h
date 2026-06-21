@@ -10,6 +10,7 @@
 
 #include "tyche/cpp/types.h"
 #include "tyche/cpp/engine/module_interface.h"
+#include "tyche/cpp/engine/adaptive_spin.h"
 
 namespace tyche {
 
@@ -44,6 +45,14 @@ struct ShmBridgeConfig {
 // If a module config has zmq_topics set, the topic from the message is ignored
 // and all messages are forwarded to the configured topics (static mapping).
 // If zmq_topics is empty, the topic is extracted from each message (dynamic).
+//
+// Optimizations (P0/P1):
+//   - AdaptiveSpin replaces fixed 1ms sleep (spin → yield → sleep)
+//   - RCU-style snapshot for lock-free worker loop reads
+//   - Zero-allocation reads via read_into() + TLS buffer
+//   - Timed join on unload to prevent infinite blocking
+//   - ABI version verification on module load
+//   - Stale SHM cleanup on start
 
 class SharedMemoryBridge {
 public:
@@ -90,6 +99,21 @@ private:
         std::string zmq_topic;
     };
 
+    // ── Module snapshot for lock-free worker loop reads ──
+    struct ModuleEntry {
+        SharedMemoryQueue* queue;           // non-owning pointer (lifetime managed by LoadedModule)
+        std::vector<std::string> topics;    // static topic mapping (empty = dynamic)
+    };
+
+    struct BridgeSnapshot {
+        std::vector<ModuleEntry> modules;
+        struct BridgeRef {
+            SharedMemoryQueue* queue;
+            std::string zmq_topic;
+        };
+        std::vector<BridgeRef> bridges;
+    };
+
     std::atomic<bool> _running{false};
     std::thread _worker;
 
@@ -99,14 +123,34 @@ private:
     mutable std::mutex _bridges_lock;
     std::vector<BridgeEntry> _bridges;
 
+    // RCU-style snapshot: writer rebuilds under _snapshot_lock, reader loads snapshot
+    std::shared_ptr<BridgeSnapshot> _snapshot;
+    mutable std::mutex _snapshot_lock;  // protects snapshot updates only
+
+    AdaptiveSpin _spinner{1000, 10000, 10};
+
     TycheEngine* _engine = nullptr;
 
+    // Timeout for module stop/join operations
+    static constexpr int MODULE_STOP_TIMEOUT_SEC = 5;
+
     void _worker_loop();
+
+    // Forward raw data to ZMQ (zero-copy path)
+    void _forward_to_zmq(const std::string& topic, const uint8_t* data, size_t size);
+    // Legacy overload for vector-based callers
     void _forward_to_zmq(const std::string& topic, const std::vector<uint8_t>& payload);
 
-    // Parse topic from message data. Returns "" if dynamic parsing fails.
+    // Parse topic from raw buffer. Returns true on success.
+    static bool _parse_topic(const uint8_t* data, size_t data_size,
+                             std::string& out_topic, size_t& out_payload_offset);
+
+    // Legacy overload (kept for compatibility if needed internally)
     static std::string _parse_topic(const std::vector<uint8_t>& data,
                                     std::vector<uint8_t>& payload);
+
+    // Rebuild snapshot after module/bridge list changes
+    void _rebuild_snapshot();
 };
 
 } // namespace tyche

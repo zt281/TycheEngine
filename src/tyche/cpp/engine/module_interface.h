@@ -49,6 +49,28 @@ typedef const char* (*tyche_module_get_interfaces_fn)(void);
 #define TYCHE_MODULE_STOP_NAME           "tyche_module_stop"
 #define TYCHE_MODULE_GET_INTERFACES_NAME "tyche_module_get_interfaces"
 
+// ── Optional: ABI version verification ──
+// If a module exports this symbol, the engine will verify ABI compatibility
+// before calling init/run. Modules without this symbol are loaded with a warning.
+
+#define TYCHE_MODULE_VERSION_NAME "tyche_module_version"
+
+/// Expected ABI version string. Modules must return this exact string
+/// (or a compatible version) from tyche_module_version().
+#define TYCHE_MODULE_ABI_VERSION "1.0"
+
+/// Optional version query function.
+/// Returns the module's ABI version string (e.g., "1.0").
+/// The returned pointer must remain valid for the lifetime of the loaded library.
+typedef const char* (*tyche_module_version_fn)(void);
+
+// ── Optional: Health check callback ──
+// Reserved for future use. Engine may call this periodically to verify
+// module is responsive.
+
+#define TYCHE_MODULE_HEALTH_CHECK_NAME "tyche_module_health_check"
+typedef int (*tyche_module_health_check_fn)(void);
+
 #ifdef __cplusplus
 }
 #endif
