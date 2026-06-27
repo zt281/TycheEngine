@@ -28,8 +28,8 @@ class SharedMemoryQueue {
 public:
     struct Config {
         std::string name;              // shared memory object name
-        uint32_t slot_count = 1024;    // number of slots
-        uint32_t max_msg_size = 65536; // maximum message size per slot
+        uint32_t slot_count = 2048;    // number of slots
+        uint32_t max_msg_size = 4096;  // maximum message size per slot
     };
 
     // Create (owner=true) or open (owner=false) a shared memory queue.
