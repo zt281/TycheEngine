@@ -4,17 +4,49 @@ project(ctp_gateway_cpp CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Force UTF-8 source encoding for MSVC to support Chinese comments
-add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
-
 # msgpack-c: 不依赖 Boost
 add_definitions(-DMSGPACK_NO_BOOST)
 
 # ── 项目根目录（从 src/modules/ctp_gateway_cpp 回到根）──────────
-get_filename_component(TYCHE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+if(NOT DEFINED TYCHE_ROOT)
+    get_filename_component(TYCHE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+    set(TYCHE_ROOT "${TYCHE_ROOT}" CACHE PATH "TycheEngine root directory")
+endif()
+
+# ── 独立构建模式检测 ──
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    message(STATUS "src/modules/ctp_gateway_cpp: standalone build mode")
+    cmake_minimum_required(VERSION 3.16)
+    project(ctp_gateway_cpp CXX)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+    if(MSVC)
+        add_compile_options(/utf-8)
+    endif()
+    # 独立构建时设置输出目录
+    if(WIN32)
+        set(TYCHE_RUNTIME_DIR "${TYCHE_ROOT}/runtime/win")
+    else()
+        set(TYCHE_RUNTIME_DIR "${TYCHE_ROOT}/runtime/linux")
+    endif()
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+    foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
+        string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG_UPPER)
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+    endforeach()
+else()
+    message(STATUS "src/modules/ctp_gateway_cpp: subdirectory build mode (parent: ${CMAKE_SOURCE_DIR})")
+endif()
 
 # ── 第三方库 ──────────────────────────────────────────────────
-set(THIRD_PARTY_DIR "${TYCHE_ROOT}/third_party")
+if(NOT DEFINED THIRD_PARTY_DIR)
+    set(THIRD_PARTY_DIR "${TYCHE_ROOT}/third_party" CACHE PATH "Third-party directory")
+endif()
 
 # ── 构建 tyche_module 静态库（防止父项目已添加）────────────────
 if(NOT TARGET tyche_module)
@@ -66,12 +98,14 @@ add_executable(ctp_gateway_cpp
     src/md_spi.cpp
     src/td_spi.cpp
     src/ctp_gateway.cpp
+    "${TYCHE_ROOT}/src/tyche/cpp/engine/shared_memory_queue.cpp"  # SharedMemoryQueue 实现（SHM 模式）
 )
 
 target_include_directories(ctp_gateway_cpp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"   # 本模块内部头文件
     "${TYCHE_ROOT}/src"                  # #include "tyche/cpp/types.h"
     "${TYCHE_ROOT}/third_party"          # #include "nlohmann_json.hpp"
+    "${THIRD_PARTY_DIR}/msgpack-c/include"  # #include <msgpack.hpp> (shm_writer.h)
     "${CTP_SDK_DIR}"                     # CTP SDK 头文件
 )
 
@@ -88,3 +122,75 @@ endif()
 
 # ── 安装规则 ──────────────────────────────────────────────
 install(TARGETS ctp_gateway_cpp DESTINATION bin)
+
+# ── DLL/SO 共享库目标 ──────────────────────────────────────────
+option(CTP_GATEWAY_BUILD_SHARED "Build ctp_gateway_cpp as shared library (DLL/SO)" ON)
+
+if(CTP_GATEWAY_BUILD_SHARED)
+    # 共享源文件列表（排除 main.cpp，新增 dll_entry.cpp）
+    set(CTP_GATEWAY_SHARED_SOURCES
+        src/dll_entry.cpp
+        src/config.cpp
+        src/ctp_loader.cpp
+        src/md_spi.cpp
+        src/td_spi.cpp
+        src/ctp_gateway.cpp
+        "${TYCHE_ROOT}/src/tyche/cpp/engine/shared_memory_queue.cpp"  # SharedMemoryQueue 实现（tyche_module 不含此文件）
+    )
+
+    add_library(ctp_gateway_cpp_shared SHARED ${CTP_GATEWAY_SHARED_SOURCES})
+
+    target_include_directories(ctp_gateway_cpp_shared PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${TYCHE_ROOT}/src"
+        "${TYCHE_ROOT}/third_party"
+        "${CTP_SDK_DIR}"
+        "${THIRD_PARTY_DIR}/msgpack-c/include"
+    )
+
+    target_compile_definitions(ctp_gateway_cpp_shared PRIVATE
+        CTP_GATEWAY_BUILDING_DLL=1
+        MSGPACK_NO_BOOST
+    )
+
+    target_link_libraries(ctp_gateway_cpp_shared PRIVATE tyche_module)
+
+    set_target_properties(ctp_gateway_cpp_shared PROPERTIES
+        OUTPUT_NAME "ctp_gateway_cpp"
+        POSITION_INDEPENDENT_CODE ON
+    )
+
+    if(WIN32)
+        target_link_libraries(ctp_gateway_cpp_shared PRIVATE ws2_32 iphlpapi)
+        set_target_properties(ctp_gateway_cpp_shared PROPERTIES
+            WINDOWS_EXPORT_ALL_SYMBOLS ON
+        )
+    else()
+        target_link_libraries(ctp_gateway_cpp_shared PRIVATE dl pthread)
+        # Do not set CXX_VISIBILITY_PRESET hidden — extern "C" exports must remain visible
+    endif()
+
+    # 输出到 runtime/gateway/
+    if(NOT DEFINED GATEWAY_OUTPUT_DIR)
+        set(GATEWAY_OUTPUT_DIR "${TYCHE_ROOT}/runtime/gateway")
+    endif()
+    file(MAKE_DIRECTORY "${GATEWAY_OUTPUT_DIR}")
+
+    set_target_properties(ctp_gateway_cpp_shared PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${GATEWAY_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY "${GATEWAY_OUTPUT_DIR}"
+        ARCHIVE_OUTPUT_DIRECTORY "${GATEWAY_OUTPUT_DIR}"
+    )
+    foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
+        string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG_UPPER)
+        set_target_properties(ctp_gateway_cpp_shared PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} "${GATEWAY_OUTPUT_DIR}"
+            LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} "${GATEWAY_OUTPUT_DIR}"
+            ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} "${GATEWAY_OUTPUT_DIR}"
+        )
+    endforeach()
+
+    install(TARGETS ctp_gateway_cpp_shared DESTINATION gateway)
+
+    message(STATUS "ctp_gateway_cpp: shared library target enabled (output: ${GATEWAY_OUTPUT_DIR})")
+endif()
