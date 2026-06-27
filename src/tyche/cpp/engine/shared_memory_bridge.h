@@ -23,6 +23,8 @@ struct ShmModuleConfig {
     std::string library_path;       // path to .dll or .so file
     std::string shm_queue_name;     // shared memory queue name
     std::vector<std::string> zmq_topics;  // topics to forward to (optional, for static mapping)
+    uint32_t slot_count = 2048;     // SHM queue slot count (must match DLL side)
+    uint32_t max_msg_size = 4096;   // SHM queue max message size (must match DLL side)
 };
 
 // Configuration for a raw shared-memory -> ZMQ bridge (no DLL loading).

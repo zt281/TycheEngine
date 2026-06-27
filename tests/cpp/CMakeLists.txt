@@ -145,6 +145,7 @@ set(TYCHE_TEST_SOURCES
     test_shared_memory_bridge.cpp
     test_ctp_loader_integration.cpp
     test_engine_integration.cpp
+    test_shm_wire_format.cpp
 )
 
 set(CTP_LIB_SOURCES

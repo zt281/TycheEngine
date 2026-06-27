@@ -70,9 +70,11 @@ void SharedMemoryBridge::configure(std::vector<ShmModuleConfig> modules,
     for (auto& bc : bridges) {
         BridgeEntry entry;
         entry.queue = std::make_unique<SharedMemoryQueue>(
-            SharedMemoryQueue::Config{bc.shm_queue_name, 1024, 65536}, true);
+            SharedMemoryQueue::Config{bc.shm_queue_name, 2048, 4096}, true);
         entry.zmq_topic = bc.zmq_topic;
         if (entry.queue->is_valid()) {
+            std::cerr << "[SharedMemoryBridge] Created bridge queue '" << bc.shm_queue_name
+                      << "' (slot_count=2048, max_msg_size=4096)" << std::endl;
             std::lock_guard lock(_bridges_lock);
             _bridges.push_back(std::move(entry));
         } else {
@@ -197,13 +199,16 @@ std::string SharedMemoryBridge::load_module(const ShmModuleConfig& config) {
 
     // Create shared memory queue (owner = true, the engine owns it)
     auto queue = std::make_unique<SharedMemoryQueue>(
-        SharedMemoryQueue::Config{config.shm_queue_name, 1024, 65536}, true);
+        SharedMemoryQueue::Config{config.shm_queue_name, config.slot_count, config.max_msg_size}, true);
 
     if (!queue->is_valid()) {
         std::cerr << "[SharedMemoryBridge] Failed to create queue for module: "
                   << config.shm_queue_name << std::endl;
         return "";
     }
+    std::cerr << "[SharedMemoryBridge] Created module queue '" << config.shm_queue_name
+              << "' (slot_count=" << config.slot_count
+              << ", max_msg_size=" << config.max_msg_size << ")" << std::endl;
 
     // Initialize module
     if (init_fn(config.shm_queue_name.c_str()) != 0) {
