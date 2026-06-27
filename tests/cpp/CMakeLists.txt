@@ -2,7 +2,40 @@
 add_definitions(-DMSGPACK_NO_BOOST)
 
 # ── 项目根目录 ──
-get_filename_component(TYCHE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+if(NOT DEFINED TYCHE_ROOT)
+    get_filename_component(TYCHE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+    set(TYCHE_ROOT "${TYCHE_ROOT}" CACHE PATH "TycheEngine root directory")
+endif()
+
+# ── 独立构建模式检测 ──
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    message(STATUS "tests/cpp: standalone build mode")
+    cmake_minimum_required(VERSION 3.16)
+    project(tyche_tests CXX)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+    if(MSVC)
+        add_compile_options(/utf-8)
+    endif()
+    # 独立构建时设置输出目录
+    if(WIN32)
+        set(TYCHE_RUNTIME_DIR "${TYCHE_ROOT}/runtime/win")
+    else()
+        set(TYCHE_RUNTIME_DIR "${TYCHE_ROOT}/runtime/linux")
+    endif()
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${TYCHE_RUNTIME_DIR})
+    foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
+        string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG_UPPER)
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG_UPPER} ${TYCHE_RUNTIME_DIR})
+    endforeach()
+else()
+    message(STATUS "tests/cpp: subdirectory build mode (parent: ${CMAKE_SOURCE_DIR})")
+endif()
 
 # ── GoogleTest via FetchContent ──
 include(FetchContent)
@@ -16,36 +49,32 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 # ── 第三方库头文件 ──
-set(THIRD_PARTY_DIR "${TYCHE_ROOT}/third_party")
+if(NOT DEFINED THIRD_PARTY_DIR)
+    set(THIRD_PARTY_DIR "${TYCHE_ROOT}/third_party" CACHE PATH "Third-party directory")
+endif()
 
 # ── 查找或构建 libzmq ──
 option(TYCHE_BUILD_LIBZMQ "Build libzmq from third_party source" OFF)
 
 if(NOT TYCHE_BUILD_LIBZMQ)
-    if(WIN32)
-        find_path(ZMQ_INCLUDE_DIR zmq.h
-            HINTS ENV ZMQ_DIR
-            PATH_SUFFIXES include)
-        find_library(ZMQ_LIBRARY
-            NAMES zmq libzmq
-            HINTS ENV ZMQ_DIR
-            PATH_SUFFIXES lib)
-        if(NOT ZMQ_INCLUDE_DIR OR NOT ZMQ_LIBRARY)
-            find_package(PkgConfig QUIET)
-            if(PkgConfig_FOUND)
-                pkg_check_modules(ZMQ libzmq)
-            endif()
+    # 跨平台: 先尝试 find_path/find_library，再尝试 pkg-config
+    find_path(ZMQ_INCLUDE_DIR zmq.h
+        HINTS ENV ZMQ_DIR
+        PATH_SUFFIXES include)
+    find_library(ZMQ_LIBRARY
+        NAMES zmq libzmq
+        HINTS ENV ZMQ_DIR
+        PATH_SUFFIXES lib)
+    if(NOT ZMQ_INCLUDE_DIR OR NOT ZMQ_LIBRARY)
+        message(STATUS "libzmq not found via find_path, trying pkg-config...")
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(ZMQ libzmq)
         endif()
-        if(NOT ZMQ_INCLUDE_DIR AND NOT ZMQ_FOUND)
-            message(STATUS "libzmq not found. Falling back to building from source.")
-            set(TYCHE_BUILD_LIBZMQ ON)
-        endif()
-    else()
-        find_package(PkgConfig REQUIRED)
-        pkg_check_modules(ZMQ libzmq)
-        if(NOT ZMQ_FOUND)
-            set(TYCHE_BUILD_LIBZMQ ON)
-        endif()
+    endif()
+    if(NOT ZMQ_INCLUDE_DIR AND NOT ZMQ_FOUND)
+        message(STATUS "libzmq not found. Falling back to building from source.")
+        set(TYCHE_BUILD_LIBZMQ ON)
     endif()
 endif()
 
